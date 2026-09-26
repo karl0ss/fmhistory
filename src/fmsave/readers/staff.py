@@ -56,7 +56,7 @@ from fmsave.readers.contracts import (
 from fmsave.readers.managed import first_human_selector
 from fmsave.readers.names import NamePools
 from fmsave.readers.persons import PersonTuple, build_person_block_decoder
-from fmsave.readers.player_scan import PlayerRecords
+from fmsave.readers.player_scan import PlayerRecords, closing_unique_id
 
 _UINT32 = struct.Struct("<I")
 _UINT16 = struct.Struct("<H")
@@ -629,6 +629,7 @@ class _PersonObject:
 
     header: int
     uid: int
+    unique_id: int | None
     is_human_manager: bool
     person: PersonTuple | None
     block: _AbilityBlock | None
@@ -638,6 +639,30 @@ def _next_header_after(headers: Sequence[int], header: int) -> int | None:
     """The nearest known header after `header`, or None when it is the last one known."""
     position = bisect_left(headers, header + 1)
     return headers[position] if position < len(headers) else None
+
+
+def _unique_id(
+    game_db: bytes,
+    person_id: int,
+    header: int,
+    uid: int,
+    next_header: int | None,
+    layout: StaffLayout,
+) -> int | None:
+    """A person's database Unique ID, from the header that closes his object, or None.
+
+    That header lies after his own and no further on than the next header the decode knows
+    of, which may be it; the next header's uid is the highest the closing one can carry.
+    """
+    search_start = header + layout.kind_offset + 1
+    if next_header is None:
+        search_end = len(game_db)
+        uid_ceiling = None
+    else:
+        search_end = next_header + _UINT32.size
+        next_values = _header_values(game_db, next_header, _header_reader(layout))
+        uid_ceiling = None if next_values is None else next_values[0]
+    return closing_unique_id(game_db, person_id, search_start, search_end, uid, uid_ceiling)
 
 
 def _person_block_window(
@@ -821,10 +846,12 @@ def read_staff(
             preference_slots_in_range += int(slots_ok)
             codes_in_set += int(codes_ok)
             block_40_in_range += int(further_ok)
+        next_header = _next_header_after(boundaries, header)
+        unique_id = _unique_id(game_db, person_id, header, uid, next_header, staff_layout)
         own_records = records_by_person.get(person_id)
         tag_offset = None if own_records is None else _latest_started(own_records)[0]
         window_start, window_end = _person_block_window(
-            game_db, header, tag_offset, _next_header_after(boundaries, header), staff_layout
+            game_db, header, tag_offset, next_header, staff_layout
         )
         person = person_decoder.decode(game_db, window_start, window_end)
         if person is not None:
@@ -832,6 +859,7 @@ def read_staff(
         objects[person_id] = _PersonObject(
             header=header,
             uid=uid,
+            unique_id=unique_id,
             is_human_manager=is_human_manager,
             person=person,
             block=block,
@@ -1000,6 +1028,7 @@ def _build_rows(
         rows.append(
             Staff(
                 uid=person_object.uid,
+                unique_id=person_object.unique_id,
                 is_human_manager=person_object.is_human_manager,
                 name=None if person is None else person[_PERSON_NAME],
                 first_name=None if person is None else person[_PERSON_FIRST_NAME],

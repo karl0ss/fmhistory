@@ -27,7 +27,12 @@ from fmsave.readers.clubs import ClubIndex
 from fmsave.readers.contracts import ContractDecoder, build_contract_decoder
 from fmsave.readers.names import NamePools
 from fmsave.readers.persons import PersonBlockDecoder, build_person_block_decoder
-from fmsave.readers.player_scan import HeaderLayout, build_header_layout, indexed_struct
+from fmsave.readers.player_scan import (
+    HeaderLayout,
+    build_header_layout,
+    closing_unique_id,
+    indexed_struct,
+)
 from fmsave.readers.suspensions import SuspensionEntry, player_suspensions
 
 # The club fields, team slot and stored registration club of one team id, in Player's order.
@@ -45,6 +50,8 @@ _TeamFields = tuple[
 ]
 
 _DATE_CACHE_MISS = object()
+
+_UINT32 = struct.Struct("<I")
 
 _SCALE_TABLE = bytes(max(1, (raw_value + 2) // 5) for raw_value in range(256))
 
@@ -259,6 +266,22 @@ class PlayerDecoder:
             game_db, record_offset + layout.club_join_date_offset, club_join_date_raw
         )
 
+        # The next record's own header is the last thing in this window, so its uid bounds
+        # the header that closes this player's object.
+        next_uid = (
+            None
+            if is_last_record
+            else _UINT32.unpack_from(game_db, record_window_end + layout.uid_offset)[0]
+        )
+        unique_id = closing_unique_id(
+            game_db,
+            pindex,
+            record_offset + layout.decode_extent,
+            record_window_end,
+            uid,
+            next_uid,
+        )
+
         person_window_start = record_offset + self.person_window_start_offset
         person = self.person_decoder.decode(game_db, person_window_start, record_window_end)
         (
@@ -298,6 +321,7 @@ class PlayerDecoder:
         # Positional, matching Player's field order in models/players.py.
         player = Player(
             uid,
+            unique_id,
             name,
             first_name,
             last_name,

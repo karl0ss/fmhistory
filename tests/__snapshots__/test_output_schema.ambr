@@ -218,6 +218,7 @@
       ]),
       'Player': list([
         'uid',
+        'unique_id',
         'name',
         'first_name',
         'last_name',
@@ -509,6 +510,7 @@
       ]),
       'Staff': list([
         'uid',
+        'unique_id',
         'is_human_manager',
         'name',
         'first_name',

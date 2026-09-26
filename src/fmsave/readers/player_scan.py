@@ -127,6 +127,49 @@ def window_end(records: PlayerRecords, position: int, game_db_length: int) -> in
     return game_db_length
 
 
+_CLOSING_HEADER = struct.Struct("<III")
+_LAST_PERSON_ID = 0xFFFFFFFF
+
+
+def closing_unique_id(
+    game_db: bytes,
+    person_id: int,
+    search_start: int,
+    search_end: int,
+    uid_floor: int,
+    uid_ceiling: int | None,
+) -> int | None:
+    """The database Unique ID of the person whose header carries `person_id`, or None.
+
+    It is the doubled uid of the sound header that carries `person_id + 1`, the id the save's
+    references use for him, and that closes his object. That header is looked for with its id
+    starting in `[search_start, search_end)`, and it counts only when its uid is above
+    `uid_floor` (his own header's uid) and not above `uid_ceiling` (the next known header's
+    uid), since objects are stored in ascending uid order. None unless exactly one header
+    passes.
+    """
+    if person_id >= _LAST_PERSON_ID:
+        return None
+    needle = struct.pack("<I", person_id + 1)
+    last_start = len(game_db) - _CLOSING_HEADER.size
+    find = game_db.find
+    found: int | None = None
+    hit = find(needle, search_start, search_end)
+    while 0 <= hit <= last_start:
+        _, uid, uid_copy = _CLOSING_HEADER.unpack_from(game_db, hit)
+        if (
+            uid == uid_copy
+            and uid != MISSING_REFERENCE
+            and uid > uid_floor
+            and (uid_ceiling is None or uid <= uid_ceiling)
+        ):
+            if found is not None:
+                return None
+            found = uid
+        hit = find(needle, hit + 1, search_end)
+    return found
+
+
 def _reject_repeated_keys(candidates: Sequence[_Candidate], file_name: str) -> None:
     seen_pindexes: set[int] = set()
     seen_uids: set[int] = set()

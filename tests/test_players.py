@@ -4,8 +4,10 @@ import copy
 import dataclasses
 import pickle
 import re
+import struct
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -32,6 +34,7 @@ from fmsave.readers.player_scan import (
     _completeness_pattern,
     _flagged_runs,
     build_header_layout,
+    closing_unique_id,
     locate_player_records,
     window_end,
 )
@@ -714,6 +717,76 @@ def test_window_end_is_the_next_record_start_or_the_buffer_length() -> None:
     _, player_records, _ = build_index(game_db)
     assert window_end(player_records, 0, len(game_db)) == player_records.record_offsets[1]
     assert window_end(player_records, 3, len(game_db)) == len(game_db)
+
+
+def closing_header_bytes(person_id: int, uid: int, kind: int = 1) -> bytes:
+    """A person header that is not a player's: the id, the uid twice and the object kind."""
+    return struct.pack("<III", person_id, uid, uid) + bytes((kind,)) + bytes(40)
+
+
+def decode_region(region: bytes) -> list[Player]:
+    payload = (
+        name_pools_bytes([], [], [])
+        + game_db_body([SOUTHPORT_CLUB], [SOUTHPORT_STATUS], gap_bytes=2000)
+        + region
+    )
+    return decode_all(section_body(".dat", GAME_DB_SCHEMA, payload))
+
+
+def test_unique_id_is_the_uid_of_the_next_record_carrying_the_next_person_id() -> None:
+    players = decode_all(example_game_db())
+    assert by_uid(players, 900001).unique_id == 900002
+    assert by_uid(players, 900002).unique_id == 900003
+    assert by_uid(players, 900003).unique_id == 900004
+
+
+def test_unique_id_is_found_behind_an_object_that_is_not_a_player() -> None:
+    first: dict[str, Any] = {**PLAYER_A, "trailing": bytes(64) + closing_header_bytes(12, 900002)}
+    second: dict[str, Any] = {**PLAYER_B, "pindex": 13, "uid": 900003}
+    players = decode_region(player_record_bytes(**first) + player_record_bytes(**second))
+    assert by_uid(players, 900001).unique_id == 900002
+
+
+def test_a_header_with_a_uid_out_of_order_is_passed_over() -> None:
+    # Two headers carry the next person id, but only one uid lies between this record's uid
+    # and the next record's.
+    trailing = closing_header_bytes(12, 17) + closing_header_bytes(12, 900002)
+    first: dict[str, Any] = {**PLAYER_A, "trailing": trailing}
+    second: dict[str, Any] = {**PLAYER_B, "pindex": 13, "uid": 900003}
+    players = decode_region(player_record_bytes(**first) + player_record_bytes(**second))
+    assert by_uid(players, 900001).unique_id == 900002
+
+
+def test_unique_id_is_none_when_two_headers_could_close_the_record() -> None:
+    trailing = closing_header_bytes(12, 900002) + closing_header_bytes(12, 900003)
+    first: dict[str, Any] = {**PLAYER_A, "trailing": trailing}
+    second: dict[str, Any] = {**PLAYER_B, "pindex": 13, "uid": 900004}
+    players = decode_region(player_record_bytes(**first) + player_record_bytes(**second))
+    assert by_uid(players, 900001).unique_id is None
+
+
+def test_unique_id_is_none_when_no_header_closes_the_record() -> None:
+    first: dict[str, Any] = dict(PLAYER_A)
+    second: dict[str, Any] = {**PLAYER_B, "pindex": 13, "uid": 900003}
+    players = decode_region(player_record_bytes(**first) + player_record_bytes(**second))
+    assert by_uid(players, 900001).unique_id is None
+    assert by_uid(players, 900003).unique_id is None
+
+
+def test_closing_unique_id_reads_only_a_sound_header_inside_its_bounds() -> None:
+    header = struct.pack("<III", 8, 700, 700)
+    unsound = struct.pack("<III", 8, 700, 701)
+    buffer = bytes(16) + header + bytes(16)
+    assert closing_unique_id(buffer, 7, 0, len(buffer), 600, 800) == 700
+    assert closing_unique_id(buffer, 7, 0, len(buffer), 600, None) == 700
+    assert closing_unique_id(buffer, 7, 0, len(buffer), 700, None) is None
+    assert closing_unique_id(buffer, 7, 0, len(buffer), 600, 699) is None
+    assert closing_unique_id(buffer, 7, 20, len(buffer), 600, 800) is None
+    assert closing_unique_id(buffer, 7, 0, 16, 600, 800) is None
+    assert closing_unique_id(buffer, 6, 0, len(buffer), 600, 800) is None
+    assert closing_unique_id(bytes(16) + unsound, 7, 0, 28, 600, 800) is None
+    assert closing_unique_id(buffer[:24], 7, 0, 24, 600, 800) is None
+    assert closing_unique_id(buffer, 0xFFFFFFFF, 0, len(buffer), 600, 800) is None
 
 
 def test_no_player_records_found_raises_reader_check() -> None:

@@ -2,6 +2,21 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.4] - 2026-09-26
+
+### Added
+
+- `Player.unique_id` and `Staff.unique_id`: each person's Unique ID in the game database. It is the
+  same in every new game started from that database, so it is the key for matching people across
+  separate careers. The game can give the id of a person it has deleted to one it creates later.
+  The column comes right after `uid` in exports.
+
+### Fixed
+
+- `Player.uid` and `Staff.uid` no longer claim to be the game database's id. They are the Unique
+  ID of the person stored just before, so they differ between new games started from the same
+  database. Their values are unchanged, and every table still joins on them.
+
 ## [0.4.3] - 2026-09-25
 
 ### Fixed

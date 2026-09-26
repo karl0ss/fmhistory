@@ -168,6 +168,18 @@ def test_staff_lists_one_row_per_person_and_club_in_object_order(
     ]
 
 
+def test_unique_id_is_the_uid_of_the_header_that_closes_each_object(
+    career_staff: tuple[tuple[Staff, ...], tuple[StaffList, ...]],
+) -> None:
+    rows, _list_rows = career_staff
+    # Each example staff object is followed by the next one, whose header carries the next
+    # person id; nothing closes the last one or the human manager's.
+    assert person_by_uid(rows, STAFF_CONTRACTED_UID).unique_id == STAFF_LISTED_ONLY_UID
+    assert person_by_uid(rows, STAFF_LISTED_ONLY_UID).unique_id == STAFF_CONTRACT_ONLY_UID
+    assert person_by_uid(rows, STAFF_CONTRACT_ONLY_UID).unique_id is None
+    assert person_by_uid(rows, MANAGER_PERSON_UID).unique_id is None
+
+
 def test_the_human_manager_is_a_row_with_a_contract_and_no_ability(
     career_staff: tuple[tuple[Staff, ...], tuple[StaffList, ...]],
 ) -> None:

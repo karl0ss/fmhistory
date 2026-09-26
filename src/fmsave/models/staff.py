@@ -100,8 +100,13 @@ class Staff:
     for him, while his name, birth date, personality and contract read normally.
 
     Attributes:
-        uid: The person's unique id, as the save stores it; whether the game shows this value
-            or the one above it has not been read (unconfirmed).
+        uid: The id fmsave reads for the person's object and joins every table on. It is not
+            the game's Unique ID (that is unique_id): it is the Unique ID of the person stored
+            just before him, so it differs between new games started from the same database
+            (unconfirmed).
+        unique_id: The person's Unique ID in the game database, the same in every new game
+            started from that database. The game can give the id of a person it has deleted
+            to one it creates later. None when the save's bytes cannot tell it (unconfirmed).
         is_human_manager: Whether this is the save's own human manager (unconfirmed).
         name: Common name, else first and last name, else legal name (unconfirmed).
         first_name: First name (unconfirmed).
@@ -141,6 +146,7 @@ class Staff:
     """
 
     uid: int
+    unique_id: int | None
     is_human_manager: bool
     name: str | None
     first_name: str | None
@@ -260,6 +266,7 @@ register_field_statuses(
     verified=("club_uid", "club_name", "team_id", "wage", "contract_start"),
     unconfirmed=(
         "uid",
+        "unique_id",
         "is_human_manager",
         "name",
         "first_name",

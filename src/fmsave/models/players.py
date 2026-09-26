@@ -277,7 +277,13 @@ class Player:
     come from the player's person block; they stay None or empty when no block validates.
 
     Attributes:
-        uid: The player's id in the game database (unconfirmed).
+        uid: The id fmsave reads for the player's record and joins every table on. It is not
+            the game's Unique ID (that is unique_id): it is the Unique ID of the person stored
+            just before him, so it differs between new games started from the same database
+            (unconfirmed).
+        unique_id: The player's Unique ID in the game database, the same in every new game
+            started from that database. The game can give the id of a person it has deleted
+            to one it creates later. None when the save's bytes cannot tell it (unconfirmed).
         name: Display name: common name first, else first plus last name, else legal name
             (unconfirmed).
         first_name: First name (unconfirmed).
@@ -365,6 +371,7 @@ class Player:
     """
 
     uid: int
+    unique_id: int | None
     name: str | None
     first_name: str | None
     last_name: str | None
@@ -537,6 +544,7 @@ register_field_statuses(
     ),
     unconfirmed=(
         "uid",
+        "unique_id",
         "name",
         "first_name",
         "last_name",

@@ -43,7 +43,7 @@ A player flattens to 217 columns. To see the names for any record type without o
 ```python
 import fmsave.export
 
-fmsave.export.column_names(fmsave.Player)  # ("uid", "name", "first_name", ...)
+fmsave.export.column_names(fmsave.Player)  # ("uid", "unique_id", "name", ...)
 ```
 
 Nested JSON carries the label **and** the code, so **JSON is the lossless format**. Reach for it
