@@ -544,10 +544,10 @@ class MatchRecordLayout:
     Every offset counts from a record's start, where `lead_byte_value` sits. Records are found
     by a pattern built from this layout and the save's in-game date: the lead byte, the bytes up
     to the low byte of the match year, which must be one of the years from `years_before_clock`
-    before the in-game year to `years_after_clock` after it, and then the high byte all those
-    years share. A candidate is accepted when its date decodes, the opponent's first-team id and
-    the competition id lie inside the inclusive `team_id_range` and `competition_id_range`, the
-    byte at `body_flag_offset` is 0 or 1, and the whole record lies inside the section.
+    before the in-game year to `years_after_clock` after it, and then that year's high byte. A
+    candidate is accepted when its date decodes, the opponent's first-team id and the
+    competition id lie inside the inclusive `team_id_range` and `competition_id_range`, the byte
+    at `body_flag_offset` is 0 or 1, and the whole record lies inside the section.
 
     **A record whose body flag is 0 is `header_bytes` long, not `record_bytes`.** Every field
     from `position_mask_offset` on then belongs to the *next* record, so a reader must read none
@@ -616,7 +616,7 @@ class FixtureCalendarLayout:
     are found by a pattern built from this layout and the save's in-game date: the first
     sentinel byte, the bytes up to the second sentinel byte, then the bytes up to the low
     byte of the kick-off year, which must be one of the years from `years_before_clock`
-    before the in-game year to `years_after_clock` after it, and then that shared high byte.
+    before the in-game year to `years_after_clock` after it, and then that year's high byte.
 
     A candidate is accepted when the whole record lies inside the window, the byte at
     `marker_byte_offset` equals `marker_byte_value`, every `(offset, value)` pair in

@@ -37,7 +37,7 @@ from fmsave.models.clubs import Club
 from fmsave.models.common import CodedValue
 from fmsave.models.matches import MatchPosition, PlayerMatchStats
 from fmsave.models.players import Player
-from fmsave.readers._common import GAME_DB_SECTION, build_gap_padded_struct
+from fmsave.readers._common import GAME_DB_SECTION, build_gap_padded_struct, year_bytes_pattern
 from fmsave.readers.clubs import ClubIndex
 from fmsave.readers.player_scan import PlayerRecords
 from fmsave.readers.stages import StageIndex
@@ -54,10 +54,9 @@ from fmsave.table import Table
 # silence. It is not dead code; do not remove it because the count never moves.
 UNOWNED_POSITION = -1
 
-# How far into a stored date its year sits, and how far to shift that year for its high byte.
+# How far into a stored date its year sits.
 _YEAR_OFFSET_IN_DATE = 2
 _DATE_BYTES = 4
-_YEAR_HIGH_BYTE_SHIFT = 8
 # How wide the position mask is, which bounds the bits a layout may name.
 _POSITION_MASK_BITS = 16
 _NO_BODY_FLAG = 0
@@ -153,28 +152,6 @@ def find_match_record_layout(game_db_schema: int | None, build: str) -> MatchRec
     return find_layout(MatchRecordLayout, GAME_DB_SECTION, game_db_schema, build).layout
 
 
-def _year_byte_class(years: range) -> tuple[bytes, int]:
-    """(the low byte class, the shared high byte) for the years a record's date may carry.
-
-    Raises:
-        ValueError: The years do not share one high byte, or their low bytes are not a single
-            run, so no one byte class covers them.
-    """
-    high_bytes = {year >> _YEAR_HIGH_BYTE_SHIFT for year in years}
-    if len(high_bytes) != 1:
-        raise ValueError(
-            f"the match years {years.start} to {years.stop - 1} do not share one high byte, "
-            "so no single byte class covers them"
-        )
-    low_bytes = sorted(year & 0xFF for year in years)
-    if low_bytes[-1] - low_bytes[0] != len(low_bytes) - 1:
-        raise ValueError("the match years' low bytes are not a single run")
-    byte_class = (
-        b"[" + re.escape(bytes((low_bytes[0],))) + b"-" + re.escape(bytes((low_bytes[-1],))) + b"]"
-    )
-    return byte_class, high_bytes.pop()
-
-
 @functools.cache
 def _match_search(layout: MatchRecordLayout, clock_year: int) -> _MatchSearch:
     """The layout's compiled search and structs for one in-game year, built on first use.
@@ -183,7 +160,7 @@ def _match_search(layout: MatchRecordLayout, clock_year: int) -> _MatchSearch:
         ValueError: The lead byte does not start a record, the date does not lie inside the
             header, the header is not shorter than a whole record, a header field ends past the
             header, a body field starts inside the header or ends past the record, two fields
-            overlap, the years around the clock share no high byte, or a bound leaves no id.
+            overlap, the years around the clock are none, or a bound leaves no id.
     """
     if layout.lead_byte_offset != 0:
         raise ValueError(
@@ -204,12 +181,10 @@ def _match_search(layout: MatchRecordLayout, clock_year: int) -> _MatchSearch:
         )
     year_low_offset = layout.date_offset + _YEAR_OFFSET_IN_DATE
     years = range(clock_year - layout.years_before_clock, clock_year + layout.years_after_clock + 1)
-    year_class, year_high_byte = _year_byte_class(years)
     pattern = re.compile(
         re.escape(bytes((layout.lead_byte_value,)))
         + b".{%d}" % (year_low_offset - layout.lead_byte_offset - 1)
-        + year_class
-        + re.escape(bytes((year_high_byte,))),
+        + year_bytes_pattern(years),
         re.DOTALL,
     )
 

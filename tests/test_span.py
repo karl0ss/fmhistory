@@ -230,6 +230,20 @@ def test_a_kick_off_year_outside_the_clock_window_is_not_found() -> None:
     assert records.fixtures == ()
 
 
+def test_a_clock_window_that_crosses_a_high_byte_finds_kick_off_years_on_both_sides() -> None:
+    """2047 is 0x07FF and 2048 is 0x0800, so the window around 2040 spans two high bytes."""
+    payload = span_payloads(
+        example_fixture_blob(0, year=2047),
+        example_fixture_blob(1, year=2048),
+        example_fixture_blob(2, year=2049),
+        separator_bytes=SEPARATOR_BYTES,
+    )
+
+    records = scan_span([payload], span_layouts(), date(2040, 12, 1), FILE_NAME)
+
+    assert [fixture.kick_off_year for fixture in records.fixtures] == [2047, 2048]
+
+
 @pytest.mark.parametrize(
     ("home_team_id", "away_team_id"),
     [

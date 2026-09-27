@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.5] - 2026-09-26
+
+### Fixed
+
+- Saves whose in-game year is close enough to 2048 that the years fmsave searches reach it,
+  from 2040 on for fixtures, no longer fail with kick-off years that "do not share one high
+  byte". That stop blocked `fixtures()` and `league_tables()`, and `player_match_stats()` would
+  have failed the same way from 2047 on. Saves that already opened read exactly as before.
+
 ## [0.4.4] - 2026-09-26
 
 ### Added

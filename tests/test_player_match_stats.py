@@ -5,7 +5,7 @@ import dataclasses
 import pickle
 from array import array
 from collections.abc import Sequence
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -202,13 +202,14 @@ def located(
     *,
     record_offset: int = MATCH_RECORD_OFFSET,
     player_offsets: tuple[int, ...] = (PLAYER_RECORD_OFFSET,),
+    clock: date = CLOCK,
 ) -> tuple[tuple[PlayerMatchStats, ...], MatchStats]:
     """Search a hand-built buffer and join what it finds, with no save in the way."""
     layout = registered_match_layout()
     player_records = synthetic_player_records(player_offsets)
     return build_player_match_stats(
         locate_match_records(
-            buffer_with_records(record_offset, records), player_records, layout, CLOCK
+            buffer_with_records(record_offset, records), player_records, layout, clock
         ),
         player_records,
         NO_PLAYERS,
@@ -529,6 +530,17 @@ def test_each_player_keeps_his_own_matches_in_stored_order() -> None:
     assert stats.players_with_records == 1
     assert [row.competition_id for row in rows] == [FIRST_COMPETITION_ID, 901]
     assert {row.player_uid for row in rows} == {SYNTHETIC_FIRST_UID}
+
+
+def test_a_year_window_that_crosses_a_high_byte_finds_the_years_on_both_sides() -> None:
+    """2047 is 0x07FF and 2048 is 0x0800, so the window around 2048 spans two high bytes."""
+    records = match_bytes(day_of_year=300, year=2047) + match_bytes(day_of_year=20, year=2048)
+    rows, stats = located(records, clock=date(2048, 3, 1))
+    assert stats.records == 2
+    assert [row.date for row in rows] == [
+        date(2047, 1, 1) + timedelta(days=299),
+        date(2048, 1, 20),
+    ]
 
 
 def test_rows_come_in_player_order() -> None:
@@ -903,11 +915,7 @@ def test_the_record_count_and_anomalies_reach_the_reader_check() -> None:
             "ends past the 15-byte header",
             id="a-header-field-past-the-header",
         ),
-        pytest.param(
-            {"years_before_clock": 400},
-            "do not share one high byte",
-            id="a-window-spanning-two-high-bytes",
-        ),
+        pytest.param({"years_before_clock": -10}, "holds no year", id="a-window-holding-no-year"),
         pytest.param({"team_id_range": (10, 1)}, "leaves no team id", id="an-inverted-team-range"),
         pytest.param(
             {"competition_id_range": (10, 1)},

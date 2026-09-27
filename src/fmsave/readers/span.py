@@ -48,7 +48,12 @@ from fmsave._layouts import (
     find_layout,
 )
 from fmsave._scan import decode_date
-from fmsave.readers._common import MISSING_REFERENCE, SPAN_REGION, build_gap_padded_struct
+from fmsave.readers._common import (
+    MISSING_REFERENCE,
+    SPAN_REGION,
+    build_gap_padded_struct,
+    year_bytes_pattern,
+)
 from fmsave.readers.results import (
     RawStageResult,
     collect_results,
@@ -60,9 +65,6 @@ SPAN_RECORDS_CACHE_KEY = "span_records"
 
 _UINT16 = struct.Struct("<H")
 _UINT32 = struct.Struct("<I")
-# A year's low byte is what the fixture pattern matches, so the years it covers must share
-# a high byte. Every year from 1792 to 2047 shares 0x07.
-_YEAR_HIGH_BYTE_SHIFT = 8
 _KICK_OFF_YEAR_AFTER_DATE = 2
 
 
@@ -350,8 +352,8 @@ def _fixture_search(layout: FixtureCalendarLayout, clock_year: int) -> _FixtureS
 
     Raises:
         ValueError: The layout does not describe two ascending sentinel bytes before the
-            kick-off year, the years around the clock do not share one high byte, or two
-            record fields overlap.
+            kick-off year, the years around the clock are none, or two record fields
+            overlap.
     """
     sentinels = tuple(sorted(layout.sentinel_offsets))
     if len(sentinels) != 2:
@@ -364,27 +366,12 @@ def _fixture_search(layout: FixtureCalendarLayout, clock_year: int) -> _FixtureS
             f"before the kick-off year at offset {year_low_offset}"
         )
     years = range(clock_year - layout.years_before_clock, clock_year + layout.years_after_clock + 1)
-    high_bytes = {year >> _YEAR_HIGH_BYTE_SHIFT for year in years}
-    if len(high_bytes) != 1:
-        raise ValueError(
-            f"the kick-off years {years.start} to {years.stop - 1} do not share one high "
-            "byte, so no single byte class covers them"
-        )
-    high_byte = high_bytes.pop()
-    low_bytes = sorted(year & 0xFF for year in years)
-    if low_bytes[-1] - low_bytes[0] != len(low_bytes) - 1:
-        raise ValueError("the kick-off years' low bytes are not a single run")
     pattern = re.compile(
         re.escape(bytes((first_value,)))
         + _byte_run(second_offset - first_offset - 1)
         + re.escape(bytes((second_value,)))
         + _byte_run(year_low_offset - second_offset - 1)
-        + b"["
-        + re.escape(bytes((low_bytes[0],)))
-        + b"-"
-        + re.escape(bytes((low_bytes[-1],)))
-        + b"]"
-        + re.escape(bytes((high_byte,))),
+        + year_bytes_pattern(years),
         re.DOTALL,
     )
     template_code = f"{layout.match_rules_template_bytes}s"

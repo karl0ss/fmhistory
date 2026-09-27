@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import struct
 from collections.abc import Sequence
 
@@ -56,6 +57,35 @@ def layout_mismatch(
         f"{section_label(file_name, section_name)}: {detail}, so the save layout differs from "
         f"what fmsave expects. Please report it at {ISSUES_URL}"
     )
+
+
+# How far to shift a year for its high byte. A stored year is a little-endian u16.
+_YEAR_HIGH_BYTE_SHIFT = 8
+
+
+def year_bytes_pattern(years: range) -> bytes:
+    """A regex matching any of `years` stored as a little-endian u16.
+
+    Each high byte the years reach gets its own low-byte class, so a window that crosses a
+    high byte, such as 2047 to 2048, is covered whole. Every alternative is two bytes long.
+
+    Raises:
+        ValueError: The window holds no year.
+    """
+    if not years:
+        raise ValueError(f"the year window {years.start} to {years.stop - 1} holds no year")
+    alternatives: list[bytes] = []
+    for high_byte in sorted({year >> _YEAR_HIGH_BYTE_SHIFT for year in years}):
+        low_bytes = [year & 0xFF for year in years if year >> _YEAR_HIGH_BYTE_SHIFT == high_byte]
+        alternatives.append(
+            b"["
+            + re.escape(bytes((low_bytes[0],)))
+            + b"-"
+            + re.escape(bytes((low_bytes[-1],)))
+            + b"]"
+            + re.escape(bytes((high_byte,)))
+        )
+    return b"(?:" + b"|".join(alternatives) + b")"
 
 
 def build_gap_padded_struct(
