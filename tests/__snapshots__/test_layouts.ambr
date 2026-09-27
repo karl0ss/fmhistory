@@ -396,6 +396,10 @@
         'net_offset': 33,
         'net_transfers_offset': 25,
         'row_bytes': 49,
+        'short_count_range': tuple(
+          1,
+          2,
+        ),
         'tag': 1,
         'total_expenditure_offset': 45,
         'total_income_offset': 41,
@@ -629,14 +633,6 @@
           ),
           tuple(
             12,
-            0,
-          ),
-          tuple(
-            13,
-            0,
-          ),
-          tuple(
-            14,
             0,
           ),
           tuple(

@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.6] - 2026-09-27
+
+### Fixed
+
+- `finances()`, `sponsorships()` and `facilities()` no longer come back empty on a career saved
+  in its first two months, when each club keeps only one or two months of finances. A club that
+  starts keeping finances partway through a career is now read in its first two months as well.
+  A series that short is read only where every month balances and money moved in at least one
+  of them. Every row read before is read exactly as before.
+- Saves from a smaller game database, such as FM26 Console saves, now give most competitions a
+  database id. `competitions()` had given one to about 1 in 60 of them, and `fmsave validate`
+  reported the competitions reader as failed. Saves from a full database read exactly as before.
+
 ## [0.4.5] - 2026-09-26
 
 ### Fixed

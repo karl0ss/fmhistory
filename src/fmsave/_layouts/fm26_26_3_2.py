@@ -506,11 +506,20 @@ CONTRACTS = ContractLayout(
 # them. The balance range and the weekly ceiling are far outside anything a club holds (the
 # largest weekly wage budget measured is a small fraction of 20 million) and are there to reject
 # look-alike bytes rather than to bound a real value.
+#
+# A career saved on its first days keeps a single month per club, which the count range alone
+# cannot tell from a stray tag byte, so one or two rows are accepted only where they balance,
+# money moves in at least one of them, and no longer chain is in the record. On the saves
+# measured every short chain accepted this way holds the same months and values that a later
+# save of the same career reads as a full chain; the two stand-alone short chains that
+# balanced on long careers without being real were a row of zeros and a row whose income
+# excluding transfers exceeded its total, which these tests reject.
 FINANCE_CHAINS = FinanceChainLayout(
     row_bytes=49,
     tag=0x01,
     count_offset=-4,
     count_range=(3, 1_000),
+    short_count_range=(1, 2),
     balance_range=(-400_000_000, 2_000_000_000),
     weekly_maximum=20_000_000,
     balance_offset=1,
@@ -854,10 +863,13 @@ STAGE_TABLE = StageTableLayout(
 # those marker hits and leave the same 7,400 records.
 #
 # `constant_bytes` holds every offset whose byte takes one value on at least 99% of records on
-# every save measured, save two that are deliberately left out because they reject records
+# every save measured, save four that are deliberately left out because they reject records
 # the save really does pair: -3 costs 16 competitions and one of the pairs an independent
-# source confirms, and +29 rejects two entities that deviate at that one offset alone. Of the
-# 17 kept, six cost a single record per save, and it is the same record that fails all six:
+# source confirms, +29 rejects two entities that deviate at that one offset alone, and the u16
+# at +13 is zero on a full database but all ones on almost every record of a smaller one, where
+# pinning its two bytes left 23 of about 1,500 competitions with a database id; leaving them
+# out changes no pair on any full-database save measured. Of the 15 constants kept, six cost a
+# single record per save, and it is the same record that fails all six:
 # bytes that break six independent constants at once are far likelier a coincidence that
 # survived the marker than a competition, and a database id read from them would name the
 # wrong competition rather than leave it unnamed.
@@ -876,8 +888,6 @@ COMPETITION_ID_PAIRS = CompetitionIdPairLayout(
         (-4, 7),
         (-1, 255),
         (12, 0),
-        (13, 0),
-        (14, 0),
         (15, 1),
         (22, 0),
         (23, 0),

@@ -197,6 +197,13 @@ class FinanceChainLayout:
     start. Only records of at least `minimum_record_bytes` are searched at all, which no club
     holding a chain falls below.
 
+    A record holding no such chain may still hold a short one, whose count is inside
+    `short_count_range` (inclusive): the series a career keeps on its first days. Those rows
+    pass the same tests and must also balance, each with a net equal to its total income less
+    its total expenditure and an income and an expenditure excluding transfers each between
+    zero and its total, and money must move in at least one of them, since a count this small
+    is no evidence on its own.
+
     Rows run oldest first. `month_lag` is how many months before the save's clock month the
     last row's month is, so a lag of 1 makes the last row the month before the clock's.
     """
@@ -205,6 +212,7 @@ class FinanceChainLayout:
     tag: int
     count_offset: int
     count_range: tuple[int, int]
+    short_count_range: tuple[int, int]
     balance_range: tuple[int, int]
     weekly_maximum: int
     balance_offset: int

@@ -69,7 +69,8 @@ class _FinanceRowReader:
 
     `row_struct` unpacks a whole row from its start; `index_by_name` gives each field's place in
     the result, and `tag_index`, `balance_index`, `wage_budget_index` and `wage_payroll_index`
-    are the four the locator judges a candidate row by.
+    are the four the locator judges a candidate row by. The last five are the ones it also
+    balances a row of a short chain by.
     """
 
     row_struct: struct.Struct
@@ -78,6 +79,11 @@ class _FinanceRowReader:
     balance_index: int
     wage_budget_index: int
     wage_payroll_index: int
+    net_index: int
+    income_excluding_transfers_index: int
+    expenditure_excluding_transfers_index: int
+    total_income_index: int
+    total_expenditure_index: int
 
 
 @functools.cache
@@ -116,6 +122,11 @@ def _finance_row_reader(layout: FinanceChainLayout) -> _FinanceRowReader:
         balance_index=index_by_name["balance"],
         wage_budget_index=index_by_name["wage_budget"],
         wage_payroll_index=index_by_name["wage_payroll"],
+        net_index=index_by_name["net"],
+        income_excluding_transfers_index=index_by_name["income_excluding_transfers"],
+        expenditure_excluding_transfers_index=index_by_name["expenditure_excluding_transfers"],
+        total_income_index=index_by_name["total_income"],
+        total_expenditure_index=index_by_name["total_expenditure"],
     )
 
 
@@ -169,6 +180,12 @@ def locate_finance_chain(
     balance inside the layout's range and weekly wage figures no larger than its ceiling. The
     search resumes past an accepted chain, so a row inside it can never open a chain of its
     own, and the count says whether a second chain follows the one that is returned.
+
+    Only a record holding no such chain falls back to its first short chain, one whose count is
+    inside the layout's short range and whose rows pass those tests and also balance: a count
+    of one or two is no evidence alone, and a stray tag byte in front of one rarely balances.
+    Money must also move in at least one of its rows, since a row of zeros balances whatever
+    bytes it was read from. A short chain is returned as the one chain found.
     """
     if not searched_record(span, layout):
         return None
@@ -183,42 +200,73 @@ def locate_finance_chain(
     balance_index = reader.balance_index
     wage_budget_index = reader.wage_budget_index
     wage_payroll_index = reader.wage_payroll_index
+    net_index = reader.net_index
+    income_excluding_transfers_index = reader.income_excluding_transfers_index
+    expenditure_excluding_transfers_index = reader.expenditure_excluding_transfers_index
+    total_income_index = reader.total_income_index
+    total_expenditure_index = reader.total_expenditure_index
     lowest_count, highest_count = layout.count_range
+    lowest_short_count, highest_short_count = layout.short_count_range
     lowest_balance, highest_balance = layout.balance_range
     weekly_maximum = layout.weekly_maximum
     unpack_row_count = _ROW_COUNT_STRUCT.unpack_from
     find_tag = game_db.find
+
+    def rows_check_out(head: int, chain_end: int, *, balanced: bool) -> bool:
+        money_moved = not balanced
+        for row_offset in range(head, chain_end, row_bytes):
+            row = unpack_row(game_db, row_offset)
+            if (
+                row[tag_index] != tag
+                or not lowest_balance <= row[balance_index] <= highest_balance
+                or row[wage_budget_index] > weekly_maximum
+                or row[wage_payroll_index] > weekly_maximum
+            ):
+                return False
+            if balanced:
+                if (
+                    row[net_index] != row[total_income_index] - row[total_expenditure_index]
+                    or not 0
+                    <= row[expenditure_excluding_transfers_index]
+                    <= row[total_expenditure_index]
+                    or not 0 <= row[income_excluding_transfers_index] <= row[total_income_index]
+                ):
+                    return False
+                money_moved = money_moved or bool(
+                    row[total_income_index] or row[total_expenditure_index]
+                )
+        return money_moved
+
     # The row count sits in front of the first row, so a head cannot start before there is room
     # for it inside the record.
     position = record_start - min(layout.count_offset, 0)
     first_chain: tuple[int, int] | None = None
+    first_short_chain: tuple[int, int] | None = None
     chains_found = 0
     head = find_tag(tag_byte, position, record_end)
     while head >= 0:
         row_count: int = unpack_row_count(game_db, head + layout.count_offset)[0]
         chain_end = head + row_bytes * row_count
-        if lowest_count <= row_count <= highest_count and chain_end <= record_end:
-            accepted = True
-            for row_offset in range(head, chain_end, row_bytes):
-                row = unpack_row(game_db, row_offset)
-                if (
-                    row[tag_index] != tag
-                    or not lowest_balance <= row[balance_index] <= highest_balance
-                    or row[wage_budget_index] > weekly_maximum
-                    or row[wage_payroll_index] > weekly_maximum
-                ):
-                    accepted = False
-                    break
-            if accepted:
-                chains_found += 1
-                if first_chain is None:
-                    first_chain = (head, row_count)
-                head = find_tag(tag_byte, chain_end, record_end)
-                continue
+        if chain_end <= record_end:
+            if lowest_count <= row_count <= highest_count:
+                if rows_check_out(head, chain_end, balanced=False):
+                    chains_found += 1
+                    if first_chain is None:
+                        first_chain = (head, row_count)
+                    head = find_tag(tag_byte, chain_end, record_end)
+                    continue
+            elif (
+                first_short_chain is None
+                and lowest_short_count <= row_count <= highest_short_count
+                and rows_check_out(head, chain_end, balanced=True)
+            ):
+                first_short_chain = (head, row_count)
         head = find_tag(tag_byte, head + 1, record_end)
-    if first_chain is None:
-        return None
-    return first_chain[0], first_chain[1], chains_found
+    if first_chain is not None:
+        return first_chain[0], first_chain[1], chains_found
+    if first_short_chain is not None:
+        return first_short_chain[0], first_short_chain[1], 1
+    return None
 
 
 def locate_sponsor_chain(

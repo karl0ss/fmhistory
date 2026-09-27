@@ -182,9 +182,6 @@ def test_a_chain_is_found_only_where_its_count_and_its_rows_check_out() -> None:
     record, head = record_with_chain_bytes(finance_chain_bytes(rows))
     assert locate_finance_chain(record, example_span(record), LAYOUTS.chains) == (head, 3, 1)
 
-    two_rows, _head = record_with_chain_bytes(finance_chain_bytes(rows[:2]))
-    assert locate_finance_chain(two_rows, example_span(two_rows), LAYOUTS.chains) is None
-
     over_the_weekly_maximum = finance_row_bytes(
         **{**FINANCE_MONTH_VALUES[0], "wage_budget_weekly": 20_000_001}  # pyright: ignore[reportArgumentType]
     )
@@ -200,6 +197,74 @@ def test_a_chain_is_found_only_where_its_count_and_its_rows_check_out() -> None:
 
     short_record = record[: LAYOUTS.chains.minimum_record_bytes - 1]
     assert locate_finance_chain(short_record, example_span(short_record), LAYOUTS.chains) is None
+
+
+@pytest.mark.parametrize("row_count", [1, 2])
+def test_a_short_series_is_found_when_every_row_balances(row_count: int) -> None:
+    """A career on its first days keeps one month per club, which is too short for the count
+    range alone to tell from a stray tag byte, so each of its rows must also balance."""
+    rows = career_finance_rows()[:row_count]
+    record, head = record_with_chain_bytes(finance_chain_bytes(rows))
+    assert locate_finance_chain(record, example_span(record), LAYOUTS.chains) == (
+        head,
+        row_count,
+        1,
+    )
+
+
+@pytest.mark.parametrize(
+    "broken_values",
+    [
+        pytest.param({"net": 20_001}, id="net-is-not-income-less-expenditure"),
+        pytest.param({"expenditure_excluding_transfers": 100_001}, id="split-above-the-total"),
+        pytest.param({"expenditure_excluding_transfers": -1}, id="split-below-zero"),
+        pytest.param({"income_excluding_transfers": 120_001}, id="income-split-above-the-total"),
+        pytest.param(
+            {
+                "income_excluding_transfers": 0,
+                "wage_bill": 0,
+                "net": 0,
+                "expenditure_excluding_transfers": 0,
+                "total_income": 0,
+                "total_expenditure": 0,
+            },
+            id="no-money-moves",
+        ),
+    ],
+)
+def test_a_short_series_whose_row_does_not_balance_is_not_found(
+    broken_values: dict[str, int],
+) -> None:
+    row = finance_row_bytes(**{**FINANCE_MONTH_VALUES[0], **broken_values})  # pyright: ignore[reportArgumentType]
+    record, _head = record_with_chain_bytes(finance_chain_bytes((row,)))
+    assert locate_finance_chain(record, example_span(record), LAYOUTS.chains) is None
+
+
+def test_a_short_series_needs_money_to_move_in_only_one_of_its_rows() -> None:
+    quiet_month = finance_row_bytes(
+        **{  # pyright: ignore[reportArgumentType]
+            **FINANCE_MONTH_VALUES[0],
+            "income_excluding_transfers": 0,
+            "wage_bill": 0,
+            "net": 0,
+            "expenditure_excluding_transfers": 0,
+            "total_income": 0,
+            "total_expenditure": 0,
+        }
+    )
+    busy_month = finance_row_bytes(**FINANCE_MONTH_VALUES[0])  # pyright: ignore[reportArgumentType]
+    record, head = record_with_chain_bytes(finance_chain_bytes((quiet_month, busy_month)))
+    assert locate_finance_chain(record, example_span(record), LAYOUTS.chains) == (head, 2, 1)
+
+
+def test_a_full_series_wins_over_a_short_one_in_front_of_it() -> None:
+    rows = career_finance_rows()
+    short_chain = finance_chain_bytes(rows[:1])
+    record, _short_head = record_with_chain_bytes(
+        short_chain, trailer=bytes(64) + finance_chain_bytes(rows) + bytes(64)
+    )
+    full_head = CHAIN_PADDING_BYTES + len(short_chain) + 64 + struct.calcsize("<I")
+    assert locate_finance_chain(record, example_span(record), LAYOUTS.chains) == (full_head, 3, 1)
 
 
 def test_a_second_chain_is_counted_and_the_first_one_is_used() -> None:

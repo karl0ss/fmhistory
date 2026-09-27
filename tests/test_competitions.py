@@ -54,6 +54,8 @@ CONTRADICTING_DATABASE_ID = 55_555
 SHORT_MARKER = b"\xff" * 15 + b"\x01"
 # The lowest entity id the layout rejects, one past the highest it accepts.
 ENTITY_ID_LIMIT = 200_000
+# Where the u16 that differs between a full and a smaller database sits in an id-pair record.
+SMALL_DATABASE_WORD_OFFSET = 13
 
 ID_PAIR_LAYOUT = find_competition_id_pair_layout(GAME_DB_SCHEMA, "")
 BOUNDS = find_layout(GateBounds, GAME_DB_SECTION, GAME_DB_SCHEMA, "").layout
@@ -163,6 +165,26 @@ def test_a_record_breaking_one_constant_byte_is_not_accepted(constant_offset: in
     record[position] = (record[position] + 1) % 256
 
     assert locate_competition_database_ids(bytes(record), ID_PAIR_LAYOUT) == {}
+
+
+@pytest.mark.parametrize("word_bytes", [b"\x00\x00", b"\xff\xff"], ids=["zero", "all-ones"])
+def test_the_u16_behind_the_three_words_is_not_a_constant(word_bytes: bytes) -> None:
+    """The two bytes at +13 are zero on a full database and all ones on a smaller one.
+
+    A save from a smaller database stores all ones there on almost every record, so a layout
+    that pins them to zero leaves nearly every competition of that save without a database id.
+    """
+    record = bytearray(
+        competition_id_pair_bytes(
+            entity_id=FIRST_COMPETITION_ID, database_id=FIRST_COMPETITION_DATABASE_ID
+        )
+    )
+    position = COMPETITION_ID_PAIR_RECORD_OFFSET + SMALL_DATABASE_WORD_OFFSET
+    record[position : position + len(word_bytes)] = word_bytes
+
+    assert locate_competition_database_ids(bytes(record), ID_PAIR_LAYOUT) == {
+        FIRST_COMPETITION_ID: FIRST_COMPETITION_DATABASE_ID
+    }
 
 
 def test_an_entity_two_records_disagree_about_is_left_out() -> None:
