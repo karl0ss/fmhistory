@@ -161,6 +161,33 @@ def test_month_labels_run_oldest_first_from_the_month_before_the_clock() -> None
     assert month_labels(date(2031, 1, 15), 2, 1) == (date(2030, 11, 1), date(2030, 12, 1))
 
 
+@pytest.mark.parametrize(
+    ("clock", "last_month"),
+    [
+        pytest.param(date(2025, 8, 31), date(2025, 8, 1), id="31-day-month"),
+        pytest.param(date(2025, 11, 30), date(2025, 11, 1), id="30-day-month"),
+        pytest.param(date(2027, 2, 28), date(2027, 2, 1), id="february"),
+        pytest.param(date(2028, 2, 29), date(2028, 2, 1), id="leap-february"),
+        pytest.param(date(2025, 12, 31), date(2025, 12, 1), id="year-end"),
+    ],
+)
+def test_a_clock_on_a_months_last_day_already_holds_that_months_row(
+    clock: date, last_month: date
+) -> None:
+    assert month_labels(clock, 2, 1)[-1] == last_month
+
+
+@pytest.mark.parametrize(
+    "clock",
+    [date(2026, 3, 30), date(2028, 2, 28), date(2026, 3, 1)],
+    ids=["30th-of-a-31-day-month", "28th-of-a-leap-february", "first-day"],
+)
+def test_a_clock_before_a_months_last_day_holds_the_month_before(clock: date) -> None:
+    assert month_labels(clock, 1, 1) == (
+        date(clock.year - (clock.month == 1), (clock.month - 2) % 12 + 1, 1),
+    )
+
+
 def record_with_chain_bytes(
     chain: bytes, *, padding_bytes: int = CHAIN_PADDING_BYTES, trailer: bytes = b""
 ) -> tuple[bytes, int]:

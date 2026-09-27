@@ -205,7 +205,8 @@ class FinanceChainLayout:
     is no evidence on its own.
 
     Rows run oldest first. `month_lag` is how many months before the save's clock month the
-    last row's month is, so a lag of 1 makes the last row the month before the clock's.
+    last row's month is, so a lag of 1 makes the last row the month before the clock's. A clock
+    on a month's last day counts as the day after it, since the game has closed that month.
     """
 
     row_bytes: int

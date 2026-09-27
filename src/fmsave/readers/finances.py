@@ -17,7 +17,7 @@ import functools
 import struct
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 
 from fmsave._frozen import FrozenMapping
 from fmsave._layouts import FinanceChainLayout, SponsorChainLayout, find_layout
@@ -337,9 +337,12 @@ def month_labels(clock: date, row_count: int, month_lag: int) -> tuple[date, ...
     """The first day of the month each row of a series covers, oldest first.
 
     The last row is `month_lag` months before the month the save's clock falls in, so with a
-    lag of one it is the month before it.
+    lag of one it is the month before it. The game closes a month on its last day, so a clock
+    on that day already holds the month's row and is counted as the day after it.
     """
-    last_month_number = clock.year * _MONTHS_PER_YEAR + clock.month - 1 - month_lag
+    next_day = clock + timedelta(days=1)
+    closed_by = next_day if next_day.day == 1 else clock
+    last_month_number = closed_by.year * _MONTHS_PER_YEAR + closed_by.month - 1 - month_lag
     return tuple(
         date(month_number // _MONTHS_PER_YEAR, month_number % _MONTHS_PER_YEAR + 1, 1)
         for month_number in range(last_month_number - row_count + 1, last_month_number + 1)

@@ -539,7 +539,10 @@ FINANCE_CHAINS = FinanceChainLayout(
     # same career taken months apart the series agree row for row at that lag on every
     # overlapping row, and at no other lag on a single row; the lag itself is supported indirectly,
     # because the months whose balance step differs from the month's net fall in the transfer
-    # windows under this lag and in February and September under a lag of zero.
+    # windows under this lag and in February and September under a lag of zero. A save taken on
+    # a month's last day already holds that month's row: on all three such saves measured every
+    # row matches a later save of the same career one month later than this lag gives, and on
+    # every other save it matches at this lag.
     month_lag=1,
 )
 
