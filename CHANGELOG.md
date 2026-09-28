@@ -6,7 +6,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
-- `player_season_stats()` and `fmsave export SAVE player-season-stats`: every player's season so far, as the squad statistics and player profile screens show it. One row per kind of match (league, cup, continental, international, non-competitive, the overall total, and two calendar-year lines) for each team the player has played for this season, with 56 statistics including minutes, average rating, xG, xA, shots, passes, progressive passes, key passes, crosses, dribbles, distance, sprints, tackles, interceptions, pressures, blocks, clearances, cards, clean sheets and saves. A goalkeeper's line reads his saves where an outfield player's reads headers, blocks and clearances. Every field was matched against the game's own screens; the ones matched on few values are marked unconfirmed.
+- `player_season_stats()` and the `player-season-stats` export table: each player's stats for the current season, as the squad and player screens show them. There is one row per competition type (league, cup, continental, international, non-competitive, overall, and two calendar-year totals) for each team the player played for. It covers 56 stats, among them minutes, rating, xG, xA, shots, passes, tackles, distance, sprints, cards and goalkeeper saves.
 
 ## [0.4.8] - 2026-09-28
 

@@ -84,8 +84,8 @@ _COMPETITION_RULES_NOTE = (
 )
 _MANAGED_CLUB_ONLY_NOTE = "only the manager's own club has these, so any other club returns no rows"
 _SEASON_STATS_NOTE = (
-    "a club or nation scope keeps its current players, with their lines for every team they "
-    "played for this season"
+    "a club or nation scope keeps its current players, including their rows for other teams "
+    "this season"
 )
 
 _CLUB_SCOPE = "club"

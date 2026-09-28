@@ -66,15 +66,15 @@ positional arguments:
                         rules (a rules block's competition is read from the
                         table stored after it, so --competition returns only
                         the blocks that link to one); player-season-stats (a
-                        club or nation scope keeps its current players, with
-                        their lines for every team they played for this
-                        season); training (only the manager's own club has
-                        these, so any other club returns no rows); mentoring
-                        (only the manager's own club has these, so any other
-                        club returns no rows); tactics (only the manager's own
-                        club has these, so any other club returns no rows);
-                        set-pieces (only the manager's own club has these, so
-                        any other club returns no rows)
+                        club or nation scope keeps its current players,
+                        including their rows for other teams this season);
+                        training (only the manager's own club has these, so
+                        any other club returns no rows); mentoring (only the
+                        manager's own club has these, so any other club
+                        returns no rows); tactics (only the manager's own club
+                        has these, so any other club returns no rows); set-
+                        pieces (only the manager's own club has these, so any
+                        other club returns no rows)
 
 options:
   -h, --help            show this help message and exit

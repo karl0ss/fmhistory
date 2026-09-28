@@ -1280,36 +1280,24 @@ class Save:
         return Table(match_rows, PlayerMatchStats)
 
     def player_season_stats(self) -> Table[PlayerSeasonStats]:
-        """Every player's season so far: one row per kind of match, per team he played for.
+        """Every player's stats for the current season, as the squad and player screens show them.
 
-        This is the season the player profile and the squad statistics screens show. Each row
-        is one line of a player's record: `LEAGUE`, `CUP`, `CONTINENTAL`, `INTERNATIONAL` and
-        `NON_COMPETITIVE`, `OVERALL` (the profile's "Overall (Club)" row and the squad screen's
-        season total, which is the league, cup and continental lines added up), and the two
-        calendar-year lines. The player's own lines are for his current team; a team he has
-        also played for this season, such as a B team or a club he has left, has lines of its
-        own. A line the save does not hold builds no row, and a player with no line at all
-        has no row.
+        One row per competition type (`SeasonStatsKind`) and team. `OVERALL` is the season
+        total. A player also has rows for any other team they played for this season, such as a
+        B team or a club they left. See `PlayerSeasonStats` for the fields and how to work out
+        per-90s and percentages.
 
-        Only counts are stored: every per-90 figure and ratio the game displays is computed from
-        them (see `PlayerSeasonStats`). Six words of a line hold a goalkeeper's saves instead of
-        outfield statistics; a player whose natural positions include GK reads them as saves.
-
-        Rows come in the order the save stores the records, and inside each record the
-        player's own lines in `SeasonStatsKind` order before each other team's. This reader
-        decodes the players to fill `player_name` and to know who is a goalkeeper, so a cold
-        call pays for the player pass; a caller who has already called `players()` pays nothing
-        extra for it. The table is read on the first call; later calls return the same table.
-        A full save holds about 400,000 lines, so the table takes a few hundred megabytes and
-        several seconds to build.
+        This reader decodes the players to fill `player_name`, so a first call also pays for
+        `players()`. The table is read on the first call; later calls return the same table. A
+        full save gives about 400,000 rows, which takes a few seconds and a few hundred
+        megabytes.
 
         Raises:
             SaveClosedError: The save is closed.
             SaveChangedError: The file changed on disk after it was opened.
             CorruptSaveError: The save is damaged or was being written.
-            ReaderCheckError: No frame of the span holds the season-statistics section, the
-                section does not walk from its first record to its footer, more than one frame
-                does, or a reader this one joins through (clubs, players) fails.
+            ReaderCheckError: The season statistics are missing or not laid out as expected,
+                or the club or player reader this one joins through fails.
 
         Warns:
             ReaderCheckWarning: On a full-size save, the records decoded fall outside the

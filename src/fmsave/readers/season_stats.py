@@ -8,7 +8,7 @@ read by its own structure rather than searched for, so a byte out of place anywh
 walk instead of shifting what later records read.
 
 A record is keyed by the player's pindex plus one and holds a line per kind of match for the
-player's own team, the same lines for each other team he has played for this season, and two
+player's own team, the same lines for each other team the player turned out for this season, and two
 calendar-year lines. The walk keeps each line's offset; the lines are decoded only when rows are
 built, which reads every field of a line with one struct.
 """
@@ -70,7 +70,7 @@ class SeasonStatsWalk:
 class SeasonPlayer:
     """What a row needs of the player a record belongs to.
 
-    `team_id` is the team his own lines are for, and `goalkeeper` whether GK is one of his
+    `team_id` is the team the record's own lines are for, and `goalkeeper` whether GK is one of the
     natural positions, which decides how the words a keeper's line reuses are read.
     """
 

@@ -35,11 +35,10 @@ thousands of grounds, but a name for only a couple of hundred of them.
 
 Fixtures are the calendar: date, teams, round, and a score where the save still keeps one.
 
-`player_season_stats()` is what the squad statistics and player profile screens show: each
-player's season so far, one row per kind of match (league, cup, continental, international,
-non-competitive, and the overall total) for each team he has played for. It holds counts, such
-as minutes, xG, passes and tackles, and every per-90 figure and ratio is computed from them.
-`player_match_stats()` is match by match, but only for about the last twenty matches.
+`player_season_stats()` is each player's current season, as the squad and player screens show it:
+one row per competition type and team. It holds counts such as minutes, xG, passes and tackles;
+per-90s and percentages are worked out from those. `player_match_stats()` goes match by match,
+but only for about the last twenty matches.
 
 ## Injuries
 

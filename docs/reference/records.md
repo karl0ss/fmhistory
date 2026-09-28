@@ -63,7 +63,7 @@ their own pages: see {doc}`table` and {doc}`enums`.
 
 ## Season statistics
 
-`player_season_stats()`: each player's season so far, one row per kind of match and team.
+`player_season_stats()`: each player's current season, one row per competition type and team.
 
 ```{eval-rst}
 .. autoclass:: fmsave.PlayerSeasonStats
