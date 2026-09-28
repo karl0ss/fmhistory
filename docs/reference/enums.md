@@ -47,6 +47,8 @@ label, and the status types that say whether a field's meaning is verified.
    :members:
 .. autoclass:: fmsave.RulesBlockKind
    :members:
+.. autoclass:: fmsave.SeasonStatsKind
+   :members:
 .. autoclass:: fmsave.SponsorType
    :members:
 .. autoclass:: fmsave.SquadStatus

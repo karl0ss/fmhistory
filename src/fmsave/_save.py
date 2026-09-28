@@ -41,6 +41,7 @@ from fmsave.models.matches import PlayerMatchStats
 from fmsave.models.meta import SaveInfo
 from fmsave.models.players import Player
 from fmsave.models.rules import CompetitionRules, TransferWindow
+from fmsave.models.season_stats import PlayerSeasonStats
 from fmsave.models.stadiums import Stadium
 from fmsave.models.staff import Staff, StaffList
 from fmsave.models.suspensions import Suspension
@@ -102,6 +103,13 @@ from fmsave.readers.rules import (
     find_transfer_window_layouts,
     read_transfer_windows,
 )
+from fmsave.readers.season_stats import (
+    GOALKEEPER_POSITION,
+    SeasonPlayer,
+    build_season_stats,
+    find_season_stats_layout,
+    read_season_stats_section,
+)
 from fmsave.readers.span import SPAN_RECORDS_CACHE_KEY, SpanRecords
 from fmsave.readers.stadiums import (
     StadiumIndex,
@@ -145,6 +153,7 @@ TRANSFER_WINDOWS_TABLE_CACHE_KEY = "table:transfer_windows"
 LEAGUE_TABLES_TABLE_CACHE_KEY = "table:league_tables"
 COMPETITION_RULES_TABLE_CACHE_KEY = "table:competition_rules"
 PLAYER_MATCH_STATS_TABLE_CACHE_KEY = "table:player_match_stats"
+PLAYER_SEASON_STATS_TABLE_CACHE_KEY = "table:player_season_stats"
 INJURY_TYPES_TABLE_CACHE_KEY = "table:injury_types"
 INJURIES_TABLE_CACHE_KEY = "table:injuries"
 FINANCES_TABLE_CACHE_KEY = "table:finances"
@@ -1269,6 +1278,80 @@ class Save:
         self._enforce_checks((match_check,))
         self._store_reader_checks((match_check,))
         return Table(match_rows, PlayerMatchStats)
+
+    def player_season_stats(self) -> Table[PlayerSeasonStats]:
+        """Every player's season so far: one row per kind of match, per team he played for.
+
+        This is the season the player profile and the squad statistics screens show. Each row
+        is one line of a player's record: `LEAGUE`, `CUP`, `CONTINENTAL`, `INTERNATIONAL` and
+        `NON_COMPETITIVE`, `OVERALL` (the profile's "Overall (Club)" row and the squad screen's
+        season total, which is the league, cup and continental lines added up), and the two
+        calendar-year lines. The player's own lines are for his current team; a team he has
+        also played for this season, such as a B team or a club he has left, has lines of its
+        own. A line the save does not hold builds no row, and a player with no line at all
+        has no row.
+
+        Only counts are stored: every per-90 figure and ratio the game displays is computed from
+        them (see `PlayerSeasonStats`). Six words of a line hold a goalkeeper's saves instead of
+        outfield statistics; a player whose natural positions include GK reads them as saves.
+
+        Rows come in the order the save stores the records, and inside each record the
+        player's own lines in `SeasonStatsKind` order before each other team's. This reader
+        decodes the players to fill `player_name` and to know who is a goalkeeper, so a cold
+        call pays for the player pass; a caller who has already called `players()` pays nothing
+        extra for it. The table is read on the first call; later calls return the same table.
+        A full save holds about 400,000 lines, so the table takes a few hundred megabytes and
+        several seconds to build.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written.
+            ReaderCheckError: No frame of the span holds the season-statistics section, the
+                section does not walk from its first record to its footer, more than one frame
+                does, or a reader this one joins through (clubs, players) fails.
+
+        Warns:
+            ReaderCheckWarning: On a full-size save, the records decoded fall outside the
+                checks' bounds. The checks of the club and player readers this one joins
+                through are reported here as well. A save opened with strict=True raises
+                ReaderCheckError instead.
+        """
+        context = self._context
+        return context.cached(PLAYER_SEASON_STATS_TABLE_CACHE_KEY, self._read_player_season_stats)
+
+    def _read_player_season_stats(self) -> Table[PlayerSeasonStats]:
+        context = self._context
+        gate_bounds = self._gate_bounds()
+        layout = find_season_stats_layout(context.info.build)
+        body, walk = read_season_stats_section(self._container_index, layout)
+        # One game_db borrow covers the player and club readers, so a cold call decompresses
+        # that section once. Both are read through the readers that enforce their own checks,
+        # since their names and teams reach every row.
+        with context.section(GAME_DB_SECTION) as game_db:
+            players = self.players()
+            self.clubs()
+            club_index = context.club_index()
+            player_records = context.player_records()
+            game_db_length = len(game_db)
+        pindexes = player_records.pindexes
+        position_by_uid = player_records.position_by_uid
+        players_by_pindex = {
+            pindexes[position_by_uid[player.uid]]: SeasonPlayer(
+                uid=player.uid,
+                name=player.name,
+                team_id=player.team_id,
+                goalkeeper=GOALKEEPER_POSITION in player.natural_positions,
+            )
+            for player in players
+        }
+        rows, stats = build_season_stats(
+            walk, body, players_by_pindex, club_index.team_to_club, club_index.club_by_uid, layout
+        )
+        season_check = _checks.check_season_stats(stats, gate_bounds, game_db_length)
+        self._enforce_checks((season_check,))
+        self._store_reader_checks((season_check,))
+        return Table(rows, PlayerSeasonStats)
 
     def finances(self) -> Table[FinanceMonth]:
         """Every month of club money the save keeps, by club and then oldest month first.

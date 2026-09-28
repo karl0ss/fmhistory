@@ -107,7 +107,7 @@ formats, the flattening rules, and doing the same job from the command line.
 
 ## The rest of the club
 
-The squad is one table of twenty-six. The same club uid opens the others:
+The squad is one table of twenty-seven. The same club uid opens the others:
 
 ```python
 with fmsave.open("career.fm") as career_save:
@@ -118,5 +118,5 @@ with fmsave.open("career.fm") as career_save:
     injuries = career_save.injuries().where(club_uid=club_uid)
 ```
 
-[What a save holds](what-a-save-holds.md) lists all twenty-six, and is honest about what none of
+[What a save holds](what-a-save-holds.md) lists all twenty-seven, and is honest about what none of
 them can give you.

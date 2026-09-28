@@ -979,6 +979,55 @@ class StageTableLayout:
 
 
 @dataclass(frozen=True, slots=True)
+class SeasonStatsLayout:
+    """The season-statistics section: one unlisted frame of the span region, one record per player.
+
+    The frame's body is a section header carrying `section_schema`, then records back to back,
+    then a zero byte ending the list and `footer_bytes` that end the frame. A record is a `01`
+    byte, a u32 key (the player's pindex plus one), `header_bytes` of header, `own_slots` slots,
+    `block_bytes` of block, a u32 count of other teams, each `other_team_lead_bytes` then a u32
+    team id and `other_team_slots` slots, a u32 count of `rating_item_bytes` items, and a form
+    list: a count byte then `form_entry_bytes` per entry. A slot is a zero byte when absent, or
+    a `line_bytes` line starting with `line_marker`. The three counts are rejected above
+    `maximum_other_teams`, `maximum_rating_items` and `maximum_form_entries`.
+
+    Each entry of `fields`, `outfield_fields` and `goalkeeper_fields` is (field name, offset
+    from the line start, little-endian struct format code, stored units per public unit); a
+    unit of 1 reads a count and any other unit a float. `outfield_fields` and
+    `goalkeeper_fields` share their words: a
+    line reads one set or the other depending on whether its player is a natural goalkeeper.
+    `rating_sum_offset` holds ten times the sum of the player's match ratings, which divided by
+    the rated appearances at `rated_appearances_offset` gives his average rating.
+    `maximum_minutes_per_appearance` bounds a line's minutes for the checks. `slot_kinds` names
+    the kind of match each slot counts, in slot order, by `fmsave.SeasonStatsKind` value; another
+    team's slots are the first `other_team_slots` of them.
+    """
+
+    section_schema: int
+    header_bytes: int
+    own_slots: int
+    other_team_slots: int
+    line_bytes: int
+    line_marker: bytes
+    block_bytes: int
+    other_team_lead_bytes: int
+    maximum_other_teams: int
+    rating_item_bytes: int
+    maximum_rating_items: int
+    form_entry_bytes: int
+    maximum_form_entries: int
+    footer_bytes: int
+    rating_sum_offset: int
+    rated_appearances_offset: int
+    rating_scale: int
+    fields: tuple[tuple[str, int, str, int], ...]
+    outfield_fields: tuple[tuple[str, int, str, int], ...]
+    goalkeeper_fields: tuple[tuple[str, int, str, int], ...]
+    maximum_minutes_per_appearance: int
+    slot_kinds: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class TaggedStreamLayout:
     """The repeating record shape of the game's tagged stream.
 
@@ -1654,6 +1703,14 @@ class GateBounds:
     nothing leaves every one of them without a denominator and fails here rather than reporting
     a career whose players have played no matches.
 
+    Season stats: `season_stats_records_keyed_to_players` (records whose key names a player, of
+    records), `season_stats_players_with_record` (players with a record, of players),
+    `season_stats_overall_sums_competitions` (records with an overall line whose appearances,
+    minutes, goals and assists equal the league, cup and continental lines added up, of records
+    with an overall line) and `season_stats_minutes_in_range` (lines whose minutes are at most
+    the layout's maximum per appearance times their appearances, of lines). They apply from
+    `minimum_applies_from_bytes` of `game_db`.
+
     Stadiums: `stadium_rows_minimum` (rows walked), `stadium_pitch_within_limits` (rows whose
     pitch length is inside the layout's range and inside their own stored minimum and maximum
     for both length and width, of the rows that are not the template the table ends with),
@@ -1968,6 +2025,10 @@ class GateBounds:
     rules_linked_blocks_minimum: BoundPair
     rules_link_minimum_applies_from_runs: int
     rules_link_round_dates: BoundPair
+    season_stats_records_keyed_to_players: BoundPair
+    season_stats_players_with_record: BoundPair
+    season_stats_overall_sums_competitions: BoundPair
+    season_stats_minutes_in_range: BoundPair
 
 
 type Layout = (
@@ -2003,6 +2064,7 @@ type Layout = (
     | TaggedStreamLayout
     | TransferWindowLayout
     | TacticsLayout
+    | SeasonStatsLayout
     | GateBounds
 )
 

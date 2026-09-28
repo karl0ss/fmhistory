@@ -54,11 +54,13 @@ from fmsave.readers.clubs import find_club_layouts, read_club_index
 from tests.fixtures.career import (
     INJURY_MANAGER_SECTION_NAME,
     MANAGER_SELECTOR,
+    SPAN_SECTION_NAME,
     STAGE_ROW_COUNT,
     TACTICS_SECTION_NAME,
     TRAINING_SECTION_NAME,
     career_club_section_frames,
     career_injury_manager,
+    career_season_stats_body,
     career_stage_rows,
     career_summary,
     career_tactics_body,
@@ -86,6 +88,7 @@ from tests.fixtures.game_db import (
     status_record_bytes,
     suspension_entry_bytes,
 )
+from tests.fixtures.span import span_frames
 from tests.fixtures.stadiums import career_stadium_rows, stadium_table_bytes
 
 MEBIBYTE = 1024 * 1024
@@ -167,6 +170,7 @@ READER_ORDER = (
     "transfer_windows",
     "competition_rules",
     "player_match_stats",
+    "player_season_stats",
     "stadiums",
     "finances",
     "sponsorships",
@@ -992,12 +996,18 @@ def write_counted_fragment(
         "humans": humans_body(count=1, selector=MANAGER_SELECTOR) if humans is None else humans,
         "save_game_summary": career_summary(linked=True) if summary is None else summary,
     }
+    # The season statistics are a frame of the span rather than a section, and every save
+    # carries them, so the span gains that one frame.
     sections = [
         SectionFrame(
             section.name,
             replacements.get(section.name, section.body),
             section.extension,
-            section.unlisted_frames_after,
+            (
+                (*section.unlisted_frames_after, *span_frames([career_season_stats_body()]))
+                if section.name == SPAN_SECTION_NAME
+                else section.unlisted_frames_after
+            ),
         )
         for section in default_sections()
     ]
@@ -1058,6 +1068,9 @@ def test_validate_save_reports_every_reader_ok_with_gates_not_applied(
         "competition_rules": 0,
         # This fragment's players carry no match records at all.
         "player_match_stats": 0,
+        # The span carries the example career's season statistics, and only two of its five
+        # records are keyed to a player this fragment holds.
+        "player_season_stats": 3,
         "stadiums": 101,
         # The two clubs of this fragment carry no finance chain, so neither table has a row,
         # and the facilities rating stored behind that chain has none either.
@@ -1205,6 +1218,11 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
             "competitions_outside_the_stage_table": 0,
             "statistics_outside_their_ranges": 0,
             "records_without_an_owner": 0,
+        },
+        "player_season_stats": {
+            "records_without_a_player": 3,
+            "records_repeating_a_key": 0,
+            "unresolved_teams": 0,
         },
         "stadiums": {
             "walk_stopped_before_the_table_end": 0,
@@ -1409,8 +1427,9 @@ def test_a_failing_contract_check_fails_the_shared_player_pass_and_is_remembered
         "transfer_windows": "ok",
         "league_tables": "ok",
         "competition_rules": "ok",
-        # This reader decodes the players to name its rows, so the failed player pass stops it.
+        # These decode the players to name their rows, so the failed player pass stops them.
         "player_match_stats": "failed",
+        "player_season_stats": "failed",
         # These read no player, so a failed player pass leaves them alone.
         "stadiums": "ok",
         "finances": "ok",
@@ -1559,6 +1578,7 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
         # apply rather than report a career with no competition rules of its own.
         "competition_rules": "failed",
         "player_match_stats": "failed",
+        "player_season_stats": "failed",
         "stadiums": "ok",
         "finances": "failed",
         # No club record here holds a finance chain, so none was searched for a sponsor run
@@ -1654,6 +1674,9 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
         # An empty per-match search fails its competition check, while statistics checks
         # stand aside because there are no statistics to judge.
         "player_match_stats": ["per_match_competition_in_stage_space"],
+        # Three of the five season records are keyed to pindexes this fragment's players do not
+        # have, far below the share every save measured keeps.
+        "player_season_stats": ["season_stats_records_keyed_to_players"],
         # The fragment's 101-row stadium table meets the two floors this test relaxed for it,
         # and the three shares beside them judge only the rows it does hold.
         "stadiums": [],

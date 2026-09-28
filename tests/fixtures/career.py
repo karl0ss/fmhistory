@@ -67,6 +67,7 @@ from tests.fixtures.injuries import (
     injury_window_row_bytes,
     match_file_body,
 )
+from tests.fixtures.season_stats import ExampleRecord, season_stats_body, stat_line
 from tests.fixtures.span import (
     STAGE_RESULT_LEAD_BYTE,
     STAGE_RESULT_R22,
@@ -2450,6 +2451,65 @@ def career_summary(*, linked: bool) -> bytes:
     )
 
 
+# A key no player's pindex plus one gives, for a record the reader must count and skip.
+SEASON_STATS_UNOWNED_KEY = 999
+
+
+def career_season_stats_body() -> bytes:
+    """The season-statistics section: a record for each example player and one for nobody.
+
+    Player A has league and overall lines for his own team and a league line for Northbridge's
+    second team; player B has a record with no lines; players C and D a league line and the
+    overall line it adds up to, D's shared words holding numbers either reading can take.
+    """
+
+    def league_and_overall(line: bytes) -> tuple[bytes | None, ...]:
+        return (None, line, None, None, None, line, None, None)
+
+    league = stat_line(
+        minutes=1080,
+        starts=12,
+        substitute_appearances=3,
+        rated_appearances=15,
+        rating_sum=1050,
+        goals=4,
+        assists=2,
+        expected_goals=3.65,
+        passes_attempted=500,
+        passes_completed=450,
+        word_35=40,
+        word_37=25,
+        distance_km=114.7,
+    )
+    other_team_league = stat_line(minutes=90, starts=1)
+    return season_stats_body(
+        [
+            ExampleRecord(
+                key=PLAYER_A_PINDEX + 1,
+                own_slots=league_and_overall(league),
+                other_teams=(
+                    (NORTHBRIDGE_TEAM_B, (None, other_team_league, None, None, None, None)),
+                ),
+            ),
+            ExampleRecord(key=PLAYER_B_PINDEX + 1),
+            ExampleRecord(
+                key=PLAYER_C_PINDEX + 1,
+                own_slots=league_and_overall(stat_line(minutes=45, substitute_appearances=1)),
+            ),
+            ExampleRecord(
+                key=PLAYER_D_PINDEX + 1,
+                own_slots=league_and_overall(
+                    stat_line(minutes=90, starts=1, word_35=3, word_37=4, word_83=9)
+                ),
+            ),
+            ExampleRecord(
+                key=SEASON_STATS_UNOWNED_KEY,
+                own_slots=league_and_overall(stat_line(minutes=90, starts=1)),
+            ),
+        ]
+    )
+
+
 def career_fragment(
     *,
     duplicate_club_name: bool = False,
@@ -2471,6 +2531,7 @@ def career_fragment(
     stadium_table: bool = True,
     staff_affiliate: bool = False,
     extra_staff: bytes = b"",
+    season_stats_section: bytes | None = None,
 ) -> ContainerFragment:
     """The whole career fragment.
 
@@ -2514,6 +2575,9 @@ def career_fragment(
             itself pays, and that person's own object.
         extra_staff: Bytes to write at the start of the staff region, in front of the example
             staff objects.
+        season_stats_section: The whole season-statistics section body, written as its own
+            span frame after the fixtures and tables, in place of the one
+            `career_season_stats_body` describes. Empty bytes leave the frame out.
     """
     selector = UNMATCHED_MANAGER_SELECTOR if manager_between_jobs else MANAGER_SELECTOR
     replacements = {
@@ -2536,7 +2600,16 @@ def career_fragment(
                 extra_table_groups=extra_table_groups,
                 interleave_rules=interleave_rules,
                 span_results=span_results,
-            )
+            ),
+            *(
+                [
+                    career_season_stats_body()
+                    if season_stats_section is None
+                    else season_stats_section
+                ]
+                if season_stats_section != b""
+                else []
+            ),
         ]
     )
     sections = [

@@ -50,7 +50,7 @@ If the game is running, copy the save and read the copy.
   and filters. Read this one first.
 - [Getting data out](guides/exporting.md): DataFrames, CSV, JSON, and the `fmsave export`
   command.
-- [What a save holds](guides/what-a-save-holds.md): the twenty-six readers, and what no save
+- [What a save holds](guides/what-a-save-holds.md): the twenty-seven readers, and what no save
   can tell you.
 - [Trusting a number](guides/trust.md): how to tell a verified field from an unconfirmed one,
   and what a reader's checks mean.

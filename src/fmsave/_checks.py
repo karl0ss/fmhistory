@@ -56,6 +56,7 @@ from fmsave._reader_stats import (
     PlayerStats,
     ResultStats,
     RulesStats,
+    SeasonStatsStats,
     StadiumStats,
     StaffStats,
     StageStats,
@@ -99,6 +100,7 @@ TRANSFER_WINDOWS_READER = "transfer_windows"
 LEAGUE_TABLES_READER = "league_tables"
 COMPETITION_RULES_READER = "competition_rules"
 PLAYER_MATCH_STATS_READER = "player_match_stats"
+SEASON_STATS_READER = "player_season_stats"
 INJURY_TYPES_READER = "injury_types"
 INJURIES_READER = "injuries"
 FINANCES_READER = "finances"
@@ -1130,6 +1132,73 @@ def check_competition_rules(stats: RulesStats, bounds: GateBounds, span_bytes: i
                     stats.blocks_linked - stats.blocks_linked_with_competition
                 ),
                 "linked_round_shape": stats.linked_round_shape,
+            }
+        ),
+    )
+
+
+def evaluate_season_stats(
+    stats: SeasonStatsStats, bounds: GateBounds, game_db_bytes: int
+) -> tuple[GateResult, ...]:
+    """The season-statistics reader's checks, in a fixed order.
+
+    The walk itself already failed on any record that does not read as one, so these judge
+    what a structurally sound walk can still get wrong: records keyed by something other than a
+    player, players the section has no record for, overall lines that are not the competitions
+    added up, and minutes no appearances could hold. All four apply on a full-size save only.
+    """
+    applied = _applies(bounds, game_db_bytes)
+    return (
+        _share_gate(
+            "season_stats_records_keyed_to_players",
+            stats.records_keyed_to_players,
+            stats.records,
+            bounds.season_stats_records_keyed_to_players,
+            applied,
+        ),
+        _share_gate(
+            "season_stats_players_with_record",
+            stats.players_with_record,
+            stats.players,
+            bounds.season_stats_players_with_record,
+            applied,
+        ),
+        _share_gate(
+            "season_stats_overall_sums_competitions",
+            stats.overall_sums_competitions,
+            stats.records_with_overall,
+            bounds.season_stats_overall_sums_competitions,
+            applied,
+        ),
+        _share_gate(
+            "season_stats_minutes_in_range",
+            stats.minutes_in_range,
+            stats.lines,
+            bounds.season_stats_minutes_in_range,
+            applied,
+        ),
+    )
+
+
+def check_season_stats(
+    stats: SeasonStatsStats, bounds: GateBounds, game_db_bytes: int
+) -> ReaderCheck:
+    """The season-statistics reader's checks, row count and anomaly counts.
+
+    `records_without_a_player` counts records whose key is no player's, which build no row,
+    `records_repeating_a_key` records whose key an earlier record had, which build none either,
+    and `unresolved_teams` the rows whose team no club lists, which keep their team id and leave
+    the club fields empty.
+    """
+    return ReaderCheck(
+        SEASON_STATS_READER,
+        stats.rows,
+        evaluate_season_stats(stats, bounds, game_db_bytes),
+        FrozenMapping(
+            {
+                "records_without_a_player": stats.records - stats.records_keyed_to_players,
+                "records_repeating_a_key": stats.repeated_keys,
+                "unresolved_teams": stats.rows - stats.teams_resolved,
             }
         ),
     )
@@ -2280,9 +2349,10 @@ class ReaderValidation:
     Attributes:
         reader: The reader: "clubs", "players", "contracts", "suspensions", "managed_clubs",
             "stages", "competitions", "fixtures", "league_tables", "transfer_windows",
-            "competition_rules", "player_match_stats", "stadiums", "finances", "sponsorships",
-            "affiliates", "job_vacancies", "staff", "staff_lists", "injury_types",
-            "injuries", "training", "mentoring", "tactics", "set_pieces" or "facilities".
+            "competition_rules", "player_match_stats", "player_season_stats", "stadiums",
+            "finances", "sponsorships", "affiliates", "job_vacancies", "staff", "staff_lists",
+            "injury_types", "injuries", "training", "mentoring", "tactics", "set_pieces" or
+            "facilities".
         status: "ok" when the reader returned its table and every applied check of its own
             passed, "failed" when a check did not, and "error" when it raised another fmsave
             error.
@@ -2447,6 +2517,7 @@ def validate_save(career_save: Save) -> ValidationReport:
         (TRANSFER_WINDOWS_READER, career_save.transfer_windows),
         (COMPETITION_RULES_READER, career_save.competition_rules),
         (PLAYER_MATCH_STATS_READER, career_save.player_match_stats),
+        (SEASON_STATS_READER, career_save.player_season_stats),
         (STADIUMS_READER, career_save.stadiums),
         (FINANCES_READER, career_save.finances),
         (SPONSORSHIPS_READER, career_save.sponsorships),

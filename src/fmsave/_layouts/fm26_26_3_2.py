@@ -30,6 +30,7 @@ from fmsave._layouts import (
     PlayerRecordLayout,
     RulesPreambleLayout,
     SaveSummaryLayout,
+    SeasonStatsLayout,
     SponsorChainLayout,
     StadiumTableLayout,
     StaffLayout,
@@ -1473,6 +1474,118 @@ GATE_BOUNDS = GateBounds(
     # only: a bound would have to sit between 0.62 and 0.64 to both fail the misalignment and
     # keep the 20% margin, and a window two points wide is not one to rest a gate on.
     rules_link_round_dates=(0.65, None),
+    # Every record of 25 corpus saves is keyed to a player except two on the multination
+    # snapshots (0.99998), and every player there has a record. The overall line equals the
+    # league, cup and continental lines added up on every record except a few dozen the database
+    # seeds at game start (0.9977 on a day-one save).
+    season_stats_records_keyed_to_players=(0.999, None),
+    season_stats_players_with_record=(0.999, None),
+    season_stats_overall_sums_competitions=(0.99, None),
+    season_stats_minutes_in_range=(0.999, None),
+)
+
+# The season-statistics section, the unlisted frame the community calls `player_stats.dat`.
+# Every offset here was matched to a figure the game displayed: 21 players on two squad screens
+# (seasons 2036/37 and 2039/40) and 24 per-competition rows of five players' profiles, over
+# every column FM26's squad stats picker offers. The words that `outfield_fields` and
+# `goalkeeper_fields` share hold a keeper's saves on a natural goalkeeper's line; nothing in a
+# line says which kind it is (no byte or bit separates 6,663 keeper lines from 62,064 outfield
+# ones), and on every outfield line headers won is at most the aerial challenges attempted.
+# Offset 69 on an outfield line repeats the open-play crosses attempted at 109, and 71 and 95
+# carry nothing the game shows on a keeper's line, so neither reading exposes those.
+SEASON_STATS = SeasonStatsLayout(
+    section_schema=15,
+    header_bytes=16,
+    own_slots=8,
+    other_team_slots=6,
+    line_bytes=139,
+    line_marker=b"\x01\x06",
+    block_bytes=20,
+    other_team_lead_bytes=1,
+    maximum_other_teams=16,
+    rating_item_bytes=8,
+    maximum_rating_items=256,
+    form_entry_bytes=3,
+    maximum_form_entries=16,
+    footer_bytes=16,
+    rating_sum_offset=2,
+    rated_appearances_offset=8,
+    rating_scale=10,
+    fields=(
+        ("minutes", 4, "H", 1),
+        ("starts", 6, "B", 1),
+        ("substitute_appearances", 7, "B", 1),
+        ("rated_appearances", 8, "B", 1),
+        ("goals", 9, "B", 1),
+        ("assists", 10, "B", 1),
+        ("goals_allowed", 11, "B", 1),
+        ("penalties_taken", 12, "B", 1),
+        ("penalties_scored", 13, "B", 1),
+        ("player_of_the_match", 14, "B", 1),
+        ("red_cards", 15, "B", 1),
+        ("yellow_cards", 16, "B", 1),
+        ("clean_sheets", 17, "B", 1),
+        ("passes_attempted", 27, "H", 1),
+        ("passes_completed", 29, "H", 1),
+        ("tackles_attempted", 31, "H", 1),
+        ("tackles_completed", 33, "H", 1),
+        ("dribbles", 39, "H", 1),
+        ("fouls_made", 41, "H", 1),
+        ("fouls_against", 43, "H", 1),
+        ("shots", 45, "H", 1),
+        ("shots_on_target", 47, "H", 1),
+        ("mistakes_leading_to_goal", 59, "H", 1),
+        ("distance_km", 65, "H", 10),
+        ("offsides", 67, "H", 1),
+        ("key_passes", 73, "H", 1),
+        ("key_tackles", 75, "H", 1),
+        ("key_headers", 77, "H", 1),
+        ("interceptions", 79, "H", 1),
+        ("clear_cut_chances_created", 81, "H", 1),
+        ("possession_won", 89, "H", 1),
+        ("expected_goals", 91, "H", 100),
+        ("expected_assists", 93, "H", 100),
+        ("free_kick_shots", 99, "H", 1),
+        ("goals_outside_box", 101, "H", 1),
+        ("open_play_crosses_attempted", 109, "H", 1),
+        ("shots_outside_box", 111, "H", 1),
+        ("expected_goals_prevented", 113, "h", 100),
+        ("high_intensity_sprints", 115, "H", 1),
+        ("progressive_passes", 119, "H", 1),
+        ("pressures_attempted", 121, "H", 1),
+        ("pressures_completed", 123, "H", 1),
+        ("open_play_key_passes", 125, "H", 1),
+        ("crosses_attempted", 131, "H", 1),
+        ("crosses_completed", 133, "H", 1),
+        ("shots_blocked", 135, "H", 1),
+    ),
+    outfield_fields=(
+        ("aerial_challenges_attempted", 35, "H", 1),
+        ("headers_won", 37, "H", 1),
+        ("open_play_crosses_completed", 71, "H", 1),
+        ("blocks", 83, "H", 1),
+        ("clearances", 95, "H", 1),
+    ),
+    goalkeeper_fields=(
+        ("saves_held", 35, "H", 1),
+        ("saves_parried", 37, "H", 1),
+        ("saves_tipped", 69, "H", 1),
+        ("shots_on_target_faced", 83, "H", 1),
+    ),
+    # A match runs at most 120 minutes plus stoppage time; 130 is the per-match reader's bound.
+    maximum_minutes_per_appearance=130,
+    # The profile statistics panel's rows, matched slot by slot on five players' panels; the last
+    # two restart on 1 January for every player while the rest run on.
+    slot_kinds=(
+        "non_competitive",
+        "league",
+        "cup",
+        "continental",
+        "international",
+        "overall",
+        "calendar_year_overall",
+        "calendar_year_international",
+    ),
 )
 
 LAYOUTS: tuple[LayoutEntry, ...] = (
@@ -1508,5 +1621,6 @@ LAYOUTS: tuple[LayoutEntry, ...] = (
     LayoutEntry(region=SPAN_REGION_NAME, schema=None, build=BUILD, layout=STAGE_RESULTS),
     LayoutEntry(region=SPAN_REGION_NAME, schema=None, build=BUILD, layout=LEAGUE_TABLES),
     LayoutEntry(region=SPAN_REGION_NAME, schema=None, build=BUILD, layout=RULES_PREAMBLES),
+    LayoutEntry(region=SPAN_REGION_NAME, schema=None, build=BUILD, layout=SEASON_STATS),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=GATE_BOUNDS),
 )

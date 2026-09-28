@@ -49,6 +49,7 @@ EXPECTED_READERS = (
     "transfer_windows",
     "competition_rules",
     "player_match_stats",
+    "player_season_stats",
     "stadiums",
     "finances",
     "sponsorships",

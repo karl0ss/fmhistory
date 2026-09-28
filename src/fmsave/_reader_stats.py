@@ -330,6 +330,34 @@ class RulesStats:
 
 
 @dataclass(frozen=True, slots=True)
+class SeasonStatsStats:
+    """What the season-statistics walk counted.
+
+    `records` counts every record the section holds and `records_keyed_to_players` those whose
+    key is a player's pindex plus one; `players` counts the player records and
+    `players_with_record` those a record belongs to. `records_with_overall` counts records
+    holding an overall line and `overall_sums_competitions` those whose overall line's
+    appearances, minutes, goals and assists equal the league, cup and continental lines added
+    up. `lines` counts every line of every record and `minutes_in_range` the lines whose minutes
+    are at most the layout's bound per appearance. `teams_resolved` counts rows whose team a
+    club lists, of `rows`. `repeated_keys` counts records whose key an earlier record already
+    had, which build no rows; no save measured holds one.
+    """
+
+    records: int
+    records_keyed_to_players: int
+    players: int
+    players_with_record: int
+    records_with_overall: int
+    overall_sums_competitions: int
+    lines: int
+    minutes_in_range: int
+    rows: int
+    teams_resolved: int
+    repeated_keys: int
+
+
+@dataclass(frozen=True, slots=True)
 class MatchStats:
     """What the per-match player record search counted over the player region.
 

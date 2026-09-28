@@ -61,6 +61,14 @@ their own pages: see {doc}`table` and {doc}`enums`.
 .. autoclass:: fmsave.PlayerMatchStats
 ```
 
+## Season statistics
+
+`player_season_stats()`: each player's season so far, one row per kind of match and team.
+
+```{eval-rst}
+.. autoclass:: fmsave.PlayerSeasonStats
+```
+
 ## Injuries
 
 `injury_types()` and `injuries()`.

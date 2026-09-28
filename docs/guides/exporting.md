@@ -61,6 +61,7 @@ fmsave export career.fm players --managed-club -o squad.csv
 fmsave export career.fm players --managed-club --columns name,age,ability_current,contract_wage
 fmsave export career.fm players --all --format json -o players.json
 fmsave export career.fm fixtures --managed-club --format jsonl -o fixtures.jsonl
+fmsave export career.fm player-season-stats --managed-club -o season.csv
 ```
 
 The scope is required, and exactly one of:
@@ -84,7 +85,7 @@ The rest:
   [Trusting a number](trust.md).
 
 Table names on the command line use hyphens where the Python method uses underscores:
-`managed-clubs`, `league-tables`, `player-match-stats`, `set-pieces`.
+`managed-clubs`, `league-tables`, `player-match-stats`, `player-season-stats`, `set-pieces`.
 
 Four tables (`training`, `mentoring`, `tactics` and `set-pieces`) only exist for the club you
 manage. Any other scope returns no rows.

@@ -4,7 +4,7 @@ A save is the whole game world, not only your club. A career a decade in holds o
 thousand players and tens of thousands of clubs, every fixture the calendar has ever generated,
 and every injury it has recorded.
 
-Twenty-six readers get at it. Each one returns a `Table` of records, and each one reads the save
+Twenty-seven readers get at it. Each one returns a `Table` of records, and each one reads the save
 you point it at and nothing else.
 
 ## People
@@ -31,9 +31,15 @@ thousands of grounds, but a name for only a couple of hundred of them.
 ## Competitions
 
 `stages()`, `competitions()`, `fixtures()`, `league_tables()`, `competition_rules()`,
-`transfer_windows()`, `player_match_stats()`
+`transfer_windows()`, `player_match_stats()`, `player_season_stats()`
 
 Fixtures are the calendar: date, teams, round, and a score where the save still keeps one.
+
+`player_season_stats()` is what the squad statistics and player profile screens show: each
+player's season so far, one row per kind of match (league, cup, continental, international,
+non-competitive, and the overall total) for each team he has played for. It holds counts, such
+as minutes, xG, passes and tackles, and every per-90 figure and ratio is computed from them.
+`player_match_stats()` is match by match, but only for about the last twenty matches.
 
 ## Injuries
 

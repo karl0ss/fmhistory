@@ -23,14 +23,17 @@ import pytest
 
 import fmsave
 from fmsave import _context as context_module
-from fmsave._container import ContainerIndex, DirectoryEntry
+from fmsave._container import ContainerIndex, DirectoryEntry, FrameSpan
 from fmsave._context import SaveContext
+from fmsave.readers import season_stats as season_stats_module
 from tests.fixtures.career import career_fragment
 
 GAME_DB = "game_db"
 HUMANS = "humans"
 SAVE_SUMMARY = "save_game_summary"
 SPAN = "region:unlisted_after_non_pl_hist_ls"
+# One frame of the span decompressed on its own, as the season statistics are.
+SPAN_FRAME = "frame:unlisted_after_non_pl_hist_ls"
 FEEDER = "feeder_man"
 JOB_CENTRE = "job_centre"
 INJURY_MANAGER = "injury_manager"
@@ -52,6 +55,7 @@ READER_SECTION_READS: dict[str, tuple[dict[str, int], int]] = {
     "transfer_windows": ({GAME_DB: 1}, 0),
     "competition_rules": ({GAME_DB: 1, SPAN: 1}, 0),
     "player_match_stats": ({GAME_DB: 1}, 0),
+    "player_season_stats": ({GAME_DB: 1, SPAN_FRAME: 1}, 0),
     "stadiums": ({GAME_DB: 1, SPAN: 1}, 0),
     "finances": ({GAME_DB: 1, HUMANS: 1, SAVE_SUMMARY: 1}, 0),
     "sponsorships": ({GAME_DB: 1, HUMANS: 1, SAVE_SUMMARY: 1}, 0),
@@ -86,6 +90,7 @@ class ReadCounter:
         read_section = context_module.read_section
         read_region_frames = context_module.read_region_frames
         read_directory_entry = context_module.read_directory_entry
+        read_region_frame = season_stats_module.read_region_frame
 
         def counting_read_section(container_index: ContainerIndex, name: str) -> bytes:
             self.sections_read.append(name)
@@ -103,7 +108,14 @@ class ReadCounter:
             self.match_entries_read.append(f"{entry.name}{entry.extension}")
             return read_directory_entry(container_index, entry)
 
+        def counting_read_region_frame(
+            container_index: ContainerIndex, region_name: str, span: FrameSpan
+        ) -> bytes:
+            self.sections_read.append(f"frame:{region_name}")
+            return read_region_frame(container_index, region_name, span)
+
         monkeypatch.setattr(context_module, "read_section", counting_read_section)
+        monkeypatch.setattr(season_stats_module, "read_region_frame", counting_read_region_frame)
         monkeypatch.setattr(context_module, "read_region_frames", counting_read_region_frames)
         monkeypatch.setattr(context_module, "read_directory_entry", counting_read_directory_entry)
 

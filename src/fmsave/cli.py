@@ -52,6 +52,7 @@ from fmsave.models.matches import PlayerMatchStats
 from fmsave.models.meta import SaveInfo
 from fmsave.models.players import Player
 from fmsave.models.rules import CompetitionRules, TransferWindow
+from fmsave.models.season_stats import PlayerSeasonStats
 from fmsave.models.stadiums import Stadium
 from fmsave.models.staff import Staff, StaffList
 from fmsave.models.suspensions import Suspension
@@ -82,6 +83,10 @@ _COMPETITION_RULES_NOTE = (
     "returns only the blocks that link to one"
 )
 _MANAGED_CLUB_ONLY_NOTE = "only the manager's own club has these, so any other club returns no rows"
+_SEASON_STATS_NOTE = (
+    "a club or nation scope keeps its current players, with their lines for every team they "
+    "played for this season"
+)
 
 _CLUB_SCOPE = "club"
 _MANAGED_CLUB_SCOPE = "managed-club"
@@ -748,6 +753,16 @@ def _player_match_stats_rows(career_save: fmsave.Save, scope: _ExportScope) -> I
     return (row for row in match_stats if row.player_uid in player_uids)
 
 
+def _player_season_stats_rows(career_save: fmsave.Save, scope: _ExportScope) -> Iterable[object]:
+    """A club or nation scope keeps the season lines of the players in it, as suspensions does."""
+    season_stats = career_save.player_season_stats()
+    keeps_player = _player_filter(scope)
+    if keeps_player is None:
+        return season_stats
+    player_uids = _scoped_player_uids(career_save, keeps_player)
+    return (row for row in season_stats if row.player_uid in player_uids)
+
+
 def _stadium_rows(career_save: fmsave.Save, scope: _ExportScope) -> Iterable[object]:
     """A club or nation scope keeps a ground the scope's clubs own or play their home games at.
 
@@ -946,6 +961,12 @@ _EXPORT_TABLES: dict[str, _ExportTable] = {
         CompetitionRules, _COMPETITION_SCOPES, _competition_rules_rows, note=_COMPETITION_RULES_NOTE
     ),
     "player-match-stats": _ExportTable(PlayerMatchStats, _EVERY_SCOPE, _player_match_stats_rows),
+    "player-season-stats": _ExportTable(
+        PlayerSeasonStats,
+        _CLUB_AND_NATION_SCOPES,
+        _player_season_stats_rows,
+        note=_SEASON_STATS_NOTE,
+    ),
     "stadiums": _ExportTable(Stadium, _CLUB_AND_NATION_SCOPES, _stadium_rows),
     "finances": _ExportTable(FinanceMonth, _CLUB_AND_NATION_SCOPES, _finance_rows),
     "sponsorships": _ExportTable(Sponsorship, _CLUB_AND_NATION_SCOPES, _sponsorship_rows),

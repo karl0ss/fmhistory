@@ -39,7 +39,7 @@ cannot read is `None`, never a guess.
 
 ## Reader checks warn, they do not block
 
-Each of the twenty-six readers measures what it decoded against loose bounds drawn from a couple
+Each of the twenty-seven readers measures what it decoded against loose bounds drawn from a couple
 of reference careers: how many records it found, how many names resolved, how the ratios sit. A
 save unlike those careers can miss a bound and still be read perfectly well, so a missed bound is
 a `ReaderCheckWarning` and you get the table anyway.

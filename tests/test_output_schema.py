@@ -28,6 +28,7 @@ TABLE_RECORD_TYPES = (
     fmsave.TransferWindow,
     fmsave.CompetitionRules,
     fmsave.PlayerMatchStats,
+    fmsave.PlayerSeasonStats,
     fmsave.Stadium,
     fmsave.FinanceMonth,
     fmsave.Sponsorship,

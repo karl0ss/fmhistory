@@ -602,6 +602,48 @@ def read_region_frames(container_index: ContainerIndex, region_name: str) -> Ite
     )
 
 
+def region_frame_heads(
+    container_index: ContainerIndex, region_name: str, length: int
+) -> tuple[tuple[FrameSpan, bytes], ...]:
+    """Each compressed frame of a region with at most the first `length` bytes of its body.
+
+    Only a capped prefix of each frame is read and only `length` bytes are decoded from it, so
+    a reader can pick the frame it wants out of a region of hundreds of megabytes without
+    decompressing the rest. A frame whose body is shorter than `length` gives its whole body.
+    """
+    region = region_named(container_index, region_name)
+    file_name = container_index.file_name
+    heads: list[tuple[FrameSpan, bytes]] = []
+    with open_verified(container_index) as save_file:
+        for span in walk_frame_headers(save_file, region.start, region.end, file_name):
+            if span.skippable:
+                continue
+            prefix = read_exact(save_file, span.offset, min(span.size, HEAD_READ_BYTES), file_name)
+            heads.append((span, decompress_head(prefix, length, region_name, file_name)))
+    return tuple(heads)
+
+
+def read_region_frame(container_index: ContainerIndex, region_name: str, span: FrameSpan) -> bytes:
+    """Decompress one frame of a region, located by `region_frame_heads`."""
+    file_name = container_index.file_name
+    with open_verified(container_index) as save_file:
+        compressed = read_exact(save_file, span.offset, span.size, file_name)
+    try:
+        return decompress_frame(
+            compressed,
+            expected_size=None,
+            cap=container_index.limits.frame_decompressed_cap,
+            what=f"a frame of region {region_name!r}",
+            file_name=file_name,
+        )
+    except CorruptSaveError as error:
+        # As for a directory entry: the frame was read while the file was verified, so bytes
+        # that no longer decompress mean the save was rewritten under the read.
+        if changed_since_index(container_index):
+            raise changed_on_disk_error(file_name) from error
+        raise
+
+
 def decompress_region_frames(
     compressed_frames: list[bytes],
     limits: ContainerLimits,
