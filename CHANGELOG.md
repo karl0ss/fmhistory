@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.8] - 2026-09-28
+
+### Fixed
+
+- Saves from a career started before a game update open again: fmsave checked the build the career was started on as well as the build that saved the file, and failed with "game_info does not match build" whenever the two differed.
+- `stages()` and every reader joined through the stage table find the table on a save that holds more data after it than 2 MB. The search now widens to 16 MB before the table counts as missing, and a save whose table sits near the end pays for the first 2 MB alone.
+
 ## [0.4.7] - 2026-09-27
 
 ### Fixed

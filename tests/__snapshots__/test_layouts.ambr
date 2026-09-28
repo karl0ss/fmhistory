@@ -5,7 +5,6 @@
       'build': '26.3.2+2329565',
       'layout': dict({
         'build_number_offsets_after_db_version': tuple(
-          34,
           38,
         ),
         'db_version_length_offset': 8,
@@ -593,6 +592,7 @@
         'competition_id_limit': 1000000,
         'competition_id_offset': 13,
         'group_id_offset': 17,
+        'max_search_bytes': 16000000,
         'previous_stage_id_offset': 0,
         'resynchronisation_bytes': 4096,
         'round_offset': 21,
@@ -1648,7 +1648,7 @@
         ),
         'stage_table_tail_bytes': tuple(
           None,
-          2097152,
+          16777216,
         ),
         'stage_trailing_sentinel': tuple(
           0.95,

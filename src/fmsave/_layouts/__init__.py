@@ -945,8 +945,10 @@ class StageTableLayout:
     """Where the stage table sits in `game_db`, and where a stage row's fields sit.
 
     The table is found in the last `search_bytes` of `game_db`, at the first offset where
-    `chain_rows` rows in a row all decode `row_bytes` apart; the head of that chain is then
-    reached by stepping back a row at a time. A row decodes when the byte at
+    `chain_rows` rows in a row all decode `row_bytes` apart. When none does, the window doubles
+    until it reaches `max_search_bytes`, searching only the stretch each doubling adds, so a
+    save whose table sits near the end pays for the first window alone. The head of that chain
+    is then reached by stepping back a row at a time. A row decodes when the byte at
     `zero_byte_offset` is zero, the stage id at `stage_id_offset` is repeated at
     `stage_id_copy_offset` and lies strictly between the bounds of
     `stage_id_exclusive_range`, and the word at `previous_stage_id_offset` is either that id
@@ -971,6 +973,7 @@ class StageTableLayout:
     stage_id_exclusive_range: tuple[int, int]
     competition_id_limit: int
     search_bytes: int
+    max_search_bytes: int
     chain_rows: int
     resynchronisation_bytes: int
 

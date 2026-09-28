@@ -247,6 +247,21 @@ def test_mismatched_build_numbers_fail_checks(tmp_path: Path) -> None:
         read_save_info(build_index(tmp_path, sections_with(game_info=body)))
 
 
+def test_a_career_started_on_an_older_build_opens(tmp_path: Path) -> None:
+    """The first build word is the build that started the career, which can predate the save's."""
+    body = game_info_body(build_numbers=(2239191, 2329565, 2329565))
+    save_info = read_save_info(build_index(tmp_path, sections_with(game_info=body)))
+    assert save_info.build_number == 2329565
+    assert save_info.known_build
+    assert save_info.game_date == date(2031, 3, 1)
+
+
+def test_a_last_saved_build_word_that_differs_fails_checks(tmp_path: Path) -> None:
+    body = game_info_body(build_numbers=(2329565, 2239191, 2329565))
+    with pytest.raises(ReaderCheckError):
+        read_save_info(build_index(tmp_path, sections_with(game_info=body)))
+
+
 def test_late_build_number_three_bytes_earlier_still_matches(tmp_path: Path) -> None:
     body = game_info_body(late_build_number_offset=199)
     save_info = read_save_info(build_index(tmp_path, sections_with(game_info=body)))

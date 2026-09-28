@@ -17,7 +17,12 @@ from fmsave._checks import (
     evaluate_competitions,
     evaluate_stages,
 )
-from fmsave._layouts import FULL_SAVE_MINIMUM_GAME_DB_BYTES, GateBounds, find_layout
+from fmsave._layouts import (
+    FULL_SAVE_MINIMUM_GAME_DB_BYTES,
+    GateBounds,
+    StageTableLayout,
+    find_layout,
+)
 from fmsave._reader_stats import CompetitionStats, StageStats
 from fmsave._save import COMPETITIONS_TABLE_CACHE_KEY, STAGES_TABLE_CACHE_KEY
 from fmsave._status import field_status
@@ -406,8 +411,9 @@ def test_healthy_stage_stats_pass_every_gate_and_a_small_section_applies_none() 
         pytest.param({"gaps": 8}, [], id="gaps-at-edge"),
         pytest.param({"gaps": 9}, ["stage_walk_gaps"], id="gaps-above"),
         pytest.param({"with_competition": 6_400}, ["stage_rows_with_competition"], id="few-joins"),
+        pytest.param({"bytes_after_table": 4_132_399}, [], id="older-build-career-tail"),
         pytest.param(
-            {"bytes_after_table": 3_000_000}, ["stage_table_tail_bytes"], id="table-too-early"
+            {"bytes_after_table": 17_000_000}, ["stage_table_tail_bytes"], id="table-too-early"
         ),
         pytest.param({"rows": 999}, ["stage_rows_minimum"], id="too-few-rows"),
         pytest.param({"ascending_steps": 7_000}, ["stage_ids_ascending"], id="ids-not-ascending"),
@@ -567,6 +573,37 @@ def test_rows_before_the_search_window_are_kept_by_walking_back_to_the_head() ->
     assert rows_before_the_window > 0
     assert len(stage_index.stages) == STAGE_ROW_COUNT
     assert stage_index.stages[0].id == 1
+
+
+def small_search_layout() -> StageTableLayout:
+    """The registered layout with its search windows scaled down, so a test pads kilobytes."""
+    return dataclasses.replace(
+        find_stage_layout(GAME_DB_SCHEMA, ""), search_bytes=10_000, max_search_bytes=40_000
+    )
+
+
+def test_a_table_further_back_than_the_first_window_is_found_by_widening_it() -> None:
+    """One community career has 4.1 MB after its table, twice the first window's 2 MB."""
+    layout = small_search_layout()
+    game_db = stage_table_bytes(career_stage_rows(), trailing_bytes=layout.search_bytes * 2)
+
+    stage_index = read_stage_index(game_db, layout, FILE_NAME)
+
+    assert len(stage_index.stages) == STAGE_ROW_COUNT
+    assert stage_index.stages[0].id == 1
+    assert stage_index.stats.bytes_after_table == layout.search_bytes * 2
+
+
+def test_a_table_past_the_widest_window_is_not_found() -> None:
+    layout = small_search_layout()
+    game_db = stage_table_bytes(career_stage_rows(), trailing_bytes=layout.max_search_bytes)
+
+    with pytest.raises(fmsave.ReaderCheckError) as error_info:
+        read_stage_index(game_db, layout, FILE_NAME)
+
+    assert f"no stage table was found in the last {layout.max_search_bytes:,} bytes" in str(
+        error_info.value
+    )
 
 
 def test_the_walk_counts_exactly_what_the_gates_divide() -> None:
