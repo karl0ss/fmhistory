@@ -197,7 +197,7 @@
         'condition_offset': 110,
         'current_ability_offset': 0,
         'current_ability_range': tuple(
-          1,
+          0,
           200,
         ),
         'current_reputation_offset': -4,
@@ -1011,12 +1011,29 @@
         'position_bit_count': 15,
         'preset_signature': b'"B\x00\x1a\x03\x00\x01\x01',
         'role_bits_bytes': 8,
-        'routine_count': 20,
+        'routine_area_header_bytes': 590,
+        'routine_area_marker': b'\x03\x00\x1a',
+        'routine_code_byte_range': tuple(
+          32,
+          126,
+        ),
+        'routine_code_bytes': 4,
+        'routine_group_count_range': tuple(
+          0,
+          64,
+        ),
+        'routine_group_sizes': tuple(
+          3,
+          2,
+          3,
+          2,
+        ),
         'routine_name_length_range': tuple(
           0,
           64,
         ),
-        'routine_terminator': b'\x01LLUN',
+        'routine_record_max_bytes': 256,
+        'routine_tail_marker': b'\x01',
         'selection_end_marker': b'B\x00',
         'selection_slot_count': 26,
         'selector_offset': 11,
@@ -1952,7 +1969,7 @@
           0.995,
           None,
         ),
-        'set_piece_blocks_with_twenty': tuple(
+        'set_piece_blocks_complete': tuple(
           1.0,
           None,
         ),

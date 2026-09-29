@@ -658,10 +658,13 @@ def evaluate_fixtures(
             applied,
         ),
         _gate(
-            "fixture_teams_resolved",
-            _rate(stats.home_team_resolved + stats.away_team_resolved, 2 * cluster_records),
+            "fixture_club_teams_resolved",
+            _rate(
+                stats.home_team_resolved + stats.away_team_resolved,
+                2 * cluster_records - stats.stub_team_references,
+            ),
             bounds.fixture_teams_resolved,
-            applied,
+            applied and (cluster_records == 0 or 2 * cluster_records > stats.stub_team_references),
         ),
         _share_gate(
             "fixture_stadiums_resolved",
@@ -1023,6 +1026,7 @@ def check_fixtures(
                 "unresolved_teams": (
                     2 * cluster_records - stats.home_team_resolved - stats.away_team_resolved
                 ),
+                "stub_team_references": stats.stub_team_references,
                 "undated_fixtures": stats.undated,
                 "bad_kick_off_slots": stats.bad_kick_off_slots,
                 "neutral_venue_votes": stats.neutral_venue_votes,
@@ -2058,10 +2062,10 @@ def evaluate_set_pieces(
     """
     return (
         _share_gate(
-            "set_piece_blocks_with_twenty",
-            stats.routine_blocks_with_twenty,
+            "set_piece_blocks_complete",
+            stats.routine_blocks_complete,
             stats.routine_blocks,
-            bounds.set_piece_blocks_with_twenty,
+            bounds.set_piece_blocks_complete,
             _applies(bounds, game_db_bytes) and stats.managed_club_exists,
         ),
     )

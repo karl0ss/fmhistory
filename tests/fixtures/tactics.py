@@ -176,11 +176,26 @@ def routine_bytes(name: str | None) -> bytes:
 
 
 def set_piece_area_bytes(names: Sequence[str | None]) -> bytes:
-    """The area that follows a block's tactic records: its marker, its flags, its routines."""
+    """Default runs and counted groups, with extra names in the final user group.
+
+    Fewer than twenty names deliberately leave the last group truncated while its count
+    still claims a routine, for malformed-walk tests.
+    """
     payload = bytearray(SET_PIECE_AREA_MARKER)
-    payload.extend(SET_PIECE_AREA_FLAGS)
-    for name in names:
-        payload.extend(routine_bytes(name))
+    payload.extend(bytes(590 - len(payload)))
+    index = 0
+    for run_number, group_size in enumerate((3, 2, 3, 2)):
+        for _ in range(group_size):
+            if index < len(names):
+                payload.extend(routine_bytes(names[index]))
+            index += 1
+        for group in range(group_size):
+            count = max(1, len(names) - index) if run_number == 3 and group == 1 else 1
+            payload.extend(_UINT32.pack(count))
+            for _ in range(count):
+                if index < len(names):
+                    payload.extend(routine_bytes(names[index]))
+                index += 1
     return bytes(payload)
 
 

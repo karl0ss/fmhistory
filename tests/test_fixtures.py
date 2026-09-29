@@ -63,7 +63,7 @@ FIXTURE_GATE_NAMES = (
     "fixture_cluster_share",
     "fixture_strays_minimum",
     "fixture_stage_resolved",
-    "fixture_teams_resolved",
+    "fixture_club_teams_resolved",
     "fixture_stadiums_resolved",
 )
 FIXTURE_LAYOUT: FixtureCalendarLayout = find_layout(
@@ -643,7 +643,7 @@ def test_healthy_fixture_stats_pass_every_gate_and_a_small_span_applies_none() -
             dataclasses.replace(
                 healthy_fixture_stats(), home_team_resolved=80_000, away_team_resolved=80_000
             ),
-            ["fixture_teams_resolved"],
+            ["fixture_club_teams_resolved"],
             id="too-few-teams-resolve",
         ),
         pytest.param(
@@ -719,6 +719,7 @@ def test_the_build_counts_exactly_what_the_checks_read(career_save_path: Path) -
         "fixtures_without_a_stage": 0,
         "unresolved_stages": 1,
         "unresolved_teams": 0,
+        "stub_team_references": 0,
         "undated_fixtures": 0,
         "bad_kick_off_slots": 0,
         "neutral_venue_votes": 1,
@@ -728,3 +729,21 @@ def test_the_build_counts_exactly_what_the_checks_read(career_save_path: Path) -
         "score_disagreements": 0,
         "scored_fixtures": 0,
     }
+
+
+def test_stub_references_do_not_mask_missing_club_joins() -> None:
+    unresolved = dataclasses.replace(
+        healthy_fixture_stats(), home_team_resolved=85_000, away_team_resolved=85_000
+    )
+    assert "fixture_club_teams_resolved" in failed_gate_names(
+        evaluate_fixtures(unresolved, BOUNDS, FULL_SIZE_SPAN_BYTES)
+    )
+    known_stubs = dataclasses.replace(unresolved, stub_team_references=40_000)
+    assert "fixture_club_teams_resolved" not in failed_gate_names(
+        evaluate_fixtures(known_stubs, BOUNDS, FULL_SIZE_SPAN_BYTES)
+    )
+    broken_join = dataclasses.replace(known_stubs, home_team_resolved=0, away_team_resolved=0)
+    assert "fixture_club_teams_resolved" in failed_gate_names(
+        evaluate_fixtures(broken_join, BOUNDS, FULL_SIZE_SPAN_BYTES)
+    )
+    assert BOUNDS.fixture_teams_resolved == (0.87, None)

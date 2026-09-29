@@ -171,7 +171,9 @@ class FixtureStats:
     dozen unplayed matches that predate the calendar.
     `with_stage` counts kept records naming a stage and `stage_resolved` those whose stage the
     stage table holds. `home_team_resolved` and `away_team_resolved` count the team ids a club
-    lists. `undated` counts records whose stored date does not decode and
+    lists. `stub_team_references` counts unresolved sides with validated stub-team objects;
+    they remain unnamed and are excluded from the club join population.
+    `undated` counts records whose stored date does not decode and
     `bad_kick_off_slots` those whose slot names no time of day. `neutral_venue_votes` counts
     the (club, season) pairs that played enough home matches for a usual ground to be decided.
     `with_stadium` counts kept records storing a ground and `stadium_resolved` those whose
@@ -191,6 +193,7 @@ class FixtureStats:
     neutral_venue_votes: int
     with_stadium: int
     stadium_resolved: int
+    stub_team_references: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -696,8 +699,8 @@ class TacticStats:
     index bytes are a permutation of the slot numbers.
 
     `routine_blocks` counts the blocks whose routines were searched for,
-    `routine_blocks_with_twenty` those holding exactly the number of routine slots a block is
-    expected to hold, `routines` the rows built from them and `named_routines` those with a
+    `routine_blocks_complete` those whose default runs and counted user groups
+    decoded completely, `routines` the rows built from them and `named_routines` those with a
     name.
     """
 
@@ -716,7 +719,7 @@ class TacticStats:
     slot_walks_complete: int
     oop_index_permutations: int
     routine_blocks: int
-    routine_blocks_with_twenty: int
+    routine_blocks_complete: int
     routines: int
     named_routines: int
 

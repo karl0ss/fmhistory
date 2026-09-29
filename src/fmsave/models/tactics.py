@@ -185,11 +185,11 @@ class SetPieceRoutine:
         team_id: The team the slot belongs to, as the save stores it (unconfirmed).
         team_slot: The team's place in that club's own team list, 0 for its first team; None
             when the team resolves to no club (unconfirmed).
-        slot: The routine's place in the team's twenty slots, counting from zero in stored
+        slot: The routine's place in the team's stored routines, counting from zero in stored
             order. Which set-piece situation a slot is for is not stored as text, so the slot
             number is all there is to go on (unconfirmed).
-        name: The routine's name as the manager typed it, None for a slot with no routine,
-            which is half the slots of a first team and all twenty of every other team.
+        name: The routine's name as the manager typed it, None for an empty routine.
+            A team may store more than twenty routines.
     """
 
     club_uid: int | None

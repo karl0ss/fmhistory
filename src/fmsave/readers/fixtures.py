@@ -232,6 +232,7 @@ def build_fixtures(
     stage_resolved = 0
     home_team_resolved = 0
     away_team_resolved = 0
+    stub_team_references = 0
     undated = 0
     bad_kick_off_slots = 0
     with_stadium = 0
@@ -255,8 +256,12 @@ def build_fixtures(
         away_club = team_to_club.get(raw_fixture.away_team_id)
         if home_club is not None:
             home_team_resolved += 1
+        elif raw_fixture.home_team_id in club_index.stub_team_ids:
+            stub_team_references += 1
         if away_club is not None:
             away_team_resolved += 1
+        elif raw_fixture.away_team_id in club_index.stub_team_ids:
+            stub_team_references += 1
         stadium_ordinal = raw_fixture.stadium_ordinal
         if stadium_ordinal is not None:
             with_stadium += 1
@@ -353,5 +358,6 @@ def build_fixtures(
         neutral_venue_votes=len(modal_ordinals),
         with_stadium=with_stadium,
         stadium_resolved=stadium_resolved,
+        stub_team_references=stub_team_references,
     )
     return tuple(fixtures), stats

@@ -207,7 +207,7 @@ _EMPTY_TACTIC_STATS = TacticStats(
     slot_walks_complete=0,
     oop_index_permutations=0,
     routine_blocks=0,
-    routine_blocks_with_twenty=0,
+    routine_blocks_complete=0,
     routines=0,
     named_routines=0,
 )
@@ -1736,11 +1736,10 @@ class Save:
     def set_pieces(self) -> Table[SetPieceRoutine]:
         """Every set-piece routine slot of the manager's teams, by team and then slot.
 
-        Each team has twenty slots and each is a row, whose `name` is None when the slot holds
-        no routine: that is half the slots of a first team and all twenty of every other team
-        on the saves measured. **Which set-piece situation a slot is for is not stored as
-        text**, so the slot number is all there is to go on, and a routine is never recognised
-        by its name.
+        Every default routine and every member of a counted user-routine group is a row.
+        `slot` gives stored order within the team, and `name` is None for an unnamed routine.
+        Groups can contain multiple routines, so a team can have more than twenty rows.
+        A routine is recognised by its record structure, never by its name.
 
         The table is read on the first call to `tactics()` or `set_pieces()`, from one walk;
         later calls to either return the same tables. When a check of that walk fails, neither

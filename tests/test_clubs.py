@@ -4,6 +4,7 @@ import copy
 import dataclasses
 import pickle
 import re
+import struct
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -18,7 +19,13 @@ from fmsave._context import CLUB_INDEX_CACHE_KEY
 from fmsave._errors import ReaderCheckError
 from fmsave._layouts import ClubRecordLayout, ClubStatusLayout, TeamListLayout, find_layout
 from fmsave._save import CLUBS_TABLE_CACHE_KEY
-from fmsave.readers.clubs import ClubIndex, ClubLayouts, find_club_layouts, read_club_index
+from fmsave.readers.clubs import (
+    ClubIndex,
+    ClubLayouts,
+    find_club_layouts,
+    read_club_index,
+    read_stub_team_ids,
+)
 from tests.fixtures.container import (
     SectionFrame,
     build_container_fragment,
@@ -914,3 +921,21 @@ def test_save_clubs_errors_name_the_file_but_not_its_folder(tmp_path: Path) -> N
     assert "game_db" in message
     assert "Private Folder" not in message
     assert str(tmp_path) not in message
+
+
+def test_stub_team_objects_require_sound_headers_dates_and_unique_ordinals() -> None:
+    layout = find_club_layouts(GAME_DB_SCHEMA, "").statuses
+
+    def stub(
+        ordinal: int, uid: int = 501, *, kind: int = 11, dates: bytes = NULL_DATE * 3
+    ) -> bytes:
+        # The two identifiers intentionally differ, as generated objects can store them.
+        return bytes(10) + struct.pack("<III", ordinal, uid, 701) + bytes((kind,)) + dates
+
+    good = stub(101)
+    assert read_stub_team_ids(good, layout) == frozenset((101,))
+    assert read_stub_team_ids(good + good, layout) == frozenset()
+    assert read_stub_team_ids(stub(102, uid=0), layout) == frozenset()
+    assert read_stub_team_ids(stub(102, kind=10), layout) == frozenset()
+    assert read_stub_team_ids(stub(102, dates=bytes(12)), layout) == frozenset()
+    assert read_stub_team_ids(good[:-1], layout) == frozenset()

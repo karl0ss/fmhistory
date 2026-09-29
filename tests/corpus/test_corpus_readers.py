@@ -146,7 +146,16 @@ def test_reader_counts_and_checks_stay_in_their_recorded_ranges(
                     mismatches.note(f"{label}: {reader.reader} has no recorded range")
                 continue
             recorded_count = recorded_reader.get("record_count")
-            if isinstance(recorded_count, int) and reader.record_count is not None:
+            # Old set-piece counts came from a fixed-code scan which can omit routines.
+            # Compare counts again once the baseline records the complete group-walk gate.
+            old_routine_count = reader.reader == "set_pieces" and (
+                "set_piece_blocks_complete" not in recorded_reader.get("gates", {})
+            )
+            if (
+                isinstance(recorded_count, int)
+                and reader.record_count is not None
+                and not old_routine_count
+            ):
                 counts_match = within_tolerance(
                     reader.record_count, recorded_count, RECORD_COUNT_TOLERANCE
                 )

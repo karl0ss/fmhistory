@@ -195,8 +195,14 @@ TACTICS = TacticsLayout(
     trail_bytes=4,
     unit_count_range=(0, 64),
     position_bit_count=15,
-    routine_terminator=bytes.fromhex("014c4c554e"),
-    routine_count=20,
+    routine_tail_marker=b"\x01",
+    routine_code_bytes=4,
+    routine_code_byte_range=(0x20, 0x7E),
+    routine_area_marker=bytes.fromhex("03001a"),
+    routine_area_header_bytes=590,
+    routine_group_sizes=(3, 2, 3, 2),
+    routine_group_count_range=(0, 64),
+    routine_record_max_bytes=256,
     routine_name_length_range=(0, 64),
     name_length_range=(0, 256),
 )
@@ -308,7 +314,8 @@ PLAYER_RECORDS = PlayerRecordLayout(
     current_reputation_offset=-4,
     world_reputation_offset=-2,
     current_ability_offset=0,
-    current_ability_range=(1, 200),
+    # Zero is stored on otherwise complete player records; it is not a missing header.
+    current_ability_range=(0, 200),
     potential_ability_offset=2,
     potential_ability_range=(-10, 200),
     reputation_bucket_offset=8,
@@ -1141,11 +1148,8 @@ GATE_BOUNDS = GateBounds(
     # right. It is kept for the one thing it does catch: a calendar read one field out points
     # at stage ids that are noise, which drops the share to near zero.
     fixture_stage_resolved=(0.95, None),
-    # At least 92.4% of the two team ids per record are listed by a club on every save
-    # measured: a calendar also holds matches between sides no club record covers, such as
-    # teams of nations the career never loaded. The bound is the lowest share observed less
-    # 0.05, floored to two decimals, so a career carrying more of those stays well clear
-    # while a team id read from the wrong offset, which resolves almost nothing, still fails.
+    # The club join population excludes references backed by validated stub-team objects.
+    # Unknown references still lower this share; a displaced team-id field must not pass.
     fixture_teams_resolved=(0.87, None),
     # At least 0.9993 of the kept records that store a ground name one the stadium table holds;
     # the rest store the value 1, and no ground has ordinal 0. The floor sits deliberately
@@ -1424,11 +1428,11 @@ GATE_BOUNDS = GateBounds(
     # one still resolves most of them, but at most 0.21 of those
     # are at the club, so that off-by-one fails here on every save.
     tactic_selection_selectors_at_club=(0.85, None),
-    # Twenty routine slots in every block of every save. Decoding the
+    # Every default run and counted routine group must decode completely. Decoding the
     # name from one or two bytes either side of the terminator leaves no block with twenty:
     # 0 routines decode from three of those four shifts and two thirds of them from the
     # fourth, spread over the blocks.
-    set_piece_blocks_with_twenty=(1.0, None),
+    set_piece_blocks_complete=(1.0, None),
     # The blocks are the managed club's own teams: every team has one and no other block is
     # parsed, and each block's team id appears once. Starting the walk one byte or four bytes
     # late parses no block at all on any save, so the bound sits at the whole team list.

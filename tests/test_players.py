@@ -208,7 +208,7 @@ PLAYER_D = {
     "condition": 6000,
     "height_cm": 170,
 }
-REJECT_ZERO_CA = {
+PLAYER_ZERO_CA = {
     "pindex": 15,
     "uid": 900005,
     "current_ability": 0,
@@ -262,7 +262,7 @@ def player_region_bytes() -> bytes:
         + player_record_bytes(**PLAYER_B)
         + player_record_bytes(**PLAYER_C)
         + player_record_bytes(**PLAYER_D)
-        + player_record_bytes(**REJECT_ZERO_CA)
+        + player_record_bytes(**PLAYER_ZERO_CA)
         + player_record_bytes(**REJECT_UID_MISMATCH)
         + STRAY_BLOCK
     )
@@ -342,16 +342,17 @@ def by_uid(players: list[Player], uid: int) -> Player:
 def test_records_are_found_in_offset_order_with_the_right_markerless_count() -> None:
     game_db = example_game_db()
     _, player_records, _ = build_index(game_db)
-    assert list(player_records.uids) == [900001, 900002, 900003, 900004]
+    assert list(player_records.uids) == [900001, 900002, 900003, 900004, 900005]
     assert player_records.markerless_count == 1
     assert player_records.position_by_pindex[13] == 2
     assert player_records.position_by_uid[900003] == 2
 
 
-def test_zero_current_ability_is_rejected() -> None:
+def test_zero_current_ability_with_valid_record_structure_is_decoded() -> None:
     game_db = example_game_db()
     _, player_records, _ = build_index(game_db)
-    assert 900005 not in player_records.uids
+    assert 900005 in player_records.uids
+    assert by_uid(decode_all(game_db), 900005).ability.current == 0
 
 
 def test_doubled_uid_mismatch_is_rejected() -> None:
@@ -366,12 +367,13 @@ def test_stray_block_with_no_valid_uid_is_rejected() -> None:
     # Distinct from the offset-order test: the stray block must not shift a later record's
     # position or get inserted anywhere in the index.
     assert player_records.position_by_uid[900004] == 3
-    assert len(player_records.record_offsets) == 4
+    assert len(player_records.record_offsets) == 5
 
 
 @pytest.mark.parametrize(
     "override",
     [
+        pytest.param({"current_ability": 201}, id="CA above range"),
         pytest.param({"potential_ability": -11}, id="PA below range"),
         pytest.param({"potential_ability": 201}, id="PA above range"),
         pytest.param({"bucket": 201}, id="bucket above range"),
@@ -448,7 +450,7 @@ def test_marker_within_102_bytes_of_offset_zero_is_handled_cleanly() -> None:
     leading_payload = bytes(50) + bytes.fromhex("01006c07") + bytes(20)
     game_db = example_game_db(leading_payload=leading_payload)
     _, player_records, _ = build_index(game_db)
-    assert list(player_records.uids) == [900001, 900002, 900003, 900004]
+    assert list(player_records.uids) == [900001, 900002, 900003, 900004, 900005]
 
 
 def test_valid_marker_less_block_before_name_pools_end_is_not_found() -> None:
@@ -459,7 +461,7 @@ def test_valid_marker_less_block_before_name_pools_end_is_not_found() -> None:
     game_db = example_game_db(leading_payload=player_record_bytes(**early_candidate))
     _, player_records, _ = build_index(game_db)
     assert 900099 not in player_records.uids
-    assert list(player_records.uids) == [900001, 900002, 900003, 900004]
+    assert list(player_records.uids) == [900001, 900002, 900003, 900004, 900005]
 
 
 def test_truncated_final_record_raises_corrupt_save_error() -> None:
@@ -716,7 +718,7 @@ def test_window_end_is_the_next_record_start_or_the_buffer_length() -> None:
     game_db = example_game_db()
     _, player_records, _ = build_index(game_db)
     assert window_end(player_records, 0, len(game_db)) == player_records.record_offsets[1]
-    assert window_end(player_records, 3, len(game_db)) == len(game_db)
+    assert window_end(player_records, 4, len(game_db)) == len(game_db)
 
 
 def closing_header_bytes(person_id: int, uid: int, kind: int = 1) -> bytes:
@@ -800,7 +802,7 @@ def test_no_player_records_found_raises_reader_check() -> None:
 
 
 def test_repeated_uid_raises_reader_check() -> None:
-    duplicate = dict(REJECT_ZERO_CA)
+    duplicate = dict(PLAYER_ZERO_CA)
     duplicate["current_ability"] = 120
     duplicate["uid"] = 900001
     duplicate["pindex"] = 21
@@ -821,7 +823,7 @@ def test_repeated_uid_raises_reader_check() -> None:
 
 
 def test_repeated_pindex_raises_reader_check() -> None:
-    duplicate = dict(REJECT_ZERO_CA)
+    duplicate = dict(PLAYER_ZERO_CA)
     duplicate["current_ability"] = 120
     duplicate["pindex"] = 11
     duplicate["uid"] = 900022
@@ -888,7 +890,7 @@ def test_save_players_returns_a_cached_table(players_fragment_path: Path) -> Non
         players_table = career_save.players()
         assert isinstance(players_table, Table)
         assert players_table.record_type is Player
-        assert [player.uid for player in players_table] == [900001, 900002, 900003, 900004]
+        assert [player.uid for player in players_table] == [900001, 900002, 900003, 900004, 900005]
         assert career_save.players() is players_table
         assert PLAYER_RECORDS_CACHE_KEY == "player_records"
         assert PLAYERS_TABLE_CACHE_KEY == "table:players"
@@ -909,7 +911,7 @@ def test_save_players_returns_a_cached_table(players_fragment_path: Path) -> Non
         career_save._context.name_pools()
     with pytest.raises(fmsave.SaveClosedError):
         career_save._context.player_records()
-    assert len(players_table) == 4
+    assert len(players_table) == 5
 
 
 def test_cold_players_decompresses_game_db_exactly_once(

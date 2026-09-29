@@ -9,6 +9,7 @@ a private index that other readers use to join teams to clubs.
 from __future__ import annotations
 
 import functools
+import re
 import struct
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -16,6 +17,7 @@ from statistics import median_low
 
 from fmsave._layouts import ClubRecordLayout, ClubStatusLayout, TeamListLayout, find_layout
 from fmsave._reader_stats import ClubStats
+from fmsave._scan import decode_date
 from fmsave.models.clubs import Club, Team
 from fmsave.readers._common import GAME_DB_SECTION, MISSING_REFERENCE, layout_mismatch
 
@@ -87,6 +89,8 @@ class ClubIndex:
             registered with such a team is a player of the parent club.
         stats: What the club pass counted, for the club checks.
         game_db_bytes: The length of the `game_db` the index was read from.
+        stub_team_ids: Team ordinals with validated stub-object headers and dates. This
+            identifies their stored shape without assigning them a club.
         record_spans: The byte range of each club record and where its team ids end, for
             readers that work inside a club's own record. One span per accepted record, in
             record (file) order, which is not the club index order the clubs come in.
@@ -100,6 +104,7 @@ class ClubIndex:
     stats: ClubStats
     game_db_bytes: int
     record_spans: tuple[ClubRecordSpan, ...] = field(repr=False)
+    stub_team_ids: frozenset[int] = field(default=frozenset[int](), repr=False)
 
     def __repr__(self) -> str:
         return f"<fmsave ClubIndex {len(self.clubs)} clubs, {len(self.team_to_club)} teams>"
@@ -243,6 +248,7 @@ def read_club_index(game_db: bytes, layouts: ClubLayouts, file_name: str) -> Clu
         affiliate_team_to_club=affiliates.team_to_club,
         stats=stats,
         game_db_bytes=len(game_db),
+        stub_team_ids=read_stub_team_ids(game_db, layouts.statuses),
         record_spans=record_spans,
     )
 
@@ -620,3 +626,42 @@ def _normal_status(
         if lowest_reputation <= stored_reputation <= highest_reputation:
             reputation = stored_reputation
     return reputation, last_league_position
+
+
+@functools.cache
+def _stub_team_pattern(layout: ClubStatusLayout) -> re.Pattern[bytes]:
+    """The zero header, ordinal and two identifiers in a stub-team object."""
+    return re.compile(
+        bytes(layout.confirmation_zero_bytes) + b"(.{12})" + re.escape(bytes((layout.stub_kind,))),
+        re.DOTALL,
+    )
+
+
+def read_stub_team_ids(game_db: bytes, layout: ClubStatusLayout) -> frozenset[int]:
+    """Identify stub-team references without assigning them a club.
+
+    Both identifier words must be present, but need not be equal. Three stored dates
+    validate the body independently of the header. Duplicate ordinals are ambiguous and
+    remain unresolved rather than being exempted from the fixture join check.
+    """
+    found: set[int] = set()
+    ambiguous: set[int] = set()
+    null_date = struct.pack("<HH", 1, 1900)
+    for match in _stub_team_pattern(layout).finditer(game_db):
+        ordinal, uid, secondary_uid = struct.unpack("<III", match.group(1))
+        if not 0 < ordinal < layout.ordinal_limit or uid in (0, MISSING_REFERENCE):
+            continue
+        if secondary_uid in (0, MISSING_REFERENCE):
+            continue
+        dates_at = match.end()
+        if dates_at + 12 > len(game_db):
+            continue
+        if any(
+            game_db[offset : offset + 4] != null_date and decode_date(game_db, offset) is None
+            for offset in range(dates_at, dates_at + 12, 4)
+        ):
+            continue
+        if ordinal in found:
+            ambiguous.add(ordinal)
+        found.add(ordinal)
+    return frozenset(found - ambiguous)

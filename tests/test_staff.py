@@ -810,3 +810,40 @@ def test_a_failed_check_leaves_neither_table_readable(
             career_save.staff()
         with pytest.raises(fmsave.ReaderCheckError):
             career_save.staff_lists()
+
+
+def test_a_zero_ability_player_contract_is_not_an_unowned_staff_contract(tmp_path: Path) -> None:
+    player = player_record_bytes(
+        pindex=26,
+        uid=810_026,
+        current_ability=0,
+        potential_ability=5,
+        bucket=20,
+        home_reputation=100,
+        current_reputation=100,
+        world_reputation=100,
+        team_id=NORTHBRIDGE_TEAM_A,
+        ratings=(1,) * 14 + (20,),
+        raw_attributes=(5,) * 54,
+        transfer_value_raw=0,
+        join_date=packed_date(1, 2030),
+        sharpness=1_000,
+        condition=1_000,
+        height_cm=180,
+        trailing=contract_bytes(
+            selector=27,
+            team_id=NORTHBRIDGE_TEAM_A,
+            wage=100,
+            start=packed_date(1, 2030),
+            tail={"end": packed_date(1, 2032)},
+        )[0],
+    )
+    save_path = career_fragment(extra_staff=player).write(tmp_path / "career.bin")
+    with fmsave.open(save_path) as save:
+        players = save.players()
+        staff = save.staff()
+        check = save._reader_check(STAFF_READER)
+    assert next(row for row in players if row.uid == 810_026).ability.current == 0
+    assert not any(row.uid == 810_026 for row in staff)
+    assert check is not None
+    assert observed_gate(check, "staff_unowned_tailed_contracts") == 0

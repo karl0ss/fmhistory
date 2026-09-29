@@ -1381,14 +1381,15 @@ class TacticsLayout:
     `unit_first_field_bytes` of one bit field, `unit_separator` and
     `unit_second_field_bytes` of another.
 
-    **Set-piece routines** follow a block's tactic records. Each ends with a length-prefixed
-    name inside `routine_name_length_range` and then `routine_terminator`, so they are found by
-    searching the block for that terminator and decoding the name backwards from it: the
-    smallest length whose stored u32 sits exactly that many bytes in front of the terminator and
-    whose bytes are text. `routine_count` of them sit in every block of every save measured, and
-    not one terminator falls inside a tactic record, including on the save whose style code is
-    the terminator's own last four bytes. A routine's name is never matched against text: an
-    unnamed slot stores a name of length zero.
+    **Set-piece routines** follow a block's tactic records. The area header occupies
+    `routine_area_header_bytes`, including `routine_area_marker`. Default runs alternate with
+    counted user groups; `routine_group_sizes` gives both the default run sizes and the number
+    of counted groups following each run. Counts inside `routine_group_count_range` determine
+    how many user records to read. Each record ends with a length-prefixed UTF-8 name, the
+    `routine_tail_marker`, a `routine_code_bytes` code and one trailer byte. The code's bytes
+    fall inside `routine_code_byte_range`; its value can vary between routines. Names decode
+    backwards from that tail and an unnamed routine stores a zero length. The bounded search
+    for a record tail never exceeds `routine_record_max_bytes`.
     """
 
     header_marker_offset: int
@@ -1424,8 +1425,14 @@ class TacticsLayout:
     trail_bytes: int
     unit_count_range: tuple[int, int]
     position_bit_count: int
-    routine_terminator: bytes
-    routine_count: int
+    routine_tail_marker: bytes
+    routine_code_bytes: int
+    routine_code_byte_range: tuple[int, int]
+    routine_area_marker: bytes
+    routine_area_header_bytes: int
+    routine_group_sizes: tuple[int, ...]
+    routine_group_count_range: tuple[int, int]
+    routine_record_max_bytes: int
     routine_name_length_range: tuple[int, int]
     name_length_range: tuple[int, int]
 
@@ -1863,8 +1870,8 @@ class GateBounds:
     22 slot blocks walked, and whose out-of-possession index bytes are a permutation, of user
     tactic records), `tactic_selection_selectors_resolved` (selectors the player records name,
     of selectors) and `tactic_selection_selectors_at_club` (of those, the ones at the managed
-    club); in `set_pieces()`, `set_piece_blocks_with_twenty` (blocks holding exactly
-    `TacticsLayout.routine_count` routines, of blocks). They apply on a full-size `game_db` and
+    club); in `set_pieces()`, `set_piece_blocks_complete` (blocks whose default runs and counted routine groups
+    decoded completely, of blocks). They apply on a full-size `game_db` and
     only where the save lists a managed club, because a manager between jobs has no team block
     to read and an empty result is a fact about the career.
 
@@ -2017,7 +2024,7 @@ class GateBounds:
     tactic_oop_index_permutations: BoundPair
     tactic_selection_selectors_resolved: BoundPair
     tactic_selection_selectors_at_club: BoundPair
-    set_piece_blocks_with_twenty: BoundPair
+    set_piece_blocks_complete: BoundPair
     training_blocks_match_club_teams: BoundPair
     training_week_steps: BoundPair
     mentoring_members_at_club: BoundPair

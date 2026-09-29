@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.3] - 2026-09-29
+
+### Fixed
+
+- `set_pieces()` retains previously missed routines, including multiple user routines in a slot, and checks that all routine groups were read completely.
+- `players()` decodes structurally complete records with zero current ability, keeping their contracts out of the staff reader.
+- Fixture validation distinguishes stored stub-team references from missing club joins without lowering its join threshold. The corresponding checks are now named `set_piece_blocks_complete` and `fixture_club_teams_resolved`.
+
 ## [0.5.2] - 2026-09-29
 
 ### Added
