@@ -12,6 +12,7 @@ from typing import Any, ClassVar, NoReturn, cast, overload
 
 from fmsave import export
 from fmsave._frozen import FrozenMapping
+from fmsave._status import computed_field_names
 from fmsave.models.common import CodedValue
 
 _NAME_FIELD = "name"
@@ -60,10 +61,12 @@ def _coded_tuple_field_names(record_type: type) -> frozenset[str]:
 
 
 def _dataclass_field_names(candidate: object) -> tuple[str, ...] | None:
-    """Return the field names of a dataclass type, or None when candidate is not one."""
+    """Return the field names of a dataclass type, computed fields last, or None when candidate
+    is not one."""
     if not isinstance(candidate, type) or not dataclasses.is_dataclass(candidate):
         return None
-    return tuple(record_field.name for record_field in dataclasses.fields(candidate))
+    stored_names = tuple(record_field.name for record_field in dataclasses.fields(candidate))
+    return stored_names + computed_field_names(candidate)
 
 
 class Table[RecordT](Sequence[RecordT]):

@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-09-28
+
+### Added
+
+- `player_season_stats()` rows now include the per-90 and percentage figures the game shows, such as `expected_goals_per_90`, `pass_completion_percent` and `save_percent`: 44 in all. They are worked out from the counts when read, so they add no memory, and every export includes them.
+
 ## [0.5.0] - 2026-09-28
 
 ### Added

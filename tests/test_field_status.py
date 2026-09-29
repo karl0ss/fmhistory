@@ -298,7 +298,7 @@ def leaf_field_names(record_class: type) -> set[str]:
         model_field.name
         for model_field in dataclasses.fields(record_class)
         if group_class(field_types[model_field.name]) is None
-    }
+    } | set(_status.computed_field_names(record_class))
 
 
 def reachable_record_classes(record_class: type) -> Iterator[type]:

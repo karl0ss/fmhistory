@@ -1284,8 +1284,8 @@ class Save:
 
         One row per competition type (`SeasonStatsKind`) and team. `OVERALL` is the season
         total. A player also has rows for any other team they played for this season, such as a
-        B team or a club they left. See `PlayerSeasonStats` for the fields and how to work out
-        per-90s and percentages.
+        B team or a club they left. Rows carry the game's per-90 and percentage figures too; see
+        `PlayerSeasonStats`.
 
         This reader decodes the players to fill `player_name`, so a first call also pays for
         `players()`. The table is read on the first call; later calls return the same table. A

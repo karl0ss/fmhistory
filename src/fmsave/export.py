@@ -33,6 +33,7 @@ from enum import StrEnum
 from typing import Any, Literal, TextIO, TypeGuard, cast
 
 from fmsave._frozen import FrozenMapping
+from fmsave._status import computed_field_names
 from fmsave.models.common import CodedValue
 
 __all__ = [
@@ -326,10 +327,15 @@ def _class_plan(record_type: type) -> _ClassPlan:
         for type_parameter in getattr(record_type, "__type_params__", ())
     }
     field_types = typing.get_type_hints(record_type, localns=type_parameters)
-    record_fields = dataclasses.fields(record_type)
+    field_names = tuple(record_field.name for record_field in dataclasses.fields(record_type))
+    # Computed fields follow the stored ones, typed by what their property returns.
+    for computed_name in computed_field_names(record_type):
+        getter = cast("property", getattr(record_type, computed_name)).fget
+        field_types[computed_name] = typing.get_type_hints(getter)["return"]
+        field_names += (computed_name,)
     field_plans = tuple(
-        _plan_field(record_type, index, record_field.name, field_types[record_field.name])
-        for index, record_field in enumerate(record_fields)
+        _plan_field(record_type, index, field_name, field_types[field_name])
+        for index, field_name in enumerate(field_names)
     )
     columns = tuple(_flat_columns(field_plans))
     for names, name_role in ((_nested_keys(field_plans), "key"), (columns, "column")):
@@ -343,7 +349,7 @@ def _class_plan(record_type: type) -> _ClassPlan:
         record_type=record_type,
         fields=field_plans,
         columns=columns,
-        read_fields=_field_reader(tuple(record_field.name for record_field in record_fields)),
+        read_fields=_field_reader(field_names),
         steps=steps,
         json_steps=json_steps,
         csv_steps=csv_steps,

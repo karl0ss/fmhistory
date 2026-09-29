@@ -50,7 +50,8 @@ def number(row: PlayerSeasonStats, field_name: str) -> float:
 
 
 def per_90(field_name: str) -> Callable[[PlayerSeasonStats], float]:
-    return lambda row: round(number(row, field_name) * 90 / row.minutes, 1) if row.minutes else 0.0
+    """The row's own per-90 rate for a count, rounded as the game shows it."""
+    return lambda row: round(number(row, f"{field_name}_per_90"), 1)
 
 
 def count(field_name: str) -> Callable[[PlayerSeasonStats], float]:
@@ -58,9 +59,11 @@ def count(field_name: str) -> Callable[[PlayerSeasonStats], float]:
 
 
 def save_ratio(row: PlayerSeasonStats) -> float:
-    faced = number(row, "shots_on_target_faced")
-    saves = number(row, "saves_held") + number(row, "saves_parried") + number(row, "saves_tipped")
-    return round(100 * saves / faced) if faced else 0
+    return round(number(row, "save_percent"))
+
+
+def pass_completion(row: PlayerSeasonStats) -> float:
+    return round(number(row, "pass_completion_percent"))
 
 
 # Each squad-screen column the transcriptions hold: how a row gives the figure it shows, and how
@@ -185,8 +188,7 @@ def test_the_2037_squad_screen_matches_every_column(recorded_values: dict[str, A
             "expected_assists": round(row.expected_assists, 2) == shown["xa"],
             "tackles_per_90": per_90("tackles_completed")(row) == shown["tackles_per_90"],
             "interceptions_per_90": per_90("interceptions")(row) == shown["interceptions_per_90"],
-            "pass_completion": round(100 * row.passes_completed / row.passes_attempted)
-            == shown["pass_completion_percent"],
+            "pass_completion": pass_completion(row) == shown["pass_completion_percent"],
         }
         for field_name, matched in figures.items():
             mismatches.check(label, field_name, matched)
@@ -226,11 +228,7 @@ def test_the_2040_squad_screens_match_every_column(recorded_values: dict[str, An
         mismatches.check(
             label, "interceptions_per_90", per_90("interceptions")(row) == interceptions
         )
-        mismatches.check(
-            label,
-            "pass_completion",
-            round(100 * row.passes_completed / row.passes_attempted) == passes,
-        )
+        mismatches.check(label, "pass_completion", pass_completion(row) == passes)
     for name, (tackles_completed, fouls, tackles_attempted, yellow, red) in screens[
         "defending"
     ].items():
@@ -376,7 +374,7 @@ def panel_row_matches(row: PlayerSeasonStats | None, values: list[Any]) -> bool:
         starts, subs, goals, assists, pom, yellow, red, passes, fouls, against, rating = values
         if (row.starts, row.substitute_appearances) != (starts, subs):
             return False
-    pass_share = 100 * row.passes_completed / row.passes_attempted if row.passes_attempted else None
+    pass_share = row.pass_completion_percent
     return (
         (row.goals, row.assists, row.player_of_the_match, row.yellow_cards, row.red_cards)
         == (goals, assists, pom, yellow, red)

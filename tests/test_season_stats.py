@@ -11,7 +11,8 @@ from fmsave._container import ContainerIndex, read_index
 from fmsave._layouts import GateBounds, find_layout
 from fmsave._reader_stats import SeasonStatsStats
 from fmsave.checks import validate_save
-from fmsave.models.season_stats import SeasonStatsKind
+from fmsave.export import column_names
+from fmsave.models.season_stats import PlayerSeasonStats, SeasonStatsKind
 from fmsave.readers.season_stats import (
     SeasonPlayer,
     build_season_stats,
@@ -498,3 +499,63 @@ def test_two_frames_that_both_walk_raise(tmp_path: Path) -> None:
 def test_a_lone_frame_that_does_not_walk_raises_its_own_error(tmp_path: Path) -> None:
     with pytest.raises(fmsave.ReaderCheckError, match="footer"):
         read_season_stats_section(span_index(tmp_path, example_body()[:-1]), LAYOUT)
+
+
+def overall_row(**values: float) -> PlayerSeasonStats:
+    record = ExampleRecord(
+        key=OUTFIELD_PINDEX + 1, own_slots=own_slots(overall=stat_line(**values))
+    )
+    body = season_stats_body([record])
+    players = {OUTFIELD_PINDEX: SeasonPlayer(OUTFIELD_UID, None, OWN_TEAM, False)}
+    rows, _ = build_season_stats(
+        walk_season_stats(body, LAYOUT, FILE_NAME), body, players, {}, {}, LAYOUT
+    )
+    return rows[0]
+
+
+def test_rates_are_worked_out_from_the_counts_on_access() -> None:
+    row = overall_row(
+        minutes=1800,
+        goals=10,
+        shots=40,
+        shots_on_target=16,
+        passes_attempted=800,
+        passes_completed=680,
+        tackles_attempted=50,
+        tackles_completed=40,
+        expected_goals=8.0,
+        word_35=60,
+        word_37=45,
+    )
+    assert row.goals_per_90 == 0.5
+    assert row.expected_goals_per_90 == 0.4
+    assert row.pass_completion_percent == 85.0
+    assert row.shots_on_target_percent == 40.0
+    assert row.tackle_completion_percent == 80.0
+    assert row.tackles_completed_per_90 == 2.0
+    assert row.headers_won_percent == 75.0
+    assert row.headers_lost_per_90 == 0.75
+    assert row.expected_goals_per_shot == 0.2
+
+
+def test_a_rate_with_nothing_to_divide_by_is_none() -> None:
+    row = overall_row(minutes=0, goals=0)
+    assert row.goals_per_90 is None
+    assert row.pass_completion_percent is None
+    assert row.save_percent is None
+
+
+def test_a_goalkeeper_gets_save_rates_and_no_outfield_rates() -> None:
+    rows, _ = example_rows()
+    keeper = rows_by_kind(rows, KEEPER_UID)[SeasonStatsKind.OVERALL]
+    assert keeper.save_percent == pytest.approx(100 * 44 / 57)
+    assert keeper.blocks_per_90 is None
+    assert keeper.headers_won_percent is None
+
+
+def test_every_rate_is_exported_and_has_a_status() -> None:
+    names = column_names(PlayerSeasonStats)
+    assert names[-len(PlayerSeasonStats.COMPUTED_FIELDS) :] == PlayerSeasonStats.COMPUTED_FIELDS
+    assert len(PlayerSeasonStats.COMPUTED_FIELDS) == 44
+    for name in PlayerSeasonStats.COMPUTED_FIELDS:
+        assert fmsave.field_status(PlayerSeasonStats, name) in ("verified", "unconfirmed")

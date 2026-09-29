@@ -39,6 +39,24 @@ def _dataclass_field_names(model_class: type) -> set[str]:
     return {model_field.name for model_field in dataclasses.fields(model_class)}
 
 
+def computed_field_names(model_class: type) -> tuple[str, ...]:
+    """The names a record class lists in COMPUTED_FIELDS, empty when it lists none.
+
+    A computed field is a read-only property worked out from the record's stored fields. It
+    costs nothing per record, and every export form writes it after the stored fields.
+
+    Raises:
+        TypeError: A listed name is not a property of the class.
+    """
+    names: tuple[str, ...] = getattr(model_class, "COMPUTED_FIELDS", ())
+    for name in names:
+        if not isinstance(getattr(model_class, name, None), property):
+            raise TypeError(
+                f"{model_class.__name__}.{name} is listed as computed but is not a property"
+            )
+    return names
+
+
 def _group_class(field_type: object) -> type | None:
     if typing.get_origin(field_type) in (typing.Union, types.UnionType):
         member_types = [
@@ -103,7 +121,7 @@ def register_field_statuses(
     if not requested_statuses:
         return
 
-    field_names = _dataclass_field_names(model_class)
+    field_names = _dataclass_field_names(model_class) | set(computed_field_names(model_class))
     for field_path in requested_statuses:
         if "." in field_path:
             raise ValueError(
