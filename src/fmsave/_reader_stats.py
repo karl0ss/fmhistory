@@ -449,6 +449,7 @@ class StaffStats:
     where the staff lists follow, and `clubs_lists_fit` those whose lists all ended inside the
     record with every value in range. `list_values` counts the values those lists hold and
     `player_values_in_lists` the few that turn out to be player pindexes, which are dropped.
+    `unset_list_values` counts zero selectors that name no person and are also dropped.
     `listed_persons` counts the distinct people the lists name and `listed_persons_staff` those
     whose header is a staff object with a name block.
 
@@ -477,6 +478,7 @@ class StaffStats:
     clubs_lists_fit: int
     list_values: int
     player_values_in_lists: int
+    unset_list_values: int
     listed_persons: int
     listed_persons_staff: int
     staff_objects: int
@@ -516,14 +518,11 @@ class ManagedStats:
 class StadiumStats:
     """What walking the stadium table and voting the home grounds counted.
 
-    `table_end_reached` is 1 when the walk stopped on the word that follows the table's last
+    `table_end_reached` is 1 when the walk stopped on the closing header after the last
     row and 0 when it stopped inside the table, which costs every ground after that point: they
     are missing from the rows returned and from the denominators of every share here, so a
     short walk has to be visible rather than merely lowering a rate.
 
-    `template_rows` counts the rows shaped like the template the save carries rather than a
-    ground anyone plays at, recognised by the all-seater capacity no real ground comes near,
-    and they are left out of `pitch_checked`.
     `pitch_within_limits` counts the checked rows whose pitch is a plausible length and fits
     inside the ground's own stored minimum and maximum. `owners_set` counts the rows naming an
     owning club and `owners_resolved` those whose club the save lists. `capacity_set` counts
@@ -541,7 +540,6 @@ class StadiumStats:
     rows: int
     table_end_reached: int
     named_rows: int
-    template_rows: int
     owners_set: int
     owners_resolved: int
     capacity_set: int

@@ -99,8 +99,8 @@ class StadiumIndex:
             stored ground resolves through. Ordinals run from one and stadium uids are unique.
         locator_hits: How many places the locator pattern matched, accepted or not, which says
             how selective the acceptance test had to be.
-        reached_table_end: Whether the walk stopped where the table ends, at the terminator
-            word the save writes after the last row. False means the walk stopped inside the
+        reached_table_end: Whether the walk stopped where the table ends, on the closing
+            header the save writes after the last row. False means the walk stopped inside the
             table and the rows past that point are missing from every count taken here.
         game_db_bytes: The length of the `game_db` the table was read from.
     """
@@ -159,8 +159,9 @@ class _StadiumTableScan:
     lowest_name_length: int
     highest_name_length: int
     locator_rows: int
-    template_all_seater_capacity: int
-    table_terminator: int
+    closing_marker_offset: int
+    closing_marker: bytes
+    closing_uid_offset: int
 
 
 @functools.cache
@@ -274,8 +275,9 @@ def _stadium_table_scan(layout: StadiumTableLayout) -> _StadiumTableScan:
         lowest_name_length=lowest_name_length,
         highest_name_length=highest_name_length,
         locator_rows=layout.locator_rows,
-        template_all_seater_capacity=layout.template_all_seater_capacity,
-        table_terminator=layout.table_terminator,
+        closing_marker_offset=layout.closing_marker_offset,
+        closing_marker=layout.closing_marker,
+        closing_uid_offset=layout.closing_uid_offset,
     )
 
 
@@ -404,7 +406,9 @@ def _walk_rows(game_db: bytes, head_offset: int, scan: _StadiumTableScan) -> _Wa
     ordinal = 1
     inline_name_flag = scan.inline_name_flag
     flags_offset = scan.flags_offset
-    while _row_heads_at(game_db, row_offset, scan, ordinal):
+    while not _reached_table_end(game_db, row_offset, scan, ordinal):
+        if not _row_heads_at(game_db, row_offset, scan, ordinal):
+            break
         name: str | None = None
         row_length = scan.row_bytes
         if game_db[row_offset + flags_offset] & inline_name_flag:
@@ -418,16 +422,32 @@ def _walk_rows(game_db: bytes, head_offset: int, scan: _StadiumTableScan) -> _Wa
     return _WalkedRows(rows, row_offset)
 
 
-def _reached_table_end(game_db: bytes, stop_offset: int, scan: _StadiumTableScan) -> bool:
-    """Whether the walk stopped on the terminator word the save writes after the last row.
+def _reached_table_end(
+    game_db: bytes, stop_offset: int, scan: _StadiumTableScan, expected_ordinal: int
+) -> bool:
+    """Recognise the closing header before decoding it as a ground.
 
-    A walk that stopped anywhere else stopped inside the table, which costs every row after
-    that point: those grounds are missing from the returned table and from the denominators of
-    every share the checks take, so it is reported rather than left silent.
+    The header repeats the next ordinal and allocation uid, followed by a fixed marker and
+    a third copy of that uid. Bytes after it belong to another table, so neither a row-sized
+    read nor a single word from the following data can establish the boundary.
     """
-    if stop_offset < 0 or stop_offset + _WORD.size > len(game_db):
+    marker_start = stop_offset + scan.closing_marker_offset
+    uid_start = stop_offset + scan.closing_uid_offset
+    end = max(
+        scan.head_struct.size,
+        scan.closing_uid_offset + _WORD.size,
+        scan.closing_marker_offset + len(scan.closing_marker),
+    )
+    if stop_offset < 0 or stop_offset + end > len(game_db):
         return False
-    return _WORD.unpack_from(game_db, stop_offset)[0] == scan.table_terminator
+    values = scan.head_struct.unpack_from(game_db, stop_offset)
+    uid = values[scan.head_uid_index]
+    return (
+        values[scan.head_ordinal_index] == expected_ordinal
+        and values[scan.head_uid_copy_index] == uid
+        and game_db[marker_start : marker_start + len(scan.closing_marker)] == scan.closing_marker
+        and _WORD.unpack_from(game_db, uid_start)[0] == uid
+    )
 
 
 def read_stadium_index(game_db: bytes, layout: StadiumTableLayout, file_name: str) -> StadiumIndex:
@@ -454,7 +474,9 @@ def read_stadium_index(game_db: bytes, layout: StadiumTableLayout, file_name: st
         rows=tuple(walked.rows),
         uid_by_ordinal=FrozenMapping(uid_by_ordinal),
         locator_hits=located.locator_hits,
-        reached_table_end=_reached_table_end(game_db, walked.stop_offset, scan),
+        reached_table_end=_reached_table_end(
+            game_db, walked.stop_offset, scan, len(walked.rows) + 1
+        ),
         game_db_bytes=len(game_db),
     )
 
@@ -474,7 +496,6 @@ class _TableCounts:
     """What one pass over the rows counted, before the calendar link is built."""
 
     named_rows: int
-    template_rows: int
     owners_set: int
     owners_resolved: int
     capacity_set: int
@@ -488,16 +509,10 @@ def _table_counts(
 ) -> _TableCounts:
     """Count the rows, the owners and the two distributions the table's own gates judge.
 
-    A template row is the one the save carries rather than a ground anyone plays at, and it is
-    recognised by its all-seater capacity rather than by its place in the table: it is the last
-    row on every save measured, but counting "the last row" could only ever report one, which
-    is no report at all. Its pitch limits are the widest the format holds, so a template is
-    counted on its own and left out of the pitch distribution.
+    Every decoded ground contributes to the pitch distribution.
     """
     rows = index.rows
-    template_all_seater_capacity = layout.template_all_seater_capacity
     named_rows = 0
-    template_rows = 0
     owners_set = 0
     owners_resolved = 0
     capacity_set = 0
@@ -507,12 +522,9 @@ def _table_counts(
     for row in rows:
         if row.name is not None:
             named_rows += 1
-        if row.all_seater == template_all_seater_capacity:
-            template_rows += 1
-        else:
-            pitch_checked += 1
-            if _pitch_within_limits(row, layout):
-                pitch_within_limits += 1
+        pitch_checked += 1
+        if _pitch_within_limits(row, layout):
+            pitch_within_limits += 1
         owner_club_index = row.owner_club_index
         if owner_club_index is not None:
             owners_set += 1
@@ -524,7 +536,6 @@ def _table_counts(
             capacity_within_all_seater += 1
     return _TableCounts(
         named_rows=named_rows,
-        template_rows=template_rows,
         owners_set=owners_set,
         owners_resolved=owners_resolved,
         capacity_set=capacity_set,
@@ -547,7 +558,6 @@ def stadium_table_stats(
         rows=len(index.rows),
         table_end_reached=int(index.reached_table_end),
         named_rows=counts.named_rows,
-        template_rows=counts.template_rows,
         owners_set=counts.owners_set,
         owners_resolved=counts.owners_resolved,
         capacity_set=counts.capacity_set,
@@ -667,7 +677,6 @@ def build_stadiums(
         rows=len(index.rows),
         table_end_reached=int(index.reached_table_end),
         named_rows=counts.named_rows,
-        template_rows=counts.template_rows,
         owners_set=counts.owners_set,
         owners_resolved=counts.owners_resolved,
         capacity_set=counts.capacity_set,

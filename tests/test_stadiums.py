@@ -48,11 +48,11 @@ from tests.fixtures.career import (
     career_fragment,
 )
 from tests.fixtures.stadiums import (
+    CAREER_LAST_STADIUM_ORDINAL,
     CAREER_NAMED_STADIUM,
     CAREER_NAMED_STADIUM_ORDINAL,
     CAREER_STADIUM_ROW_COUNT,
     CAREER_STADIUM_UID_BASE,
-    CAREER_TEMPLATE_STADIUM_ORDINAL,
     STADIUM_INLINE_NAME_FLAG,
     STADIUM_TABLE_LEADING_BYTES,
     stadium_row_bytes,
@@ -84,8 +84,8 @@ SECOND_OWNED_GROUND = 19
 UNLISTED_OWNER_GROUND = 29
 UNOWNED_GROUND = 98
 NAMED_GROUND = CAREER_NAMED_STADIUM_ORDINAL - 1
-TEMPLATE_GROUND = CAREER_TEMPLATE_STADIUM_ORDINAL - 1
-NON_TEMPLATE_ROWS = CAREER_STADIUM_ROW_COUNT - 1
+LAST_GROUND = CAREER_LAST_STADIUM_ORDINAL - 1
+ALL_GROUND_ROWS = CAREER_STADIUM_ROW_COUNT
 # The ground the reserve-side test sends Northbridge's second team to, which is row 30.
 RESERVE_STADIUM_ORDINAL = UNLISTED_OWNER_GROUND + 1
 
@@ -157,7 +157,6 @@ def healthy_stats(**overrides: int) -> StadiumStats:
         rows=47_748,
         table_end_reached=1,
         named_rows=220,
-        template_rows=1,
         owners_set=12_698,
         owners_resolved=12_489,
         capacity_set=9_402,
@@ -209,7 +208,7 @@ def test_the_table_holds_one_row_per_walked_ground_in_ordinal_order(career_path:
 
     assert len(stadiums) == CAREER_STADIUM_ROW_COUNT
     assert stadiums[FIRST_OWNED_GROUND].uid == FIRST_GROUND_UID
-    assert stadiums[TEMPLATE_GROUND].uid == CAREER_STADIUM_UID_BASE + 101
+    assert stadiums[LAST_GROUND].uid == CAREER_STADIUM_UID_BASE + 101
     assert [stadium.uid for stadium in stadiums] == sorted(stadium.uid for stadium in stadiums)
 
 
@@ -259,21 +258,20 @@ def test_an_inline_name_is_read_and_the_row_after_it_still_decodes(career_path: 
     assert stadiums[NAMED_GROUND].name == CAREER_NAMED_STADIUM
     assert stadiums[NAMED_GROUND].unknown["flags_156"] == STADIUM_INLINE_NAME_FLAG
     assert stats.named_rows == 1
-    assert stadiums[TEMPLATE_GROUND].uid == CAREER_STADIUM_UID_BASE + 101
+    assert stadiums[LAST_GROUND].uid == CAREER_STADIUM_UID_BASE + 101
     assert stadiums[NAMED_GROUND].name is not None
     assert stadiums[FIRST_OWNED_GROUND].name is None
 
 
-def test_the_template_row_is_returned_and_left_out_of_the_pitch_count(
-    career_path: Path,
-) -> None:
+def test_the_closing_header_is_not_returned_as_a_ground(career_path: Path) -> None:
     with fmsave.open(career_path) as save:
         stadiums, stats = built_from(save)
 
-    assert stadiums[TEMPLATE_GROUND].all_seater_capacity == 16_777_216
-    assert stats.template_rows == 1
-    assert stats.pitch_checked == NON_TEMPLATE_ROWS
-    assert stats.pitch_within_limits == NON_TEMPLATE_ROWS
+    assert len(stadiums) == CAREER_STADIUM_ROW_COUNT
+    assert stats.pitch_checked == ALL_GROUND_ROWS
+    assert stats.pitch_within_limits == ALL_GROUND_ROWS
+    assert stats.table_end_reached == 1
+    assert all(ground.uid != CAREER_STADIUM_UID_BASE + 102 for ground in stadiums)
 
 
 def test_the_home_grounds_come_from_the_calendar(tmp_path: Path) -> None:
@@ -503,11 +501,51 @@ def test_a_table_cut_through_a_row_keeps_the_complete_rows() -> None:
     assert index.reached_table_end is False
 
 
-def test_a_whole_table_ends_where_the_terminator_word_sits() -> None:
+def test_a_whole_table_ends_where_the_closing_header_sits() -> None:
     index = read_stadium_index(stadium_table_bytes(example_rows(20)), LAYOUT, FILE_NAME)
 
     assert len(index.rows) == 20
     assert index.reached_table_end is True
+
+
+@pytest.mark.parametrize("following_bytes", [b"", b"\x03\x00\x00\x00", b"\xff" * 500])
+def test_closing_header_needs_no_bytes_from_the_following_table(following_bytes: bytes) -> None:
+    table = stadium_table_bytes(example_rows(20), trailing_bytes=0)
+    index = read_stadium_index(table + following_bytes, LAYOUT, FILE_NAME)
+
+    assert len(index.rows) == 20
+    assert index.reached_table_end is True
+
+
+@pytest.mark.parametrize("offset", [0, 4, 8, 12, 13, 14, 15, 16, 17])
+def test_each_closing_header_component_is_checked(offset: int) -> None:
+    table = bytearray(stadium_table_bytes(example_rows(20), trailing_bytes=0))
+    # The closing header is 21 bytes and is not a full stadium record.
+    table[len(table) - 21 + offset] ^= 1
+    index = read_stadium_index(bytes(table), LAYOUT, FILE_NAME)
+
+    assert len(index.rows) == 20
+    assert index.reached_table_end is False
+
+
+@pytest.mark.parametrize("closing_bytes", [0, 12, 16, 20])
+def test_a_truncated_closing_header_does_not_confirm_the_boundary(closing_bytes: int) -> None:
+    table = stadium_table_bytes(example_rows(20), trailing_bytes=0)
+    index = read_stadium_index(table[: len(table) - 21 + closing_bytes], LAYOUT, FILE_NAME)
+
+    assert len(index.rows) == 20
+    assert index.reached_table_end is False
+
+
+def test_a_word_from_the_next_table_cannot_hide_an_incomplete_stadium_walk() -> None:
+    rows = example_rows(20)
+    broken = bytearray(rows[-1])
+    struct.pack_into("<I", broken, 0, 3)
+    table = stadium_table_bytes([*rows[:-1], bytes(broken)], trailing_bytes=0)
+    index = read_stadium_index(table, LAYOUT, FILE_NAME)
+
+    assert len(index.rows) == 19
+    assert index.reached_table_end is False
 
 
 def test_a_repeated_stadium_uid_raises() -> None:
@@ -720,7 +758,6 @@ def test_the_reader_check_reports_the_counts_and_the_anomalies() -> None:
     assert dict(reader_check.anomalies) == {
         "walk_stopped_before_the_table_end": 0,
         "named_rows": 220,
-        "template_rows": 1,
         "unresolved_owners": 209,
         "unset_capacities": 38_346,
         "clubs_with_home_ground": 3_365,

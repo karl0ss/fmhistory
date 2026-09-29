@@ -1355,8 +1355,7 @@ def check_stadiums(stats: StadiumStats, bounds: GateBounds, game_db_bytes: int) 
 
     `named_rows` counts the grounds that carry a name at all, which is a couple of hundred out
     of tens of thousands: every other name comes from the game's installed database.
-    `template_rows` counts the rows shaped like the template the save carries rather than a
-    ground, which is one on every save measured. `unresolved_owners` counts the grounds naming
+    `unresolved_owners` counts grounds naming
     a club the save does not list, and `unset_capacities` the grounds whose capacity field is
     zero, which is about four in five. `clubs_with_home_ground` counts the clubs the calendar
     gave a home ground: none of them on a full-size save means the vote never ran.
@@ -1369,7 +1368,6 @@ def check_stadiums(stats: StadiumStats, bounds: GateBounds, game_db_bytes: int) 
             {
                 "walk_stopped_before_the_table_end": 1 - stats.table_end_reached,
                 "named_rows": stats.named_rows,
-                "template_rows": stats.template_rows,
                 "unresolved_owners": stats.owners_set - stats.owners_resolved,
                 "unset_capacities": stats.rows - stats.capacity_set,
                 "clubs_with_home_ground": stats.clubs_with_home_ground,
@@ -1950,7 +1948,12 @@ def check_staff_lists(stats: StaffStats, bounds: GateBounds, game_db_bytes: int)
         STAFF_LISTS_READER,
         stats.list_rows,
         evaluate_staff_lists(stats, bounds, game_db_bytes),
-        FrozenMapping({"player_values_in_lists": stats.player_values_in_lists}),
+        FrozenMapping(
+            {
+                "player_values_in_lists": stats.player_values_in_lists,
+                "unset_list_values": stats.unset_list_values,
+            }
+        ),
     )
 
 

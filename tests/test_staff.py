@@ -118,6 +118,7 @@ def sound_stats(**overrides: object) -> StaffStats:
         "clubs_lists_fit": 1_000,
         "list_values": 2_100,
         "player_values_in_lists": 4,
+        "unset_list_values": 0,
         "listed_persons": 2_000,
         "listed_persons_staff": 2_000,
         "staff_objects": 2_000,
@@ -606,6 +607,57 @@ def test_a_club_whose_lists_overrun_its_record_gives_no_rows() -> None:
     assert counts.clubs_lists_fit == counts.clubs_checked - 1
     assert 4_002 not in lists_by_club
     assert [club_uid for club_uid, _person_id in listed_pairs] == [4_001]
+
+
+@pytest.mark.parametrize("selectors", [(0,), (30, 0, 40), (0, 30, 0)])
+def test_zero_staff_selectors_do_not_discard_other_members(selectors: tuple[int, ...]) -> None:
+    clubs = [
+        club_record_bytes(
+            club_index=1,
+            uid=4_001,
+            nation_id=3,
+            fa_nation_id=3,
+            city_id=7,
+            name="Northbridge FC",
+            short_name="Northbridge",
+            team_ids=(70_001,),
+            staff_lists=(selectors, (50,), ()),
+        )
+    ]
+    db = game_db_body(clubs, [], gap_bytes=64)
+    index = read_club_index(db, CLUB_LAYOUTS, FILE_NAME)
+    pairs, lists, counts = read_staff_lists(db, index, empty_player_records(), STAFF_LAYOUT)
+
+    assert counts.clubs_lists_fit == counts.clubs_checked == 1
+    assert counts.unset_list_values == selectors.count(0)
+    assert counts.list_values == len(selectors) + 1
+    assert lists[4_001] == (tuple(value - 1 for value in selectors if value), (49,), ())
+    assert set(pairs) == {(4_001, value - 1) for value in (*selectors, 50) if value}
+
+
+@pytest.mark.parametrize("selector", [1_000_001, 0xFFFFFFFF])
+def test_zero_staff_selectors_do_not_make_invalid_nonzero_selectors_acceptable(
+    selector: int,
+) -> None:
+    clubs = [
+        club_record_bytes(
+            club_index=1,
+            uid=4_001,
+            nation_id=3,
+            fa_nation_id=3,
+            city_id=7,
+            name="Northbridge FC",
+            short_name="Northbridge",
+            team_ids=(70_001,),
+            staff_lists=((0, selector), (), ()),
+        )
+    ]
+    db = game_db_body(clubs, [], gap_bytes=64)
+    index = read_club_index(db, CLUB_LAYOUTS, FILE_NAME)
+    pairs, lists, counts = read_staff_lists(db, index, empty_player_records(), STAFF_LAYOUT)
+
+    assert counts.clubs_lists_fit == 0
+    assert pairs == lists == {}
 
 
 def test_a_person_below_every_pindex_is_looked_for_from_the_start_of_the_section() -> None:

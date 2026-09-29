@@ -843,10 +843,9 @@ STADIUM_TABLE = StadiumTableLayout(
     # every one of them is longer than it is wide.
     pitch_length_range=(900, 1300),
     home_ground_minimum_fixtures=4,
-    # The template row every table ends with holds this all-seater capacity on every save
-    # measured, and no real ground holds more than 293,376, so nothing else is mistaken for it.
-    template_all_seater_capacity=16_777_216,
-    table_terminator=3,
+    closing_marker_offset=12,
+    closing_marker=bytes.fromhex("0000000001"),
+    closing_uid_offset=17,
 )
 
 # A stage row is 33 bytes. The table starts 0.65 to 0.94 MB from the end of `game_db` on the

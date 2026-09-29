@@ -27,8 +27,8 @@ STADIUM_NAME_LENGTH_BYTES = 4
 STADIUM_INLINE_NAME_FLAG = 0x10
 # The u32 an owner field holds when the ground belongs to no club.
 STADIUM_NO_OWNER = 0xFFFFFFFF
-# The word the bytes after the last row of the table begin with.
-STADIUM_TABLE_TERMINATOR = 3
+# The closing header's bytes after the next ordinal and two allocation uid words.
+STADIUM_CLOSING_MARKER = b"\x00\x00\x00\x00\x01"
 STADIUM_TABLE_LEADING_BYTES = 64
 STADIUM_TABLE_TRAILING_BYTES = 32
 
@@ -111,23 +111,22 @@ def stadium_table_bytes(
     leading_bytes: int = STADIUM_TABLE_LEADING_BYTES,
     trailing_bytes: int = STADIUM_TABLE_TRAILING_BYTES,
 ) -> bytes:
-    """Zero padding, the rows back to back, then the terminator word and zero padding."""
-    return (
-        bytes(leading_bytes)
-        + b"".join(rows)
-        + struct.pack("<I", STADIUM_TABLE_TERMINATOR)
-        + bytes(trailing_bytes)
-    )
+    """Zero padding, the rows back to back, then the closing header and zero padding."""
+    next_ordinal = 1 if not rows else struct.unpack_from("<I", rows[-1], 0)[0] + 1
+    next_uid = 1 if not rows else max(struct.unpack_from("<I", row, 4)[0] for row in rows) + 1
+    closing = struct.pack("<III", next_ordinal, next_uid, next_uid)
+    closing += STADIUM_CLOSING_MARKER + struct.pack("<I", next_uid)
+    return bytes(leading_bytes) + b"".join(rows) + closing + bytes(trailing_bytes)
 
 
 # The example table: 101 rows whose uids run from the base plus one. Row 10 is a fully filled
 # ground owned by the first club, row 20 belongs to the second and stores no capacity, row 30
 # names a club index no club record holds, row 99 has no owner at all, row 100 carries an
-# inline name, and row 101 is the template every save's table ends with.
+# inline name, and row 101 is an ordinary unnamed ground.
 CAREER_STADIUM_UID_BASE = 610_000
 CAREER_STADIUM_ROW_COUNT = 101
 CAREER_NAMED_STADIUM_ORDINAL = 100
-CAREER_TEMPLATE_STADIUM_ORDINAL = 101
+CAREER_LAST_STADIUM_ORDINAL = 101
 CAREER_NAMED_STADIUM = "Example Park"
 CAREER_STADIUM_BUILT_DAY = 100
 CAREER_STADIUM_BUILT_YEAR = 1950
@@ -136,10 +135,6 @@ CAREER_STADIUM_REBUILT_YEAR = 1990
 CAREER_STADIUM_U17 = 5_000
 CAREER_STADIUM_U25 = 4_000
 CAREER_STADIUM_B33 = 10
-# The all-seater capacity and the pitch limits the last row of a real table holds.
-CAREER_TEMPLATE_ALL_SEATER = 16_777_216
-CAREER_TEMPLATE_PITCH_MINIMUM = (0, 0)
-CAREER_TEMPLATE_PITCH_MAXIMUM = (15_000, 65_535)
 # Club indexes the example club records hold, and one no club record holds at all.
 FIRST_OWNER_CLUB_INDEX = 1
 SECOND_OWNER_CLUB_INDEX = 2
@@ -151,20 +146,6 @@ def career_stadium_rows() -> list[bytes]:
     rows: list[bytes] = []
     for ordinal in range(1, CAREER_STADIUM_ROW_COUNT + 1):
         uid = CAREER_STADIUM_UID_BASE + ordinal
-        if ordinal == CAREER_TEMPLATE_STADIUM_ORDINAL:
-            rows.append(
-                stadium_row_bytes(
-                    ordinal=ordinal,
-                    uid=uid,
-                    all_seater=CAREER_TEMPLATE_ALL_SEATER,
-                    expansion=0,
-                    owner_club_index=None,
-                    capacity=0,
-                    pitch_minimum=CAREER_TEMPLATE_PITCH_MINIMUM,
-                    pitch_maximum=CAREER_TEMPLATE_PITCH_MAXIMUM,
-                )
-            )
-            continue
         if ordinal == 10:
             rows.append(
                 stadium_row_bytes(

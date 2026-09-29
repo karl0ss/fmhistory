@@ -277,6 +277,7 @@ class _ListCounts:
     clubs_lists_fit: int
     list_values: int
     player_values_in_lists: int
+    unset_list_values: int
 
 
 type _ListedPairs = dict[tuple[int, int], tuple[int, ...]]
@@ -295,8 +296,9 @@ def read_staff_lists(
     A club record holds its affiliated-team ids and then exactly `layout.list_count` lists;
     whatever follows them is other data and is never read as one more. A club's lists are taken
     only when all of them end inside the record and every value lies inside
-    `layout.list_value_range`, which no club of any save measured fails. Values that turn out
-    to be player pindexes are dropped and counted, and a person two lists of one club both
+    `layout.list_value_range` or is zero, which names no person and is counted separately.
+    Values that turn out to be player pindexes are dropped and counted, and a person two
+    lists of one club both
     name keeps both list numbers.
     """
     pindex_positions = player_records.position_by_pindex
@@ -309,6 +311,7 @@ def read_staff_lists(
     clubs_lists_fit = 0
     list_values = 0
     player_values_in_lists = 0
+    unset_list_values = 0
     for span in club_index.record_spans:
         team_list_end = span.team_list_end
         if team_list_end is None:
@@ -335,7 +338,7 @@ def read_staff_lists(
             )
             cursor = values_end
         if len(stored_lists) != list_count or any(
-            not lowest_value <= value <= highest_value
+            value != 0 and not lowest_value <= value <= highest_value
             for stored_list in stored_lists
             for value in stored_list
         ):
@@ -348,6 +351,10 @@ def read_staff_lists(
             list_values += len(stored_list)
             person_ids: list[int] = []
             for value in stored_list:
+                # Selectors hold a person index plus one; zero names no person.
+                if value == 0:
+                    unset_list_values += 1
+                    continue
                 person_id = value - _ID_OFFSET
                 if person_id in pindex_positions:
                     player_values_in_lists += 1
@@ -366,6 +373,7 @@ def read_staff_lists(
             clubs_lists_fit=clubs_lists_fit,
             list_values=list_values,
             player_values_in_lists=player_values_in_lists,
+            unset_list_values=unset_list_values,
         ),
     )
 
@@ -879,6 +887,7 @@ def read_staff(
         clubs_lists_fit=list_counts.clubs_lists_fit,
         list_values=list_counts.list_values,
         player_values_in_lists=list_counts.player_values_in_lists,
+        unset_list_values=list_counts.unset_list_values,
         listed_persons=len(listed_persons),
         listed_persons_staff=listed_persons_staff,
         staff_objects=staff_objects,

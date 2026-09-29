@@ -899,11 +899,9 @@ class StadiumTableLayout:
     `home_ground_minimum_fixtures` how many first-team home matches of a club the calendar must
     record before the ground it used most counts as that club's home ground.
 
-    The table ends with a template row rather than a ground anyone plays at, recognised by
-    `template_all_seater_capacity`: no real ground comes near that capacity, and the template's
-    pitch limits are the widest the format holds, so it is counted on its own and left out of
-    the pitch distribution. The word `table_terminator` follows the last row, which is how the
-    walk can say whether it reached the end of the table or stopped short of it.
+    A closing header stores the next ordinal and allocation uid twice, then
+    `closing_marker` at `closing_marker_offset` and a third uid at `closing_uid_offset`.
+    It is metadata rather than a stadium row and is recognised before the row walk.
     """
 
     row_bytes: int
@@ -936,8 +934,9 @@ class StadiumTableLayout:
     locator_rows: int
     pitch_length_range: tuple[int, int]
     home_ground_minimum_fixtures: int
-    template_all_seater_capacity: int
-    table_terminator: int
+    closing_marker_offset: int
+    closing_marker: bytes
+    closing_uid_offset: int
 
 
 @dataclass(frozen=True, slots=True)

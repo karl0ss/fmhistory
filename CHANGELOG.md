@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## Unreleased
 
+- Keep valid club staff-list members when another slot has no person selector.
+
+- Recognize the stadium table's closing header instead of returning it as a ground or reporting an incomplete walk.
+
 ### Fixed
 
 - `tactics()` reads every tactic stored for a managed team, including predefined tactics and previously missed variants.
