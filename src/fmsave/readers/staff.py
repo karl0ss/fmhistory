@@ -162,20 +162,32 @@ def _header_reader(layout: StaffLayout) -> _HeaderReader:
     )
 
 
-def _header_values(game_db: bytes, header: int, reader: _HeaderReader) -> tuple[int, int] | None:
+def _header_values(
+    game_db: bytes, header: int, reader: _HeaderReader, layout: StaffLayout | None = None
+) -> tuple[int, int] | None:
     """(uid, object kind) of a sound header at `header`, or None when it is not one.
 
-    A header is sound when the uid is stored twice over, equal both times, and is neither zero
-    nor the missing-reference word. Ten person ids per save have several offsets that pass that
+    Ordinary headers repeat the uid; both identity words must be nonzero and not the
+    missing-reference word. Allocated staff headers with different identity words
+    also need their object kind and complete ability/preference block to match.
+    Ten person ids per save have several offsets that pass that
     much, which is why every caller also weighs the object kind.
     """
     if header < 0 or header + reader.extent > len(game_db):
         return None
     values = reader.struct_object.unpack_from(game_db, header + reader.start_offset)
     uid: int = values[reader.uid_index]
-    if uid != values[reader.uid_copy_index] or uid == 0 or uid == _MISSING_UID:
+    other = values[reader.uid_copy_index]
+    kind = values[reader.kind_index]
+    if uid in (0, _MISSING_UID) or other in (0, _MISSING_UID):
         return None
-    return uid, values[reader.kind_index]
+    if uid != other:
+        if layout is None or uid < layout.allocated_uid_minimum or kind != layout.staff_kind:
+            return None
+        block, slots_ok, codes_ok, further_ok = _read_ability_block(game_db, header, layout)
+        if block is None or not (slots_ok and codes_ok and further_ok):
+            return None
+    return uid, kind
 
 
 def locate_contracted_header(
@@ -195,7 +207,7 @@ def locate_contracted_header(
     rfind = game_db.rfind
     hit = rfind(needle, search_start, tag_offset)
     while hit >= 0:
-        values = _header_values(game_db, hit, reader)
+        values = _header_values(game_db, hit, reader, layout)
         if values is not None and values[1] == staff_kind:
             return hit
         # The end is exclusive, so this still reaches a hit that overlaps the one just tried.
@@ -241,7 +253,7 @@ def locate_listed_header(
     located: int | None = None
     hit = find(needle, window_start, window_end)
     while hit >= 0:
-        values = _header_values(game_db, hit, reader)
+        values = _header_values(game_db, hit, reader, layout)
         if values is not None and values[1] == staff_kind:
             if located is not None:
                 return _AMBIGUOUS
@@ -446,6 +458,7 @@ class _Discovery:
     header_by_person: dict[int, int]
     hits: int
     untailed_hits: int
+    club_record_hits: int
     unowned_tailed_hits: int
     owned_records: int
 
@@ -456,6 +469,7 @@ def discover_contracts(
     human_selector: int | None,
     decoder: ContractDecoder,
     layouts: StaffLayouts,
+    club_index: ClubIndex,
 ) -> _Discovery:
     """Every contract record a person who is not a player owns, from one filtered pass.
 
@@ -463,7 +477,9 @@ def discover_contracts(
     it. A hit with no tail is what a selector's four bytes look like where they are not a
     record at all, and no person owns one; a tailed hit whose header search fails belongs to
     somebody whose object is not a staff object, and is counted so that the checks can see it.
-    Records whose selector is a player's or the human manager's are left to their own readers.
+    Candidates inside closed club records are counted separately, since those bytes cannot
+    be a standalone person object. Records whose selector is a player's or the human manager's
+    are left to their own readers.
     """
     pattern = _discovery_pattern(layouts.staff, layouts.contracts, layouts.team_lists)
     selector_offset = layouts.contracts.selector_offset
@@ -475,11 +491,27 @@ def discover_contracts(
     header_by_person: dict[int, int] = {}
     hits = 0
     untailed_hits = 0
+    club_record_hits = 0
     unowned_tailed_hits = 0
     owned_records = 0
+    # A next accepted club header closes each of these spans. The final span ends at a
+    # scan margin rather than a known closing header, so it must remain searchable.
+    closed_clubs = club_index.record_spans[:-1]
+    club_position = 0
     for match in pattern.finditer(game_db):
         tag_offset = match.start()
         hits += 1
+        while (
+            club_position < len(closed_clubs)
+            and closed_clubs[club_position].record_end <= tag_offset
+        ):
+            club_position += 1
+        if (
+            club_position < len(closed_clubs)
+            and closed_clubs[club_position].record_start <= tag_offset
+        ):
+            club_record_hits += 1
+            continue
         selector: int = unpack_selector(game_db, tag_offset + selector_offset)[0]
         if selector == 0 or selector == human_selector:
             continue
@@ -505,6 +537,7 @@ def discover_contracts(
         header_by_person=header_by_person,
         hits=hits,
         untailed_hits=untailed_hits,
+        club_record_hits=club_record_hits,
         unowned_tailed_hits=unowned_tailed_hits,
         owned_records=owned_records,
     )
@@ -668,7 +701,7 @@ def _unique_id(
         uid_ceiling = None
     else:
         search_end = next_header + _UINT32.size
-        next_values = _header_values(game_db, next_header, _header_reader(layout))
+        next_values = _header_values(game_db, next_header, _header_reader(layout), layout)
         uid_ceiling = None if next_values is None else next_values[0]
     return closing_unique_id(game_db, person_id, search_start, search_end, uid, uid_ceiling)
 
@@ -767,7 +800,7 @@ def read_staff(
         game_db, club_index, player_records, staff_layout
     )
     discovery = discover_contracts(
-        game_db, player_records, human_selector, contract_decoder, layouts
+        game_db, player_records, human_selector, contract_decoder, layouts, club_index
     )
 
     header_by_person = dict(discovery.header_by_person)
@@ -839,7 +872,7 @@ def read_staff(
     persons_with_block = 0
     for person_id in sorted(row_persons):
         header = header_by_person[person_id]
-        header_values = _header_values(game_db, header, _header_reader(staff_layout))
+        header_values = _header_values(game_db, header, _header_reader(staff_layout), staff_layout)
         # Every header here passed the same test when it was located.
         uid, kind = cast("tuple[int, int]", header_values)
         is_human_manager = kind == staff_layout.human_kind
@@ -899,6 +932,7 @@ def read_staff(
         persons_with_block=persons_with_block,
         discovery_hits=discovery.hits,
         untailed_hits=discovery.untailed_hits,
+        club_record_hits=discovery.club_record_hits,
         unowned_tailed_hits=discovery.unowned_tailed_hits,
         owned_records=discovery.owned_records,
         listed_pairs=len(listed_pairs),

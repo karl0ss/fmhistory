@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## Unreleased
 
+- Exclude contract-like bytes inside closed club records from staff discovery.
+
+- Recover structurally complete player and staff objects whose allocated identity header carries two distinct words.
+
 - Keep valid club staff-list members when another slot has no person selector.
 
 - Recognize the stadium table's closing header instead of returning it as a ground or reporting an incomplete walk.

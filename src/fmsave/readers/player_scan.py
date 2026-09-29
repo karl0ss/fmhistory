@@ -331,20 +331,31 @@ def _accept_candidate(
     """Check one candidate; return (pindex, uid) when every acceptance check holds, else None.
 
     check_pattern is False for a completeness-pass candidate, whose ratings and attribute
-    bytes the regex has already validated at this exact position. The doubled-uid check runs
-    first, from its own small struct, because almost every false marker hit fails it; the
-    wider header struct is only read once that check passes.
+    bytes the regex has already validated at this exact position. Identity checks run first
+    from their own small struct; allocated headers with a distinct second identity word also
+    require the player object kind. The wider header and full attribute checks still apply.
     """
     header_absolute_start = record_offset + header_layout.start_offset
-    accept_checks_end = record_offset + layout.attributes_offset + layout.attribute_count
-    if header_absolute_start < 0 or accept_checks_end > buffer_length:
+    accept_checks_end = record_offset + max(
+        layout.attributes_offset + layout.attribute_count, layout.object_kind_offset + 1
+    )
+    if (
+        header_absolute_start < 0
+        or record_offset + layout.object_kind_offset < 0
+        or accept_checks_end > buffer_length
+    ):
         return None
     uid_values = uid_layout.struct_object.unpack_from(
         game_db, record_offset + uid_layout.start_offset
     )
     uid: int = uid_values[uid_layout.uid_index]
     uid_copy: int = uid_values[uid_layout.uid_copy_index]
-    if uid != uid_copy or uid == 0 or uid == MISSING_REFERENCE:
+    if uid in (0, MISSING_REFERENCE) or uid_copy in (0, MISSING_REFERENCE):
+        return None
+    if uid != uid_copy and (
+        uid < layout.allocated_uid_minimum
+        or game_db[record_offset + layout.object_kind_offset] != layout.player_kind
+    ):
         return None
     header_values = header_layout.struct_object.unpack_from(game_db, header_absolute_start)
     current_ability: int = header_values[header_layout.current_ability_index]

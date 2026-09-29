@@ -50,6 +50,7 @@ def staff_object_bytes(
     person_id: int,
     uid: int,
     kind: int = 1,
+    identity_word: int | None = None,
     entries: Sequence[tuple[int, int]] = (),
     reputations: tuple[int, int, int] = CAREER_STAFF_REPUTATIONS,
     current_ability: int = 120,
@@ -92,7 +93,9 @@ def staff_object_bytes(
             f"a staff object holds {STAFF_BLOCK_40_COUNT} further bytes, not {len(block_40)}"
         )
 
-    output = bytearray(struct.pack("<III", person_id, uid, uid))
+    output = bytearray(
+        struct.pack("<III", person_id, uid, uid if identity_word is None else identity_word)
+    )
     output.append(kind)
     output.append(len(entries))
     output.append(0)

@@ -1244,6 +1244,7 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
         },
         "staff": {
             "untailed_hits": 0,
+            "club_record_hits": 1,
             "ambiguous_headers": 0,
             "unlocated_persons": 0,
             "unresolved_contract_teams": 0,

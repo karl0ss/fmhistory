@@ -311,6 +311,11 @@ PLAYER_RECORDS = PlayerRecordLayout(
     pindex_offset=-19,
     uid_offset=-15,
     uid_copy_offset=-11,
+    # Allocated person identities can carry a distinct second header word. The object kind
+    # and the complete rating/attribute structure must still match a player.
+    allocated_uid_minimum=2_000_000_000,
+    object_kind_offset=-7,
+    player_kind=2,
     home_reputation_offset=-6,
     current_reputation_offset=-4,
     world_reputation_offset=-2,
@@ -979,6 +984,7 @@ STAFF = StaffLayout(
     human_kind=9,
     uid_offset=4,
     uid_copy_offset=8,
+    allocated_uid_minimum=2_000_000_000,
     entry_count_offset=13,
     entry_bytes=7,
     ability_base_offset=21,

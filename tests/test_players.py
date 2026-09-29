@@ -361,6 +361,56 @@ def test_doubled_uid_mismatch_is_rejected() -> None:
     assert 900006 not in player_records.uids
 
 
+@pytest.mark.parametrize("marker", [bytes.fromhex("01006c07"), bytes(4)])
+def test_allocated_player_header_with_distinct_identity_word_is_decoded(marker: bytes) -> None:
+    record = player_record_bytes(
+        **{
+            **PLAYER_A,
+            "pindex": 30,
+            "uid": 2_000_000_123,
+            "identity_word": 810_123,
+            "object_kind": 2,
+            "marker": marker,
+        }
+    )
+    db = example_game_db() + record
+    _, records, _ = build_index(db)
+    assert 2_000_000_123 in records.uids
+    player = by_uid(decode_all(db), 2_000_000_123)
+    assert player.ability.current == PLAYER_A["current_ability"]
+    assert player.height_cm == PLAYER_A["height_cm"]
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"object_kind": 1},
+        {"object_kind": 3},
+        {"identity_word": 0},
+        {"identity_word": 0xFFFFFFFF},
+        {"current_ability": 201},
+        {"potential_ability": 201},
+        {"ratings": (0,) * 15},
+        {"raw_attributes": (0,) * 54},
+    ],
+)
+def test_allocated_identity_word_does_not_bypass_player_structure(
+    override: dict[str, object],
+) -> None:
+    record = player_record_bytes(
+        **{
+            **PLAYER_A,
+            "pindex": 30,
+            "uid": 2_000_000_123,
+            "identity_word": 810_123,
+            "object_kind": 2,
+            **override,
+        }
+    )
+    _, records, _ = build_index(example_game_db() + record)
+    assert 2_000_000_123 not in records.uids
+
+
 def test_stray_block_with_no_valid_uid_is_rejected() -> None:
     game_db = example_game_db()
     _, player_records, _ = build_index(game_db)

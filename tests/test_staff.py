@@ -27,11 +27,13 @@ from fmsave._reader_stats import StaffStats
 from fmsave._save import STAFF_LISTS_TABLE_CACHE_KEY, STAFF_TABLE_CACHE_KEY
 from fmsave.readers._common import GAME_DB_SECTION
 from fmsave.readers.clubs import ClubIndex, find_club_layouts, read_club_index
+from fmsave.readers.contracts import build_contract_decoder
 from fmsave.readers.names import NamePools
 from fmsave.readers.player_scan import PlayerRecords
 from fmsave.readers.staff import (
     StaffLayouts,
     _read_ability_block,
+    discover_contracts,
     find_staff_layouts,
     locate_listed_header,
     read_staff_lists,
@@ -130,6 +132,7 @@ def sound_stats(**overrides: object) -> StaffStats:
         "persons_with_block": 2_000,
         "discovery_hits": 40_000,
         "untailed_hits": 3_000,
+        "club_record_hits": 0,
         "unowned_tailed_hits": 0,
         "owned_records": 1_800,
         "listed_pairs": 1_000,
@@ -422,6 +425,79 @@ def test_a_decoy_of_another_object_kind_is_ignored(tmp_path: Path) -> None:
     assert staff_check.anomalies["ambiguous_headers"] == 0
 
 
+def test_allocated_staff_header_recovers_its_contract_name_and_ability(tmp_path: Path) -> None:
+    record, _tag = _far_contract_record()
+    person = staff_object_bytes(
+        person_id=FAR_CONTRACT_PERSON_ID,
+        uid=2_000_000_123,
+        identity_word=810_123,
+        contract=record,
+        person_block=person_block_bytes(
+            first_name_id=0,
+            surname_id=1,
+            common_name_id=MISSING_NAME_ID,
+            legal_name=None,
+            birth=packed_date(1, 1985),
+            nation_id=44,
+            personality=(6,) * 8,
+            trait_bits=0,
+            relations=(),
+        ),
+    )
+    path = career_fragment(extra_staff=person).write(tmp_path / "career.bin")
+    with fmsave.open(path) as save:
+        row = person_by_uid(tuple(save.staff()), 2_000_000_123)
+        check = save._reader_check(STAFF_READER)
+    assert row.name is not None
+    assert row.wage == 700
+    assert row.ability is not None and row.ability.current == 120
+    assert row.preferences is not None
+    assert check is not None
+    assert observed_gate(check, "staff_unowned_tailed_contracts") == 0
+
+
+def test_allocated_staff_header_can_be_located_from_a_list_without_a_contract() -> None:
+    person = staff_object_bytes(person_id=30, uid=2_000_000_123, identity_word=810_123)
+    assert locate_listed_header(person, 30, empty_player_records(), STAFF_LAYOUT) == 0
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"kind": 2},
+        {"kind": 3},
+        {"uid": 810_124},
+        {"identity_word": 0},
+        {"identity_word": 0xFFFFFFFF},
+        {"sentinel": 0},
+        {"current_ability": 0},
+        {"codes": (0,) * 8},
+        {"preferences": (0,) * 26},
+        {"block_40": (0,) * 26},
+    ],
+)
+def test_alternate_staff_header_requires_the_complete_staff_structure(
+    tmp_path: Path, override: dict[str, object]
+) -> None:
+    record, _tag = _far_contract_record()
+    person = staff_object_bytes(
+        **{
+            "person_id": FAR_CONTRACT_PERSON_ID,
+            "uid": 2_000_000_123,
+            "identity_word": 810_123,
+            "contract": record,
+            **override,
+        }
+    )
+    path = career_fragment(extra_staff=person).write(tmp_path / "career.bin")
+    with fmsave.open(path) as save:
+        rows = tuple(save.staff())
+        check = save._reader_check(STAFF_READER)
+    assert not any(row.uid in (2_000_000_123, 810_124) for row in rows)
+    assert check is not None
+    assert observed_gate(check, "staff_unowned_tailed_contracts") == 1
+
+
 def test_a_contract_too_far_from_its_header_belongs_to_nobody(tmp_path: Path) -> None:
     far_record, _tag_offset = _far_contract_record()
     far_person = staff_object_bytes(
@@ -506,6 +582,44 @@ def _far_contract_record() -> tuple[bytes, int]:
         tail={"end": packed_date(181, 2031), "status": 0},
         head={"type": 1},
     )
+
+
+@pytest.mark.parametrize("put_inside_last_club", [False, True])
+def test_contract_like_club_data_is_excluded_only_from_closed_records(
+    put_inside_last_club: bool,
+) -> None:
+    record, _tag = _far_contract_record()
+    clubs = [
+        club_record_bytes(
+            club_index=n,
+            uid=4_000 + n,
+            nation_id=3,
+            fa_nation_id=3,
+            city_id=7,
+            name=f"Example Club {n}",
+            short_name=f"Example {n}",
+            team_ids=(70_000 + n,),
+            staff_lists=((), (), ()),
+            trailing_bytes=record if n == (2 if put_inside_last_club else 1) else b"",
+        )
+        for n in (1, 2)
+    ]
+    real_staff = staff_object_bytes(
+        person_id=FAR_CONTRACT_PERSON_ID,
+        uid=FAR_CONTRACT_PERSON_UID,
+        contract=record,
+    )
+    db = game_db_body(clubs, [], gap_bytes=64) + real_staff
+    index = read_club_index(db, CLUB_LAYOUTS, FILE_NAME)
+    decoder = build_contract_decoder(STAFF_LAYOUTS.contracts, index, date(2031, 3, 1), FILE_NAME)
+    found = discover_contracts(db, empty_player_records(), None, decoder, STAFF_LAYOUTS, index)
+
+    assert found.owned_records == 1
+    assert found.unowned_tailed_hits == (1 if put_inside_last_club else 0)
+    assert found.club_record_hits >= (0 if put_inside_last_club else 1)
+    assert len(found.records_by_person[FAR_CONTRACT_PERSON_ID]) == 1
+    tag = found.records_by_person[FAR_CONTRACT_PERSON_ID][0][0]
+    assert tag >= len(db) - len(real_staff)
 
 
 def test_an_object_whose_sentinel_is_wrong_keeps_its_name_and_contract(tmp_path: Path) -> None:

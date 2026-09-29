@@ -1912,7 +1912,8 @@ def evaluate_staff_lists(
 def check_staff(stats: StaffStats, bounds: GateBounds, game_db_bytes: int) -> ReaderCheck:
     """The staff reader's checks, record count and anomaly counts.
 
-    `untailed_hits` counts the filtered pass's hits that are not a contract record at all,
+    `club_record_hits` counts candidates inside closed club objects, which are not people.
+    `untailed_hits` counts the remaining filtered hits that are not a contract record at all,
     which every save has tens of thousands of. `ambiguous_headers` and `unlocated_persons`
     count the people left without a row, a handful at most. `unresolved_contract_teams` counts
     the records naming a team no club lists, `repeat_contracts` the people holding two records
@@ -1927,6 +1928,7 @@ def check_staff(stats: StaffStats, bounds: GateBounds, game_db_bytes: int) -> Re
         FrozenMapping(
             {
                 "untailed_hits": stats.untailed_hits,
+                "club_record_hits": stats.club_record_hits,
                 "ambiguous_headers": stats.ambiguous_headers,
                 "unlocated_persons": stats.unlocated_persons,
                 "unresolved_contract_teams": stats.unresolved_contract_teams,

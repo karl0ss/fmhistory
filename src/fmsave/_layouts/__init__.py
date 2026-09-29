@@ -348,6 +348,11 @@ class PlayerRecordLayout:
     last byte a full decode reads: a candidate that passes every acceptance check but whose
     record does not reach `record_offset + decode_extent` is a truncated record, not a
     rejected one.
+
+    Ordinary identity words match. In the allocated namespace starting at
+    `allocated_uid_minimum`, a distinct second word also requires `player_kind` at
+    `object_kind_offset`, together with every ability, reputation and attribute check.
+    The distinct word's meaning is not inferred.
     """
 
     marker: bytes
@@ -355,6 +360,9 @@ class PlayerRecordLayout:
     pindex_offset: int
     uid_offset: int
     uid_copy_offset: int
+    allocated_uid_minimum: int
+    object_kind_offset: int
+    player_kind: int
     home_reputation_offset: int
     current_reputation_offset: int
     world_reputation_offset: int
@@ -1265,10 +1273,12 @@ class StaffLayout:
     count byte followed by that many u32 values, each a person id plus one. The bytes after the
     last list are other data and are never read as a fourth list. A club's lists are read only
     when they all end at or before the record's end and every value lies inside
-    `list_value_range`, which no club of any save measured fails.
+    `list_value_range` or is zero, which names no person.
 
     **The person object.** `header` is the offset of the u32 person id. The uid sits twice, at
-    `uid_offset` and `uid_copy_offset`, and `kind_offset` holds `staff_kind` for a staff member
+    `uid_offset` and `uid_copy_offset` on ordinary headers. At or above
+    `allocated_uid_minimum`, distinct identity words also require the complete staff ability
+    and preference structure. `kind_offset` holds `staff_kind` for a staff member
     and `human_kind` for the human manager. `entry_count_offset` holds how many `entry_bytes`
     entries the object carries; they start two bytes later, behind a zero byte, and nothing
     reads either of those two positions. Three
@@ -1309,6 +1319,7 @@ class StaffLayout:
     human_kind: int
     uid_offset: int
     uid_copy_offset: int
+    allocated_uid_minimum: int
     entry_count_offset: int
     entry_bytes: int
     ability_base_offset: int

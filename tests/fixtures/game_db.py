@@ -511,6 +511,8 @@ def player_record_bytes(
     height_cm: int,
     marker: bytes = PLAYER_RECORD_MARKER,
     doubled_uid: bool = True,
+    identity_word: int | None = None,
+    object_kind: int = 0,
     trailing: bytes = b"",
     match_records: bytes = b"",
 ) -> bytes:
@@ -524,9 +526,9 @@ def player_record_bytes(
     """
     header = bytearray(b"\x00\x40\x00\x00\x00\x00\x00")
     header.extend(struct.pack("<I", pindex))
-    second_uid = uid if doubled_uid else uid + 1
+    second_uid = (uid if doubled_uid else uid + 1) if identity_word is None else identity_word
     header.extend(struct.pack("<II", uid, second_uid))
-    header.append(0)
+    header.append(object_kind)
     header.extend(struct.pack("<HHH", home_reputation, current_reputation, world_reputation))
 
     body = bytearray(PLAYER_RECORD_BODY_BYTES)

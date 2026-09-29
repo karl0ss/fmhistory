@@ -133,6 +133,7 @@
     dict({
       'build': '26.3.2+2329565',
       'layout': dict({
+        'allocated_uid_minimum': 2000000000,
         'attribute_count': 54,
         'attribute_field_order': tuple(
           'crossing',
@@ -208,7 +209,9 @@
         'marker': b'\x01\x00l\x07',
         'marker_offset': 102,
         'match_sharpness_offset': 106,
+        'object_kind_offset': -7,
         'pindex_offset': -19,
+        'player_kind': 2,
         'position_codes': tuple(
           'GK',
           'SW',
@@ -836,6 +839,7 @@
           1,
           200,
         ),
+        'allocated_uid_minimum': 2000000000,
         'block_40_count': 26,
         'block_40_offset': 40,
         'block_40_range': tuple(

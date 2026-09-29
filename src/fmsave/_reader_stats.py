@@ -458,7 +458,8 @@ class StaffStats:
     how many of them read as the layout says. `persons` counts the people a row was built for,
     the human manager included, and `persons_with_block` those with a name block.
 
-    Discovery: `discovery_hits` counts the filtered contract-tag hits, `untailed_hits` those
+    Discovery: `discovery_hits` counts the filtered contract-tag hits, `club_record_hits`
+    those inside closed club records, and `untailed_hits` those
     whose record has no tail, which no person owns, `unowned_tailed_hits` those with a tail
     whose person has no header in front of them, and `owned_records` the records a person was
     found to own.
@@ -490,6 +491,7 @@ class StaffStats:
     persons_with_block: int
     discovery_hits: int
     untailed_hits: int
+    club_record_hits: int
     unowned_tailed_hits: int
     owned_records: int
     listed_pairs: int
