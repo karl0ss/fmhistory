@@ -151,10 +151,15 @@ def test_reader_counts_and_checks_stay_in_their_recorded_ranges(
             old_routine_count = reader.reader == "set_pieces" and (
                 "set_piece_blocks_complete" not in recorded_reader.get("gates", {})
             )
+            # Earlier tactic counts excluded stored preset and alternate records.
+            old_tactic_count = reader.reader == "tactics" and (
+                "tactic_records_count_matching" not in recorded_reader.get("gates", {})
+            )
             if (
                 isinstance(recorded_count, int)
                 and reader.record_count is not None
                 and not old_routine_count
+                and not old_tactic_count
             ):
                 counts_match = within_tolerance(
                     reader.record_count, recorded_count, RECORD_COUNT_TOLERANCE

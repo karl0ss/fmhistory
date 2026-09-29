@@ -61,6 +61,7 @@ def selection_part_bytes(
     list_a: Sequence[int],
     list_b: Sequence[int],
     single: int,
+    taker_marker: bytes = TAKER_MARKER,
     taker_lists: Sequence[Sequence[int]] = ((),) * 10,
     order_lists: Sequence[Sequence[int]] = ((),) * 8,
     tactics_value: int,
@@ -85,7 +86,7 @@ def selection_part_bytes(
     payload.extend(selector_list_bytes(list_b))
     payload.extend(LIST_ITEM_LEAD)
     payload.extend(_UINT32.pack(single))
-    payload.extend(TAKER_MARKER)
+    payload.extend(taker_marker)
     for taker_list in taker_lists:
         payload.extend(selector_list_bytes(taker_list))
     payload.extend(ORDER_MARKER)
@@ -146,6 +147,7 @@ def tactic_record_bytes(
     slots: Sequence[tuple[bytes, bytes]],
     tail: bytes = b"\xee" * 16,
     preset: bool = False,
+    record_variant: int | None = None,
 ) -> bytes:
     """One tactic record: the signature, the name, the instructions, the style and the slots.
 
@@ -154,6 +156,8 @@ def tactic_record_bytes(
     carrying the per-position index byte.
     """
     payload = bytearray(PRESET_SIGNATURE if preset else USER_SIGNATURE)
+    if record_variant is not None:
+        payload[-1] = record_variant
     payload.extend(_length_prefixed(name))
     payload.extend(bytes(12))
     payload.extend(team_instructions)

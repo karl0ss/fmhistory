@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+
+- `tactics()` reads every tactic stored for a managed team, including predefined tactics and previously missed variants.
+- `tactics()` and `set_pieces()` read additional continued careers. Incomplete tactic lists cannot borrow records from the trailing tactic library; validation now includes `tactic_records_count_matching`.
+- Fresh careers with explicitly empty tactic lists pass validation without excusing missing records in lists that claim tactics.
+
 ## [0.5.3] - 2026-09-29
 
 ### Fixed

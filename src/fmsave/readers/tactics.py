@@ -92,8 +92,8 @@ class TacticWalkCounts:
     the section header claims. `tactic_blocks` counts blocks whose stored count claims a
     tactic record, and `tactic_blocks_count_matching` those where every record the count claims
     was found. `preset_tactics` counts the records carrying the preset signature, which are
-    counted and skipped. `routine_blocks_complete` counts blocks whose default runs and counted routine
-    groups were all read completely.
+    decoded along with the other records in the team's declared list. `routine_blocks_complete`
+    counts blocks whose default runs and counted routine groups were all read completely.
     """
 
     club_team_count: int
@@ -273,9 +273,16 @@ def _read_selection_part(
         )
     selectors.append(_UINT32.unpack_from(section, cursor + _UINT8.size)[0])
     cursor += _UINT8.size + _UINT32.size
-    cursor = _expect_bytes(
-        section, cursor, layout.taker_marker, file_name, "a block's set-piece marker"
-    )
+    # Both observed marker variants introduce the same counted selector lists. Accept
+    # only a known marker, then validate every list and the following order marker.
+    for marker in layout.taker_markers:
+        if section[cursor : cursor + len(marker)] == marker:
+            cursor += len(marker)
+            break
+    else:
+        raise layout_mismatch(
+            file_name, "a block's set-piece marker is not where fmsave expects it", TACTICS_SECTION
+        )
     for _ in range(layout.taker_list_count):
         one_list, cursor = _read_selector_list(
             section, cursor, block_end, layout, file_name, "a set-piece list"
@@ -438,7 +445,7 @@ def _slot_from_pair(
 def _read_tactic_record(
     section: bytes, signature_at: int, record_end: int, layout: TacticsLayout, file_name: str
 ) -> RawTactic:
-    """One user tactic record, walked as far as its slot blocks allow.
+    """One stored tactic record, walked as far as its slot blocks allow.
 
     `record_end` is where the record's own bytes stop: the next signature inside the team
     block, or the block's end when it is the last record. Nothing here reads past it, so a
@@ -537,17 +544,14 @@ def _routine_tail_pattern(layout: TacticsLayout) -> re.Pattern[bytes]:
     )
 
 
-def _read_routines(
-    section: bytes, search_from: int, block_end: int, layout: TacticsLayout
+def _read_routine_groups(
+    section: bytes, area: int, block_end: int, layout: TacticsLayout
 ) -> tuple[tuple[str | None, ...], bool]:
     """Read default routines and the stored counts of user-routine groups.
 
     A complete walk consumes every group, including its trailer byte. Terminators outside
     those groups cannot add routines or make a truncated group pass its check.
     """
-    area = section.find(layout.routine_area_marker, search_from, block_end)
-    if area < 0:
-        return (), False
     cursor = area + layout.routine_area_header_bytes
     next_record, _is_user = _next_signature(section, cursor, block_end, layout)
     if next_record is not None:
@@ -591,22 +595,46 @@ def _read_routines(
     return tuple(names), True
 
 
+def _read_routines(
+    section: bytes, search_from: int, block_end: int, layout: TacticsLayout
+) -> tuple[tuple[str | None, ...], bool, int]:
+    """Locate a complete counted area; a marker alone can occur in tactic setting bits.
+
+    When no candidate completes, retain the first partial walk for its failed check.
+    Its position still bounds tactics, so trailing library records cannot fill a missing
+    record claimed by a team block.
+    """
+    first: tuple[tuple[str | None, ...], bool, int] | None = None
+    area = section.find(layout.routine_area_marker, search_from, block_end)
+    while area >= 0:
+        names, complete = _read_routine_groups(section, area, block_end, layout)
+        result = names, complete, area
+        if complete:
+            return result
+        if first is None:
+            first = result
+        area = section.find(layout.routine_area_marker, area + 1, block_end)
+    return ((), False, block_end) if first is None else first
+
+
 def _next_signature(
     section: bytes, search_from: int, block_end: int, layout: TacticsLayout
 ) -> tuple[int | None, bool]:
     """(offset, whether it is a user record) of the next tactic signature, or (None, False).
 
-    The two signatures differ in their last byte alone, so both are searched for and the
+    The supported signatures differ in their last byte alone, so all are searched for and the
     earlier one wins. This is what bounds a record: its own bytes end where the next
     signature begins.
     """
-    user_at = section.find(layout.user_signature, search_from, block_end)
-    preset_at = section.find(layout.preset_signature, search_from, block_end)
-    if user_at < 0 and preset_at < 0:
-        return None, False
-    if preset_at < 0 or (0 <= user_at < preset_at):
-        return user_at, True
-    return preset_at, False
+    found = (
+        (section.find(signature, search_from, block_end), is_user)
+        for signature, is_user in (
+            (layout.user_signature, True),
+            (layout.alternate_signature, True),
+            (layout.preset_signature, False),
+        )
+    )
+    return min((hit for hit in found if hit[0] >= 0), default=(None, False))
 
 
 def walk_tactic_blocks(
@@ -640,26 +668,30 @@ def walk_tactic_blocks(
             ordered_starts[position + 1][1] if position + 1 < len(ordered_starts) else len(section)
         )
         selection = _read_selection_part(section, block_start, block_end, layout, file_name)
+        routine_names, routines_complete, records_end = _read_routines(
+            section, selection.end, block_end, layout
+        )
         tactics: list[RawTactic] = []
         records_found = 0
         search_from = selection.end
         for _ in range(selection.tactic_count):
-            signature_at, is_user_record = _next_signature(section, search_from, block_end, layout)
+            signature_at, is_user_record = _next_signature(
+                section, search_from, records_end, layout
+            )
             if signature_at is None:
                 break
             records_found += 1
             search_from = signature_at + len(layout.user_signature)
             if not is_user_record:
                 preset_tactics += 1
-                continue
             next_signature_at, _next_is_user = _next_signature(
-                section, search_from, block_end, layout
+                section, search_from, records_end, layout
             )
             tactics.append(
                 _read_tactic_record(
                     section,
                     signature_at,
-                    block_end if next_signature_at is None else next_signature_at,
+                    records_end if next_signature_at is None else next_signature_at,
                     layout,
                     file_name,
                 )
@@ -670,7 +702,6 @@ def walk_tactic_blocks(
                 tactic_blocks_count_matching += 1
         # Routine groups have their own counts and boundary; an incomplete tactic walk must
         # not move their start past the area into trailing preset records.
-        routine_names, routines_complete = _read_routines(section, selection.end, block_end, layout)
         if routines_complete:
             routine_blocks_complete += 1
         blocks.append(RawTacticBlock(team_id, tuple(tactics), routine_names, selection.selectors))
@@ -725,8 +756,8 @@ def build_tactic_tables(
 ) -> tuple[tuple[Tactic, ...], tuple[SetPieceRoutine, ...], TacticStats]:
     """Both tables and the counts the checks judge, from the blocks the walk read.
 
-    A block's tactics keep their stored order and `index` counts the user records of that block
-    alone, so a preset record the manager never wrote does not shift the numbering. Every
+    A block's tactics keep their stored order and `index` counts all records of that block
+    alone. Library records following its routine area are outside that list. Every
     routine slot of every block becomes a row, named or not.
     """
     club_uid_by_player_uid = _club_uid_by_player_uid(players)
@@ -784,7 +815,7 @@ def build_tactic_tables(
         selection_selectors_at_club=selectors_at_club,
         tactic_blocks=counts.tactic_blocks,
         tactic_blocks_count_matching=counts.tactic_blocks_count_matching,
-        user_tactics=len(tactics),
+        stored_tactics=len(tactics),
         preset_tactics=counts.preset_tactics,
         slot_walks_complete=slot_walks_complete,
         oop_index_permutations=index_permutations,

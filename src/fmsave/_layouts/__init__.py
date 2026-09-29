@@ -1356,16 +1356,16 @@ class TacticsLayout:
     at several places, or none, gets no block. A block starts with that id and marker, then a
     length-prefixed selection label, then `selection_slot_count` selector words, then
     `selection_end_marker`, two selector lists, `list_item_lead_byte` and one selector,
-    `taker_marker`, `taker_list_count` lists, `order_marker`, `order_list_count` lists, a zero
-    byte, the u32 the manager's choice of tactic may sit in (`no_tactics_value` on a block with
+    one of `taker_markers`, `taker_list_count` lists, `order_marker`, `order_list_count` lists,
+    a zero byte, the u32 the manager's choice of tactic may sit in (`no_tactics_value` on a block with
     no tactic) and the u16 count of tactic records. A selector list is a u32 count and that
     many `list_item_lead_byte` plus u32 pairs; nothing caps a count but the bytes left in the
     section, because one list of 99 selectors exists.
 
     **Tactic records** are bounded by the next signature, never by the walk: the bytes after a
     record's last slot block are not decoded, so the record after it starts at the next
-    `user_signature` or `preset_signature` hit, and the count says how many to read. A record
-    is its signature, a length-prefixed name within `name_length_range`, `name_zero_bytes`
+    `user_signature`, `alternate_signature` or `preset_signature` hit, and the count says how
+    many to read. A record is its signature, a length-prefixed name within `name_length_range`, `name_zero_bytes`
     zero bytes, `team_instruction_bytes` instruction bytes of which `mentality_index` is the
     mentality code, a length-prefixed style label, `style_code_bytes` of style code, and then
     `slot_count` **pairs** of slot blocks: the in-possession block and then the
@@ -1401,13 +1401,14 @@ class TacticsLayout:
     selection_slot_count: int
     selection_end_marker: bytes
     list_item_lead_byte: int
-    taker_marker: bytes
+    taker_markers: tuple[bytes, ...]
     taker_list_count: int
     order_marker: bytes
     order_list_count: int
     no_tactics_value: int
     tactic_count_lead_byte: int
     user_signature: bytes
+    alternate_signature: bytes
     preset_signature: bytes
     name_zero_bytes: int
     team_instruction_bytes: int
@@ -1866,8 +1867,9 @@ class GateBounds:
     Tactics: `tactics_manager_selector_matches` (1 when the section header names the same human
     manager as `humans`), `tactics_team_blocks_match_club` (blocks found, of the managed club's
     teams, and 0 when the header claims a different number of blocks),
-    `tactic_slot_walks_complete` and `tactic_oop_index_permutations` (user tactic records whose
-    22 slot blocks walked, and whose out-of-possession index bytes are a permutation, of user
+    `tactic_records_count_matching` (blocks whose declared records were all found),
+    `tactic_slot_walks_complete` and `tactic_oop_index_permutations` (stored tactic records whose
+    22 slot blocks walked, and whose out-of-possession index bytes are a permutation, of stored
     tactic records), `tactic_selection_selectors_resolved` (selectors the player records name,
     of selectors) and `tactic_selection_selectors_at_club` (of those, the ones at the managed
     club); in `set_pieces()`, `set_piece_blocks_complete` (blocks whose default runs and counted routine groups
@@ -1875,10 +1877,10 @@ class GateBounds:
     only where the save lists a managed club, because a manager between jobs has no team block
     to read and an empty result is a fact about the career.
 
-    The two walk shares are judged on the user tactic records, and they are deliberately **not**
-    excused when there are none: a managed club whose blocks hold no readable tactic record is
-    what a signature that has moved looks like. The two selector shares and the routine share
-    are excused without a denominator, since a block legitimately stores no selection at all.
+    The two walk shares apply when a team block claims tactics or records were decoded.
+    Explicitly empty lists need no slot walk, while a nonempty count with no decoded records
+    fails both shares and the record-count check. The two selector shares and the routine
+    share are excused without a denominator, since a block can store no selection at all.
     Mentality in 1 to 7 is **not** a gate: instruction byte 3 is 6 on every record of every save
     measured, so a record read one byte late passes it.
 
@@ -2021,6 +2023,7 @@ class GateBounds:
     tactics_manager_selector_matches: BoundPair
     tactics_team_blocks_match_club: BoundPair
     tactic_slot_walks_complete: BoundPair
+    tactic_records_count_matching: BoundPair
     tactic_oop_index_permutations: BoundPair
     tactic_selection_selectors_resolved: BoundPair
     tactic_selection_selectors_at_club: BoundPair

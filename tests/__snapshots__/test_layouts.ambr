@@ -993,6 +993,7 @@
     dict({
       'build': '26.3.2+2329565',
       'layout': dict({
+        'alternate_signature': b'"B\x00\x1a\x03\x00\x01\x00',
         'block_count_offset': 15,
         'block_marker': b'\t\x03',
         'first_block_offset': 19,
@@ -1043,7 +1044,10 @@
         'style_code_bytes': 4,
         'tactic_count_lead_byte': 0,
         'taker_list_count': 10,
-        'taker_marker': b'\x08\x05\x02',
+        'taker_markers': tuple(
+          b'\x08\x05\x02',
+          b'\t\x05\x02',
+        ),
         'team_instruction_bytes': 19,
         'trail_bytes': 4,
         'unit_bytes': 24,
@@ -2099,6 +2103,10 @@
           None,
         ),
         'tactic_oop_index_permutations': tuple(
+          1.0,
+          None,
+        ),
+        'tactic_records_count_matching': tuple(
           1.0,
           None,
         ),

@@ -693,10 +693,10 @@ class TacticStats:
 
     `tactic_blocks` counts the blocks whose stored count claims a tactic record and
     `tactic_blocks_count_matching` those where every record it claims was found.
-    `user_tactics` counts the records the manager wrote, `preset_tactics` those in the game's
-    own format, which are counted and skipped. `slot_walks_complete` counts the user records
-    whose 22 slot blocks walked and `oop_index_permutations` those whose out-of-possession
-    index bytes are a permutation of the slot numbers.
+    `stored_tactics` counts all records in the managed teams' lists. `preset_tactics` counts
+    the subset carrying the preset signature; those are decoded too. `slot_walks_complete`
+    counts records whose 22 slot blocks walked and `oop_index_permutations` those whose
+    out-of-possession index bytes are a permutation of the slot numbers.
 
     `routine_blocks` counts the blocks whose routines were searched for,
     `routine_blocks_complete` those whose default runs and counted user groups
@@ -714,7 +714,7 @@ class TacticStats:
     selection_selectors_at_club: int
     tactic_blocks: int
     tactic_blocks_count_matching: int
-    user_tactics: int
+    stored_tactics: int
     preset_tactics: int
     slot_walks_complete: int
     oop_index_permutations: int

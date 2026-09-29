@@ -113,7 +113,7 @@ def healthy_stats(**overrides: object) -> TacticStats:
         "selection_selectors_at_club": 1069,
         "tactic_blocks": 3,
         "tactic_blocks_count_matching": 3,
-        "user_tactics": 6,
+        "stored_tactics": 6,
         "preset_tactics": 1,
         "slot_walks_complete": 6,
         "oop_index_permutations": 6,
@@ -261,7 +261,7 @@ def test_the_walk_counts_the_blocks_the_records_and_the_selectors(career_path: P
     assert stats.blocks_found == 2
     assert stats.club_team_count == 2
     assert stats.selector_matches is True
-    assert stats.user_tactics == 2
+    assert stats.stored_tactics == 2
     assert stats.slot_walks_complete == 2
     assert stats.oop_index_permutations == 2
     assert stats.routine_blocks == 2
@@ -274,6 +274,58 @@ def test_the_walk_counts_the_blocks_the_records_and_the_selectors(career_path: P
     assert reader_check.record_count == 2
     assert routine_check is not None
     assert routine_check.record_count == 2 * ROUTINE_COUNT
+
+
+@pytest.mark.parametrize("marker", (b"\x08\x05\x02", b"\x09\x05\x02"))
+def test_set_piece_marker_variants_keep_the_full_tactic_and_routine_walk(marker: bytes) -> None:
+    records = career_tactic_records()
+    selection = selection_part_bytes(
+        team_id=NORTHBRIDGE_TEAM_A,
+        label="Example Selection",
+        slots=(),
+        list_a=(),
+        list_b=(),
+        single=NO_SELECTOR,
+        taker_marker=marker,
+        taker_lists=((3, 5),) + ((),) * 9,
+        tactics_value=HAS_TACTICS_VALUE,
+        tactic_count=len(records),
+    )
+    body = tactics_man_body(
+        selector=MANAGER_SELECTOR,
+        blocks=(selection + b"".join(records) + set_piece_area_bytes(career_routine_names()),),
+    )
+    blocks, counts = walk_tactic_blocks(body, (NORTHBRIDGE_TEAM_A,), LAYOUT, FILE_NAME)
+    assert len(blocks[0].tactics) == len(records)
+    assert all(
+        tactic.walk_complete and tactic.oop_index_permutation for tactic in blocks[0].tactics
+    )
+    assert blocks[0].routine_names == career_routine_names()
+    assert blocks[0].selectors == (3, 5)
+    assert counts.routine_blocks_complete == 1
+
+    # Recognising the marker must not permit a selector list that runs past the block.
+    broken = body.replace(marker + b"\x02\x00\x00\x00", marker + b"\xff" * 4, 1)
+    with pytest.raises(FmsaveError, match="section ends first"):
+        walk_tactic_blocks(broken, (NORTHBRIDGE_TEAM_A,), LAYOUT, FILE_NAME)
+
+
+@pytest.mark.parametrize("marker", (b"\x0a\x05\x02", b"\x09\x04\x02", b"\x09\x05\x03"))
+def test_unknown_set_piece_markers_remain_errors(marker: bytes) -> None:
+    selection = selection_part_bytes(
+        team_id=NORTHBRIDGE_TEAM_A,
+        label="Example Selection",
+        slots=(),
+        list_a=(),
+        list_b=(),
+        single=NO_SELECTOR,
+        taker_marker=marker,
+        tactics_value=HAS_TACTICS_VALUE,
+        tactic_count=0,
+    )
+    body = tactics_man_body(selector=MANAGER_SELECTOR, blocks=(selection,))
+    with pytest.raises(FmsaveError, match="set-piece marker"):
+        walk_tactic_blocks(body, (NORTHBRIDGE_TEAM_A,), LAYOUT, FILE_NAME)
 
 
 def test_a_slot_claiming_one_unit_too_many_leaves_that_walk_incomplete(tmp_path: Path) -> None:
@@ -304,7 +356,7 @@ def test_a_slot_claiming_one_unit_too_many_leaves_that_walk_incomplete(tmp_path:
     assert len(tactics) == 2
     assert len(tactics[0].slots) == 11
     assert len(tactics[1].slots) == 4
-    assert stats.user_tactics == 2
+    assert stats.stored_tactics == 2
     assert stats.slot_walks_complete == 1
 
 
@@ -337,14 +389,17 @@ def test_a_repeated_index_byte_is_not_a_permutation(tmp_path: Path) -> None:
     assert stats.oop_index_permutations == 1
 
 
-def test_a_preset_record_is_counted_and_gives_no_row(tmp_path: Path) -> None:
+@pytest.mark.parametrize("record_variant", (0, 1, 2))
+def test_all_stored_tactic_variants_in_the_team_list_are_decoded(
+    tmp_path: Path, record_variant: int
+) -> None:
     preset = tactic_record_bytes(
         name="Example Preset",
         team_instructions=bytes(19),
         style_name="Example Style",
         style_code=b"EXMP",
         slots=career_tactic_slots(),
-        preset=True,
+        record_variant=record_variant,
     )
     save_path = tactics_path(
         tmp_path, career_tactics_body(first_team_records=(career_tactic_records()[0], preset))
@@ -352,9 +407,10 @@ def test_a_preset_record_is_counted_and_gives_no_row(tmp_path: Path) -> None:
 
     tactics, _routines, stats = decoded_tactics(save_path)
 
-    assert [row.name for row in tactics] == [FIRST_TACTIC_NAME]
-    assert stats.user_tactics == 1
-    assert stats.preset_tactics == 1
+    assert [row.name for row in tactics] == [FIRST_TACTIC_NAME, "Example Preset"]
+    assert all(len(row.slots) == 11 for row in tactics)
+    assert stats.stored_tactics == stats.slot_walks_complete == stats.oop_index_permutations == 2
+    assert stats.preset_tactics == int(record_variant == 1)
     assert stats.tactic_blocks_count_matching == stats.tactic_blocks
 
 
@@ -439,7 +495,7 @@ def test_with_the_manager_between_jobs_both_tables_are_empty_and_nothing_is_judg
 
     assert tactic_check is not None
     assert routine_check is not None
-    assert [result.applied for result in tactic_check.gates] == [False] * 6
+    assert [result.applied for result in tactic_check.gates] == [False] * 7
     assert [result.applied for result in routine_check.gates] == [False]
 
 
@@ -580,7 +636,7 @@ def test_the_tables_are_read_once_and_raise_after_the_save_is_closed(career_path
             id="a sixth of them elsewhere",
         ),
         pytest.param(
-            {"user_tactics": 0, "slot_walks_complete": 0, "oop_index_permutations": 0},
+            {"stored_tactics": 0, "slot_walks_complete": 0, "oop_index_permutations": 0},
             [SLOT_WALK_GATE_NAME, INDEX_GATE_NAME],
             id="no user tactic at all",
         ),
@@ -606,6 +662,46 @@ def test_an_incomplete_routine_group_fails_the_routine_gate() -> None:
     assert failed_gate_names(passing) == []
 
 
+@pytest.mark.parametrize("tactics_value", (HAS_TACTICS_VALUE, 0xFFFFFFFF))
+def test_explicitly_empty_tactic_lists_are_valid_but_missing_claimed_records_fail(
+    tmp_path: Path,
+    tactics_value: int,
+) -> None:
+    blocks = tuple(
+        selection_part_bytes(
+            team_id=team,
+            label="Example Empty Selection",
+            slots=(),
+            list_a=(),
+            list_b=(),
+            single=NO_SELECTOR,
+            tactics_value=tactics_value,
+            tactic_count=0,
+        )
+        + set_piece_area_bytes((None,) * ROUTINE_COUNT)
+        for team in CAREER_TEAM_IDS
+    )
+    path = tactics_path(tmp_path, tactics_man_body(selector=MANAGER_SELECTOR, blocks=blocks))
+    tactics, _routines, stats = decoded_tactics(path)
+    assert not tactics
+    assert stats.blocks_found == stats.club_team_count
+    assert stats.tactic_blocks == stats.stored_tactics == 0
+    assert failed_gate_names(evaluate_tactics(stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)) == []
+
+    missing = healthy_stats(
+        tactic_blocks=1,
+        tactic_blocks_count_matching=0,
+        stored_tactics=0,
+        slot_walks_complete=0,
+        oop_index_permutations=0,
+    )
+    assert failed_gate_names(evaluate_tactics(missing, BOUNDS, FULL_SIZE_GAME_DB_BYTES)) == [
+        "tactic_records_count_matching",
+        SLOT_WALK_GATE_NAME,
+        INDEX_GATE_NAME,
+    ]
+
+
 def test_no_gate_applies_on_a_small_game_db_or_without_a_managed_club() -> None:
     broken = healthy_stats(
         selector_matches=False,
@@ -626,8 +722,8 @@ def test_no_gate_applies_on_a_small_game_db_or_without_a_managed_club() -> None:
         FULL_SIZE_GAME_DB_BYTES,
     )
 
-    assert [result.applied for result in small_game_db] == [False] * 6
-    assert [result.applied for result in no_managed_club] == [False] * 6
+    assert [result.applied for result in small_game_db] == [False] * 7
+    assert [result.applied for result in no_managed_club] == [False] * 7
     assert [result.applied for result in no_routines] == [False]
 
 
@@ -716,18 +812,18 @@ def test_routine_group_counts_bound_the_walk_and_reject_truncated_records() -> N
     layout = find_tactics_layout(TACTICS_SCHEMA, "")
     area = set_piece_area_bytes(career_routine_names())
     trailing = routine_bytes("Unrelated Example")
-    names, complete = _read_routines(area + trailing, 0, len(area + trailing), layout)
+    names, complete, _area = _read_routines(area + trailing, 0, len(area + trailing), layout)
     assert complete
     assert len(names) == 20
     assert "Unrelated Example" not in names
     # A missing trailer must fail even though all twenty terminators are present.
-    names, complete = _read_routines(area[:-1], 0, len(area) - 1, layout)
+    names, complete, _area = _read_routines(area[:-1], 0, len(area) - 1, layout)
     assert len(names) == 19
     assert not complete
     bad_count = bytearray(area)
     count_at = 590 + sum(len(routine_bytes(name)) for name in career_routine_names()[:3])
     bad_count[count_at : count_at + 4] = (65).to_bytes(4, "little")
-    names, complete = _read_routines(bytes(bad_count), 0, len(bad_count), layout)
+    names, complete, _area = _read_routines(bytes(bad_count), 0, len(bad_count), layout)
     assert len(names) == 3
     assert not complete
 
@@ -755,7 +851,7 @@ def test_an_empty_counted_group_can_legitimately_produce_fewer_than_twenty_routi
     record_at = count_at + 4
     del area[record_at : record_at + len(routine_bytes(names[3]))]
     area[count_at : count_at + 4] = bytes(4)
-    decoded, complete = _read_routines(bytes(area), 0, len(area), layout)
+    decoded, complete, _area = _read_routines(bytes(area), 0, len(area), layout)
     assert complete
     assert decoded == tuple(names[:3] + names[4:])
     assert len(decoded) == 19
@@ -788,6 +884,37 @@ def test_routine_groups_are_independent_of_tactic_records_found_after_the_area()
         after_blocks=preset * 3,
     )
     blocks, counts = walk_tactic_blocks(body, (NORTHBRIDGE_TEAM_A,), LAYOUT, FILE_NAME)
-    assert counts.preset_tactics == 3
+    assert counts.preset_tactics == 0
+    assert not blocks[0].tactics
+    assert counts.tactic_blocks_count_matching == 0
     assert counts.routine_blocks_complete == 1
     assert blocks[0].routine_names == career_routine_names()
+    gates = evaluate_tactics(
+        healthy_stats(tactic_blocks=1, tactic_blocks_count_matching=0),
+        BOUNDS,
+        FULL_SIZE_GAME_DB_BYTES,
+    )
+    assert failed_gate_names(gates) == ["tactic_records_count_matching"]
+
+
+def test_a_routine_marker_in_setting_bits_does_not_bound_a_tactic(tmp_path: Path) -> None:
+    slots = list(career_tactic_slots())
+    in_possession = slot_block_bytes(
+        mask=1,
+        units=(setting_unit_bytes(head_byte=0, first_bits=0x1A0003, second_bits=1),),
+        role_bits=1,
+    )
+    slots[0] = in_possession, slots[0][1]
+    record = tactic_record_bytes(
+        name="Example Setting Bits",
+        team_instructions=bytes(19),
+        style_name="Example Style",
+        style_code=b"EXMP",
+        slots=slots,
+    )
+    path = tactics_path(tmp_path, career_tactics_body(first_team_records=(record,)))
+    tactics, routines, stats = decoded_tactics(path)
+    assert len(tactics) == stats.slot_walks_complete == stats.oop_index_permutations == 1
+    assert len(tactics[0].slots) == 11
+    assert len(routines) == 40
+    assert stats.routine_blocks_complete == 2

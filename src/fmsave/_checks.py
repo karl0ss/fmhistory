@@ -2001,13 +2001,15 @@ def evaluate_tactics(
     blocks that is not the managed club's team count at all. A header that disagrees scores
     zero here whatever the locator found.
 
-    The two walk shares are judged on the user tactic records and are **not** excused when
-    there are none: a managed club whose blocks hold no readable record is what a signature
-    that has moved looks like, so a rate with no denominator fails instead of standing aside.
+    The record-count share checks the team's declared count independently.
+    The two walk shares are judged on all stored tactic records. They are excused when the
+    team blocks claim no tactics; a new career can have none saved yet. If any block claims
+    records but none decode, both shares and the independent record-count check fail.
     The two selector shares are excused without a denominator, because a block legitimately
     stores no selection at all, and the second is judged on the selectors that resolved.
     """
     applied = _applies(bounds, game_db_bytes) and stats.managed_club_exists
+    slots_applied = applied and (stats.tactic_blocks > 0 or stats.stored_tactics > 0)
     blocks_found = stats.blocks_found if stats.header_blocks == stats.club_team_count else 0
     return (
         _gate(
@@ -2022,17 +2024,24 @@ def evaluate_tactics(
             bounds.tactics_team_blocks_match_club,
             applied,
         ),
-        _gate(
-            "tactic_slot_walks_complete",
-            _rate(stats.slot_walks_complete, stats.user_tactics),
-            bounds.tactic_slot_walks_complete,
+        _share_gate(
+            "tactic_records_count_matching",
+            stats.tactic_blocks_count_matching,
+            stats.tactic_blocks,
+            bounds.tactic_records_count_matching,
             applied,
         ),
         _gate(
+            "tactic_slot_walks_complete",
+            _rate(stats.slot_walks_complete, stats.stored_tactics),
+            bounds.tactic_slot_walks_complete,
+            slots_applied,
+        ),
+        _gate(
             "tactic_oop_index_permutations",
-            _rate(stats.oop_index_permutations, stats.user_tactics),
+            _rate(stats.oop_index_permutations, stats.stored_tactics),
             bounds.tactic_oop_index_permutations,
-            applied,
+            slots_applied,
         ),
         _share_gate(
             "tactic_selection_selectors_resolved",
@@ -2074,14 +2083,14 @@ def evaluate_set_pieces(
 def check_tactics(stats: TacticStats, bounds: GateBounds, game_db_bytes: int) -> ReaderCheck:
     """The tactic reader's checks, record count and anomaly counts.
 
-    `preset_tactics` counts the records in the game's own format, which every save keeps one of
-    inside a team block and which this reader counts and skips.
+    `preset_tactics` counts records carrying the preset signature within a team's declared
+    list. They are decoded along with its other stored tactics.
     `tactic_blocks_count_mismatched` counts the blocks that claim more tactic records than the
     walk found signatures for, and `unresolved_selectors` the selectors no player record names.
     """
     return ReaderCheck(
         TACTICS_READER,
-        stats.user_tactics,
+        stats.stored_tactics,
         evaluate_tactics(stats, bounds, game_db_bytes),
         FrozenMapping(
             {

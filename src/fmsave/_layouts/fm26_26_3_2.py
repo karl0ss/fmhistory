@@ -160,7 +160,7 @@ JOB_CENTRE = JobCentreLayout(
 )
 
 # The manager's own team blocks in the `tactics_man` section, each holding that team's copy of
-# every tactic and its twenty set-piece routine slots.
+# every tactic and its set-piece routine groups.
 TACTICS = TacticsLayout(
     header_marker_offset=10,
     header_marker=0x0D,
@@ -171,13 +171,14 @@ TACTICS = TacticsLayout(
     selection_slot_count=26,
     selection_end_marker=bytes.fromhex("4200"),
     list_item_lead_byte=2,
-    taker_marker=bytes.fromhex("080502"),
+    taker_markers=(bytes.fromhex("080502"), bytes.fromhex("090502")),
     taker_list_count=10,
     order_marker=b"\x08",
     order_list_count=8,
     no_tactics_value=0xFFFFFFFF,
     tactic_count_lead_byte=0,
     user_signature=bytes.fromhex("2242001a03000102"),
+    alternate_signature=bytes.fromhex("2242001a03000100"),
     preset_signature=bytes.fromhex("2242001a03000101"),
     name_zero_bytes=12,
     team_instruction_bytes=19,
@@ -1418,6 +1419,7 @@ GATE_BOUNDS = GateBounds(
     # four bytes or a byte short of the signature, not one record completes on any save, which
     # leaves both shares at zero.
     tactic_slot_walks_complete=(1.0, None),
+    tactic_records_count_matching=(1.0, None),
     tactic_oop_index_permutations=(1.0, None),
     # Every selector the blocks hold names a player record: 1.0 on every save measured.
     # Reading each selector's value one byte late leaves under 0.005 of them resolving, so the
