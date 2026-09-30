@@ -28,6 +28,11 @@ adaptability has been located in the save.
 per club, in the save's own unit. `stadiums()` holds capacities and ownership for tens of
 thousands of grounds, but a name for only a couple of hundred of them.
 
+Club data still has limits. The meaning of a zero corporate-facilities rating and some
+sponsorship amounts is unconfirmed. Some finance histories still fail continuity checks.
+Passing the reader checks does not confirm every field's meaning.
+See [Trusting a number](trust.md) before using these fields in an analysis.
+
 ## Competitions
 
 `stages()`, `competitions()`, `fixtures()`, `league_tables()`, `competition_rules()`,

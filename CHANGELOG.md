@@ -4,25 +4,22 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.5.4] - 2026-09-30
+
 ### Fixed
 
-- `tactics()` reads stored preset and alternate tactics and checks every team's declared list, including empty lists.
-- `tactics()` and `set_pieces()` read additional continued careers. Incomplete tactic lists cannot borrow records from the trailing tactic library; validation now includes `tactic_records_count_matching`.
-- `stadiums()` stops at the table's closing header, avoiding a spurious ground row.
+- `tactics()` reads stored preset and alternate tactics. Both `tactics()` and `set_pieces()` read more continued careers. Tactic validation checks every team's list, including empty lists, and detects missing records with `tactic_records_count_matching`. Incomplete lists cannot borrow unrelated tactics.
+- `stadiums()` no longer returns a spurious ground row. Validation reports no longer include the obsolete `stadiums.template_rows` anomaly.
 - `staff_lists()` keeps valid members when a list contains an empty reference.
-- Player and staff readers recognize complete allocated-person header variants, recovering their contracts and season-stat joins. Staff discovery excludes contract-like bytes inside closed club objects.
-- Contract assembly no longer presents retained records without substantive terms as a current paid contract when registration is explicitly absent and no independent current end date exists. Raw contract chains remain available.
-- `competition_rules()` reads an additional interstitial record shape when the complete declared calendar can be decoded, recovering previously missed rounds.
-- `competition_rules()` recognizes complete indexed calendars without treating an unidentified word as a fixture count. The legacy `match_count` field retains its raw value. Calendar retries wait for following frames when more bytes are needed.
-- `fixtures()` recovers missing scores from additional counted match summaries, preserving existing results and rejecting ambiguous or conflicting joins.
-- `fixtures()` recovers previously skipped calendar rows through complete counted paths between recognized records, including paths split across frames. Calendar selection retains its original anchors; inferred neutral-venue flags use the additional fixtures.
-- `fixtures()` decodes scores stored in counted packets belonging to the following calendar record. Physical ownership distinguishes duplicate-looking fixtures; existing scores, conflicting evidence and unplayed matches remain protected. Optional final scores are handled separately from penalty figures.
-- `fixtures()` reads played status from each fixture's prefix when a complete sibling path proves ownership. This corrects shifted statuses, retains terminal fixtures without borrowing bytes from the next collection, and recovers omitted unplayed fixtures.
-- `fixtures()` excludes shorter match records stored in separately counted table caches from the calendar, preventing cached copies from appearing as additional fixtures. Ownership requires complete table, vector, optional date list and both match-list boundaries.
-- `player_match_stats()` walks complete counted histories with the correct performance-record length and requires every declared team list before returning matches. Missing team references no longer hide complete sibling lists. Unrelated player fields no longer appear as matches, incomplete histories fail an independent completeness check, and malformed nested headers cannot trigger repeated suffix scans.
-- `player_match_stats()` locates each player's owned nullable history field. Validation accepts empty output when every player explicitly has no stored history, while incomplete or unresolved histories remain detectable.
-- `suspensions()` reads entries with an attached match record when their entire counted list is structurally complete.
-- `sponsorships()` reads each club's primary counted list, including explicit empty lists, and retains valid historical contracts predating the old scan's year cutoff. Later sponsor-shaped data cannot replace an empty or invalid primary list.
+- Player and staff readers recover previously missed people, their contracts and season-stat joins. Staff discovery no longer mistakes club data for staff contracts.
+- Retained contracts without substantive terms no longer appear as current paid contracts when registration is explicitly absent and no independent current end date exists. Raw contract chains remain available.
+- `competition_rules()` recovers previously missed rounds in more calendars, including continued careers. The legacy `match_count` field keeps its raw value and is no longer treated as a verified fixture count.
+- `fixtures()` recovers more missing scores while preserving existing results and rejecting ambiguous or conflicting joins. Duplicate-looking fixtures remain distinct where ownership is proven, final scores stay separate from penalty figures, and unplayed matches do not receive scores.
+- `fixtures()` recovers skipped calendar rows and omitted unplayed fixtures, corrects shifted played statuses, and retains fixtures at the end of a collection. Calendar selection keeps its existing checks; inferred neutral-venue flags use the recovered fixtures.
+- `fixtures()` excludes proven cached copies from the calendar so they no longer appear as additional fixtures.
+- `player_match_stats()` recovers complete stored histories even when a team reference is missing, excludes unrelated player data, and detects incomplete or unresolved histories. Validation accepts empty output when every player explicitly has no stored history. Malformed histories no longer trigger repeated scans.
+- `suspensions()` recovers previously missed entries with attached match records when the full list can be read.
+- `sponsorships()` reads each club's primary list, including explicit empty lists, and retains older historical contracts. Other sponsor-shaped data cannot replace an empty or invalid primary list.
 
 ## [0.5.3] - 2026-09-29
 
