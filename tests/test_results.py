@@ -23,7 +23,7 @@ from fmsave.readers.results import (
     find_result_layout,
     result_in_scope,
 )
-from fmsave.readers.span import RawFixtureScore, SpanRecords
+from fmsave.readers.span import RawFixturePresence, RawFixtureScore, SpanRecords
 from tests.fixtures.career import (
     ATHLETIC_TEAM_A,
     CUP_FIXTURE_STAGE_ID,
@@ -853,3 +853,53 @@ def test_save_packet_scores_follow_sorted_physical_offsets_and_keep_poison(
         assert stats["packet_score_records"] == 1
         assert stats["packet_unsafe_scores"] == unsafe
         assert stats["packet_scored_fixtures"] == int(unsafe == 0)
+
+
+@pytest.mark.parametrize(
+    ("legacy", "presences", "expected"),
+    [
+        (False, (True,), True),
+        (True, (False,), False),
+        (False, (True, False, True), False),
+        (True, (False, True, False), True),
+        (False, (), False),
+        (True, (False, False), False),
+    ],
+)
+def test_owned_fixture_status_controls_scores_and_match_id_without_mutating_anchors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    legacy: bool,
+    presences: tuple[bool, ...],
+    expected: bool,
+) -> None:
+    path = write_career(tmp_path, span_results=(JOINING_RESULT,))
+    original = SaveContext.span_records
+    originals: list[SpanRecords] = []
+
+    def with_presence(context: SaveContext) -> SpanRecords:
+        span = original(context)
+        target = dataclasses.replace(span.fixtures[0], played=legacy)
+        changed = dataclasses.replace(
+            span,
+            fixtures=(target, *span.fixtures[1:]),
+            fixture_presence=tuple(
+                RawFixturePresence(target.span_offset, value) for value in presences
+            ),
+        )
+        originals.append(changed)
+        return changed
+
+    monkeypatch.setattr(SaveContext, "span_records", with_presence)
+    with fmsave.open(path) as save:
+        rows = tuple(save.fixtures())
+        target = rows[FIRST_LEAGUE_MATCH]
+        assert target.played is expected
+        assert target.match_record_id == (
+            originals[0].fixtures[0].match_record_id if expected else None
+        )
+        assert (target.home_goals, target.away_goals) == ((2, 1) if expected else (None, None))
+        assert target.unknown.get("result_r22") == (RESULT_R22 if expected else None)
+        assert originals[0].fixtures[0].played is legacy
+        assert rows[FIRST_MATCH].played is True
+        assert rows[SECOND_LEAGUE_MATCH].played is True

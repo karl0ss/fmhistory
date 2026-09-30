@@ -709,6 +709,12 @@ class FixtureCalendarLayout:
     `sentinel_offsets` holds, and both team ids lie inside the inclusive `team_id_range`.
     The stadium ordinal is stored as the ordinal plus one.
 
+    `played_offset` is a legacy locator offset: it follows the 67-byte core and belongs
+    to the next fixture's optional-result prefix, or the following collection after a
+    terminal core. Standalone anchors retain that fallback reading. Complete sibling
+    paths instead associate each preceding 0/1 prefix with its own fixture; a present
+    result has the counted `secondary_` header and payload before that fixture's core.
+
     `round_index_none_value`, `kick_off_slot_offset`, `kick_off_slot_minutes`,
     `cluster_gap_bytes` and `neutral_venue_minimum_home_fixtures` are for the fixtures reader
     rather than the span pass: a kick-off time is `(stored slot + kick_off_slot_offset) *

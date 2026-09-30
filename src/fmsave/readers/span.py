@@ -201,6 +201,14 @@ class RawFixtureScore:
     away_goals: int | None
 
 
+@dataclass(frozen=True, slots=True)
+class RawFixturePresence:
+    """The result-presence prefix owned by one complete physical fixture record."""
+
+    span_offset: int
+    played: bool
+
+
 @dataclass(frozen=True, slots=True, repr=False)
 class SpanRecords:
     """What one pass over the unnamed span found. The repr gives counts only.
@@ -233,6 +241,7 @@ class SpanRecords:
     frame_count: int
     fixture_continuations: tuple[RawFixtureContinuation, ...] = ()
     fixture_scores: tuple[RawFixtureScore, ...] = ()
+    fixture_presence: tuple[RawFixturePresence, ...] = ()
 
     def __repr__(self) -> str:
         return (
@@ -292,6 +301,9 @@ class _FixtureSearch:
     sentinel_offsets: tuple[tuple[int, int], ...]
     fields_struct: struct.Struct
     struct_start: int
+    core_struct: struct.Struct
+    core_start: int
+    core_end: int
     stage_id_index: int
     stadium_ordinal_index: int
     home_team_id_index: int
@@ -407,26 +419,35 @@ def _fixture_search(layout: FixtureCalendarLayout, clock_year: int) -> _FixtureS
         re.DOTALL,
     )
     template_code = f"{layout.match_rules_template_bytes}s"
-    fields_struct, struct_start, index_by_name = build_gap_padded_struct(
-        [
-            (layout.stage_id_offset, "I", "stage_id"),
-            (layout.stadium_ordinal_offset, "I", "stadium_ordinal"),
-            (layout.home_team_id_offset, "I", "home_team_id"),
-            (layout.away_team_id_offset, "I", "away_team_id"),
-            (layout.kick_off_date_offset, "H", "packed_kick_off"),
-            (year_low_offset, "H", "kick_off_year"),
-            (layout.date2_offset, "I", "date2"),
-            (layout.season_start_year_offset, "H", "season_start_year"),
-            (layout.match_record_id_offset, "I", "match_record_id"),
-            (layout.phase_offset, "B", "phase"),
-            (layout.leg_offset, "B", "leg"),
-            (layout.round_index_offset, "B", "round_index"),
-            (layout.r39_42_offset, "I", "r39_42"),
-            (layout.match_rules_template_offset, template_code, "match_rules_template"),
-            (layout.r47_54_offset, "Q", "r47_54"),
-            (layout.played_offset, "B", "played"),
-        ]
+    fields = [
+        (layout.stage_id_offset, "I", "stage_id"),
+        (layout.stadium_ordinal_offset, "I", "stadium_ordinal"),
+        (layout.home_team_id_offset, "I", "home_team_id"),
+        (layout.away_team_id_offset, "I", "away_team_id"),
+        (layout.kick_off_date_offset, "H", "packed_kick_off"),
+        (year_low_offset, "H", "kick_off_year"),
+        (layout.date2_offset, "I", "date2"),
+        (layout.season_start_year_offset, "H", "season_start_year"),
+        (layout.match_record_id_offset, "I", "match_record_id"),
+        (layout.phase_offset, "B", "phase"),
+        (layout.leg_offset, "B", "leg"),
+        (layout.round_index_offset, "B", "round_index"),
+        (layout.r39_42_offset, "I", "r39_42"),
+        (layout.match_rules_template_offset, template_code, "match_rules_template"),
+        (layout.r47_54_offset, "Q", "r47_54"),
+        (layout.played_offset, "B", "played"),
+    ]
+    fields_struct, struct_start, index_by_name = build_gap_padded_struct(fields)
+    core_struct, core_start, core_indices = build_gap_padded_struct(
+        [entry for entry in fields if entry[2] != "played"]
     )
+    core_end = core_start + core_struct.size
+    if (
+        core_end != layout.played_offset
+        or core_start != struct_start
+        or any(index_by_name[name] != index for name, index in core_indices.items())
+    ):
+        raise ValueError("the following fixture prefix must start immediately after the core")
     lowest_team_id, highest_team_id = layout.team_id_range
     return _FixtureSearch(
         pattern=pattern,
@@ -437,6 +458,9 @@ def _fixture_search(layout: FixtureCalendarLayout, clock_year: int) -> _FixtureS
         sentinel_offsets=sentinels,
         fields_struct=fields_struct,
         struct_start=struct_start,
+        core_struct=core_struct,
+        core_start=core_start,
+        core_end=core_end,
         stage_id_index=index_by_name["stage_id"],
         stadium_ordinal_index=index_by_name["stadium_ordinal"],
         home_team_id_index=index_by_name["home_team_id"],
@@ -668,6 +692,10 @@ class _FixtureContinuationState:
     pending: list[RawFixture] = field(default_factory=lambda: list[RawFixture]())
     next_score: tuple[int, int] | None = None
     pending_scores: list[RawFixtureScore] = field(default_factory=lambda: list[RawFixtureScore]())
+    next_played: bool | None = None
+    pending_presence: list[RawFixturePresence] = field(
+        default_factory=lambda: list[RawFixturePresence]()
+    )
 
     def reset(self, anchor: RawFixture | None = None) -> None:
         self.left = None if anchor is None else anchor.span_offset
@@ -676,6 +704,8 @@ class _FixtureContinuationState:
         self.pending.clear()
         self.next_score = None
         self.pending_scores.clear()
+        self.next_played = None
+        self.pending_presence.clear()
 
     def advance(
         self,
@@ -694,27 +724,41 @@ class _FixtureContinuationState:
                 at = self.cursor - origin
                 if (
                     at < 0
-                    or at + search.record_bytes > len(window)
+                    or at + search.core_end > len(window)
                     or decode_date(window, at + layout.kick_off_date_offset) is None
-                    or window[at + layout.played_offset] not in (0, 1)
                 ):
-                    self.next_score = None
-                self.pending_scores.append(self._score(self.cursor))
+                    self.reset()
+                    return False
+                self._keep_status(self.cursor)
                 return True
             if stop is not None and self.cursor >= stop:
                 self.reset()
                 return False
             if self.core is not None:
-                at = self.cursor + layout.played_offset + 1 - origin
+                at = self.cursor + search.core_end - origin
                 if at < 0:
                     self.reset()
                     return False
+                if at >= len(window):
+                    return False
+                presence = window[at]
+                if presence == 0:
+                    self.next_played = False
+                    self.next_score = None
+                    self.cursor = origin + at + 1 - layout.marker_byte_offset
+                    self.core = None
+                    continue
+                if presence != 1:
+                    self.reset()
+                    return False
+                at += 1
                 if at + layout.secondary_header_bytes > len(window):
                     return False
                 if window[at] != layout.secondary_marker:
                     self.reset()
                     return False
                 count = _UINT32.unpack_from(window, at + layout.secondary_count_offset)[0]
+                self.next_played = True
                 basic = (
                     window[at + layout.secondary_home_goals_offset],
                     window[at + layout.secondary_away_goals_offset],
@@ -751,18 +795,28 @@ class _FixtureContinuationState:
             if at + search.marker_byte_offset < 0:
                 self.reset()
                 return False
+            # Wait for the strict scanner's existing admission extent. Otherwise a split
+            # frame could consume a future strict endpoint as a provisional middle before
+            # the strict scan sees it. Only the 67-byte core is actually unpacked below.
             if at + search.record_bytes > len(window):
                 return False
             if (
                 window[at + search.marker_byte_offset] != search.marker_byte_value
                 or decode_date(window, at + layout.kick_off_date_offset) is None
-                or window[at + layout.played_offset] not in (0, 1)
             ):
                 self.reset()
                 return False
-            values = search.fields_struct.unpack_from(window, at + search.struct_start)
+            values = search.core_struct.unpack_from(window, at + search.core_start)
+            # The 67-byte core contains no current-record status. Insert the preceding
+            # owned prefix, rather than reading the next row or collection as that value.
+            assert self.next_played is not None
+            values = (
+                values[: search.played_index]
+                + (int(self.next_played),)
+                + values[search.played_index :]
+            )
             self.core = _raw_fixture(values, self.cursor, search)
-            self.pending_scores.append(self._score(self.cursor))
+            self._keep_status(self.cursor)
             # Reference and output-year bounds do not decide where the owned path ends.
             # A filtered middle still supplies the next counted continuation.
             if (
@@ -774,6 +828,12 @@ class _FixtureContinuationState:
             ):
                 self.pending.append(self.core)
         return False
+
+    def _keep_status(self, offset: int) -> None:
+        assert self.next_played is not None
+        self.pending_presence.append(RawFixturePresence(offset, self.next_played))
+        if self.next_played:
+            self.pending_scores.append(self._score(offset))
 
     def _score(self, offset: int) -> RawFixtureScore:
         home, away = self.next_score if self.next_score is not None else (None, None)
@@ -1184,6 +1244,7 @@ def scan_span(
     fixtures: list[RawFixture] = []
     fixture_continuations: list[RawFixtureContinuation] = []
     fixture_scores: list[RawFixtureScore] = []
+    fixture_presence: list[RawFixturePresence] = []
     continuation = _FixtureContinuationState()
     if (
         layouts.fixtures.secondary_count_offset < 1
@@ -1261,6 +1322,7 @@ def scan_span(
                     )
                 if closed:
                     fixture_scores.extend(continuation.pending_scores)
+                    fixture_presence.extend(continuation.pending_presence)
                 continuation.reset(anchor)
             # Advance on every frame, including frames without a new strict anchor. Only
             # fixed-header scalars and provisional decoded rows survive the next frame.
@@ -1335,4 +1397,5 @@ def scan_span(
         frame_count=frame_count,
         fixture_continuations=tuple(fixture_continuations),
         fixture_scores=tuple(fixture_scores),
+        fixture_presence=tuple(fixture_presence),
     )

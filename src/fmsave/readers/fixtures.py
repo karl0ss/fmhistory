@@ -250,6 +250,18 @@ def build_fixtures_with_offsets(
                 sorted((*kept_records, *recovered.values()), key=lambda r: r.span_offset)
             )
 
+    # Status belongs to the preceding optional-result prefix. Conflicting owned
+    # contributions leave the original standalone admission as the fallback.
+    played_by_offset: dict[int, bool | None] = {}
+    for presence in span_records.fixture_presence:
+        if (
+            presence.span_offset in played_by_offset
+            and played_by_offset[presence.span_offset] != presence.played
+        ):
+            played_by_offset[presence.span_offset] = None
+        else:
+            played_by_offset[presence.span_offset] = presence.played
+
     stage_by_id = stage_index.stage_by_id
     team_to_club = club_index.team_to_club
     club_by_uid = club_index.club_by_uid
@@ -331,6 +343,8 @@ def build_fixtures_with_offsets(
             )
             if modal_ordinal is not None:
                 is_neutral_venue = stadium_ordinal != modal_ordinal
+        owned_played = played_by_offset.get(raw_fixture.span_offset)
+        played = raw_fixture.played if owned_played is None else owned_played
         stored_round_index = raw_fixture.round_index
         fixtures.append(
             Fixture(
@@ -356,7 +370,7 @@ def build_fixtures_with_offsets(
                 away_team_slot=away_slot,
                 home_goals=None,
                 away_goals=None,
-                played=raw_fixture.played,
+                played=played,
                 is_neutral_venue=is_neutral_venue,
                 stadium_uid=(
                     None if stadium_ordinal is None else uid_by_ordinal.get(stadium_ordinal)
@@ -364,7 +378,7 @@ def build_fixtures_with_offsets(
                 stadium_name=(
                     None if stadium_ordinal is None else name_by_ordinal.get(stadium_ordinal)
                 ),
-                match_record_id=raw_fixture.match_record_id if raw_fixture.played else None,
+                match_record_id=raw_fixture.match_record_id if played else None,
                 match_rules_template=raw_fixture.match_rules_template,
                 unknown=FrozenMapping(
                     {
