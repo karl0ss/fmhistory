@@ -215,6 +215,25 @@ def build_fixtures(
     raw_fixtures = span_records.fixtures
     split_span = _split_span(raw_fixtures, layout.cluster_gap_bytes)
     kept_records = split_span.kept
+    recovered: dict[int, RawFixture] = {}
+    if kept_records:
+        anchor_offsets = {record.span_offset for record in kept_records}
+        for continuation in span_records.fixture_continuations:
+            if (
+                continuation.left_offset in anchor_offsets
+                and continuation.right_offset in anchor_offsets
+            ):
+                for record in continuation.fixtures:
+                    if continuation.left_offset < record.span_offset < continuation.right_offset:
+                        recovered.setdefault(record.span_offset, record)
+        # Original anchors always win a physical-position collision. Distinct positions,
+        # including duplicate semantic fixture keys, remain distinct for result joins.
+        for anchor in kept_records:
+            recovered.pop(anchor.span_offset, None)
+        if recovered:
+            kept_records = tuple(
+                sorted((*kept_records, *recovered.values()), key=lambda r: r.span_offset)
+            )
 
     stage_by_id = stage_index.stage_by_id
     team_to_club = club_index.team_to_club
@@ -345,7 +364,7 @@ def build_fixtures(
         )
 
     stats = FixtureStats(
-        span_records=len(raw_fixtures),
+        span_records=len(raw_fixtures) + len(recovered),
         cluster_records=len(kept_records),
         clusters=split_span.clusters,
         strays_without_a_copy=_strays_without_a_copy(kept_records, split_span.strays),

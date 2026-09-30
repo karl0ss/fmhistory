@@ -1282,6 +1282,10 @@
         'round_index_none_value': 255,
         'round_index_offset': 38,
         'season_start_year_offset': 26,
+        'secondary_count_offset': 25,
+        'secondary_header_bytes': 29,
+        'secondary_item_bytes': 16,
+        'secondary_marker': 28,
         'sentinel_offsets': tuple(
           tuple(
             4,

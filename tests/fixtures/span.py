@@ -385,3 +385,11 @@ def span_payloads(*blocks: bytes, separator_bytes: int = SPAN_SEPARATOR_BYTES) -
 def span_frames(payloads: Sequence[bytes]) -> tuple[bytes, ...]:
     """Each payload as its own zstd frame, ready for `SectionFrame.unlisted_frames_after`."""
     return tuple(zstd.compress(payload) for payload in payloads)
+
+
+def counted_fixture_bytes(record: bytes, *, event_count: int = 0) -> bytes:
+    """A fictional 68-byte primary, 29-byte secondary and counted opaque event rows."""
+    secondary = bytearray(29)
+    secondary[0] = 0x1C
+    struct.pack_into("<I", secondary, 25, event_count)
+    return record[:68] + secondary + bytes([0xA5]) * (16 * event_count)

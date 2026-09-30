@@ -746,6 +746,10 @@ class FixtureCalendarLayout:
     kick_off_slot_minutes: int
     cluster_gap_bytes: int
     neutral_venue_minimum_home_fixtures: int
+    secondary_marker: int
+    secondary_header_bytes: int
+    secondary_count_offset: int
+    secondary_item_bytes: int
 
 
 @dataclass(frozen=True, slots=True)

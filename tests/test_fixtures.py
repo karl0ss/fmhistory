@@ -792,3 +792,64 @@ def test_fixture_reader_releases_game_database_before_streaming_span(
     monkeypatch.setattr(SaveContext, "span_records", checked_span)
     with fmsave.open(career_save_path) as career_save:
         assert len(career_save.fixtures()) == CALENDAR_FIXTURE_COUNT
+
+
+def test_provisional_rows_do_not_change_the_anchor_selected_calendar(
+    career_save_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fmsave.readers.span import RawFixtureContinuation
+
+    with fmsave.open(career_save_path) as career_save:
+        original = career_save._context.span_records()
+        expected, old_stats = built_from(career_save)
+        selected = largest_cluster(original.fixtures, FIXTURE_LAYOUT.cluster_gap_bytes)
+        discarded = [r for r in original.fixtures if r not in selected]
+        assert len(discarded) >= 2
+        additions = tuple(
+            dataclasses.replace(discarded[0], span_offset=discarded[0].span_offset + i + 1)
+            for i in range(50)
+        )
+        proposal = RawFixtureContinuation(
+            discarded[0].span_offset, discarded[-1].span_offset, additions
+        )
+        fake = dataclasses.replace(original, fixture_continuations=(proposal,))
+        monkeypatch.setattr(SaveContext, "span_records", lambda _context: fake)
+        actual, stats = built_from(career_save)
+        assert actual == expected
+        assert stats == old_stats
+
+
+def test_continuation_merge_preserves_anchor_priority_and_semantic_duplicates(
+    career_save_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fmsave.readers.span import RawFixtureContinuation
+
+    with fmsave.open(career_save_path) as career_save:
+        original = career_save._context.span_records()
+        expected, old_stats = built_from(career_save)
+        selected = largest_cluster(original.fixtures, FIXTURE_LAYOUT.cluster_gap_bytes)
+        left, right = selected[0], selected[-1]
+        addition = dataclasses.replace(left, span_offset=left.span_offset + 1)
+        collision = dataclasses.replace(selected[1], home_team_id=99999)
+        proposal = RawFixtureContinuation(
+            left.span_offset, right.span_offset, (addition, addition, collision)
+        )
+        fake = dataclasses.replace(original, fixture_continuations=(proposal, proposal))
+        monkeypatch.setattr(SaveContext, "span_records", lambda _context: fake)
+        actual, stats = built_from(career_save)
+        assert len(actual) == len(expected) + 1
+        assert stats.cluster_records == old_stats.cluster_records + 1
+        assert stats.span_records == old_stats.span_records + 1
+        # One new physical position survives even with the same semantic match key;
+        # repeated proposals and a fabricated collision cannot overwrite an anchor.
+        position = 0
+        extras = []
+        for fixture in actual:
+            if position < len(expected) and fixture == expected[position]:
+                position += 1
+            else:
+                extras.append(fixture)
+        assert position == len(expected)
+        assert len(extras) == 1 and extras[0] in expected

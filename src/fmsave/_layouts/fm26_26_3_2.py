@@ -755,6 +755,10 @@ FIXTURE_CALENDAR = FixtureCalendarLayout(
     # far more than four home matches a season; four is low enough to still decide a cup-only
     # side's usual ground, and high enough that one rearranged tie cannot outvote it.
     neutral_venue_minimum_home_fixtures=4,
+    secondary_marker=0x1C,
+    secondary_header_bytes=29,
+    secondary_count_offset=25,
+    secondary_item_bytes=16,
 )
 
 # A stage-keyed result record is 27 bytes carrying one match's score. The locator anchors on the

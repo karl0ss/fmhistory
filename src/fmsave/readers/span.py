@@ -35,7 +35,8 @@ import functools
 import re
 import struct
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
 from fmsave._container import RETRY_HINT
 from fmsave._errors import ISSUES_URL, CorruptSaveError, ReaderCheckError
@@ -113,6 +114,15 @@ class RawFixture:
     r39_42: int
     match_rules_template: tuple[int, int, int]
     r47_54: int
+
+
+@dataclass(frozen=True, slots=True)
+class RawFixtureContinuation:
+    """Provisional calendar rows framed exactly between two original strict anchors."""
+
+    left_offset: int
+    right_offset: int
+    fixtures: tuple[RawFixture, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -208,6 +218,7 @@ class SpanRecords:
     result_candidates: int
     span_bytes: int
     frame_count: int
+    fixture_continuations: tuple[RawFixtureContinuation, ...] = ()
 
     def __repr__(self) -> str:
         return (
@@ -552,6 +563,34 @@ def _optional_id(value: int) -> int | None:
     return None if value == 0 or value == MISSING_REFERENCE else value
 
 
+def _raw_fixture(values: tuple[Any, ...], absolute: int, search: _FixtureSearch) -> RawFixture:
+    """Use the same stored-field conversion for strict anchors and counted continuations."""
+    stored_stadium: int = values[search.stadium_ordinal_index]
+    stadium_ordinal = None if _optional_id(stored_stadium) is None else stored_stadium - 1
+    stage_id: int = values[search.stage_id_index]
+    season_start_year: int = values[search.season_start_year_index]
+    template: bytes = values[search.match_rules_template_index]
+    return RawFixture(
+        span_offset=absolute,
+        stage_id=None if stage_id == MISSING_REFERENCE else stage_id,
+        stadium_ordinal=stadium_ordinal,
+        home_team_id=values[search.home_team_id_index],
+        away_team_id=values[search.away_team_id_index],
+        packed_kick_off=values[search.packed_kick_off_index],
+        kick_off_year=values[search.kick_off_year_index],
+        season_start_year=season_start_year or None,
+        match_record_id=_optional_id(values[search.match_record_id_index]),
+        round_index=values[search.round_index_index],
+        played=values[search.played_index] != 0,
+        date2=values[search.date2_index],
+        phase=values[search.phase_index],
+        leg=values[search.leg_index],
+        r39_42=values[search.r39_42_index],
+        match_rules_template=(template[0], template[1], template[2]),
+        r47_54=values[search.r47_54_index],
+    )
+
+
 def _collect_fixtures(
     window: bytes,
     window_origin: int,
@@ -570,22 +609,8 @@ def _collect_fixtures(
     sentinel_offsets = search.sentinel_offsets
     unpack_fields = search.fields_struct.unpack_from
     struct_start = search.struct_start
-    stage_id_index = search.stage_id_index
-    stadium_ordinal_index = search.stadium_ordinal_index
     home_team_id_index = search.home_team_id_index
     away_team_id_index = search.away_team_id_index
-    packed_kick_off_index = search.packed_kick_off_index
-    kick_off_year_index = search.kick_off_year_index
-    date2_index = search.date2_index
-    season_start_year_index = search.season_start_year_index
-    match_record_id_index = search.match_record_id_index
-    phase_index = search.phase_index
-    leg_index = search.leg_index
-    round_index_index = search.round_index_index
-    r39_42_index = search.r39_42_index
-    match_rules_template_index = search.match_rules_template_index
-    r47_54_index = search.r47_54_index
-    played_index = search.played_index
     lowest_team_id = search.lowest_team_id
     highest_team_id = search.highest_team_id
     add_fixture = fixtures.append
@@ -615,33 +640,91 @@ def _collect_fixtures(
             and lowest_team_id <= away_team_id <= highest_team_id
         ):
             continue
-        stored_stadium: int = values[stadium_ordinal_index]
-        stadium_ordinal = None if _optional_id(stored_stadium) is None else stored_stadium - 1
-        stage_id: int = values[stage_id_index]
-        season_start_year: int = values[season_start_year_index]
-        template: bytes = values[match_rules_template_index]
-        add_fixture(
-            RawFixture(
-                span_offset=absolute,
-                stage_id=None if stage_id == MISSING_REFERENCE else stage_id,
-                stadium_ordinal=stadium_ordinal,
-                home_team_id=home_team_id,
-                away_team_id=away_team_id,
-                packed_kick_off=values[packed_kick_off_index],
-                kick_off_year=values[kick_off_year_index],
-                season_start_year=season_start_year or None,
-                match_record_id=_optional_id(values[match_record_id_index]),
-                round_index=values[round_index_index],
-                played=values[played_index] != 0,
-                date2=values[date2_index],
-                phase=values[phase_index],
-                leg=values[leg_index],
-                r39_42=values[r39_42_index],
-                match_rules_template=(template[0], template[1], template[2]),
-                r47_54=values[r47_54_index],
-            )
-        )
+        add_fixture(_raw_fixture(values, absolute, search))
     return considered_to, candidates
+
+
+@dataclass(slots=True)
+class _FixtureContinuationState:
+    """Incremental framing without retaining a decompressed frame or event payload."""
+
+    left: int | None = None
+    cursor: int = 0
+    core: RawFixture | None = None
+    pending: list[RawFixture] = field(default_factory=lambda: list[RawFixture]())
+
+    def reset(self, anchor: RawFixture | None = None) -> None:
+        self.left = None if anchor is None else anchor.span_offset
+        self.cursor = 0 if anchor is None else anchor.span_offset
+        self.core = anchor
+        self.pending.clear()
+
+    def advance(
+        self,
+        window: bytes,
+        origin: int,
+        search: _FixtureSearch,
+        layout: FixtureCalendarLayout,
+        clock_year: int,
+        stop: int | None,
+    ) -> bool:
+        while self.left is not None:
+            if self.cursor - self.left > layout.cluster_gap_bytes:
+                self.reset()
+                return False
+            if self.core is None and stop == self.cursor:
+                return True
+            if stop is not None and self.cursor >= stop:
+                self.reset()
+                return False
+            if self.core is not None:
+                at = self.cursor + layout.played_offset + 1 - origin
+                if at < 0:
+                    self.reset()
+                    return False
+                if at + layout.secondary_header_bytes > len(window):
+                    return False
+                if window[at] != layout.secondary_marker:
+                    self.reset()
+                    return False
+                count = _UINT32.unpack_from(window, at + layout.secondary_count_offset)[0]
+                # Event rows carry unidentified fields. Skip their declared byte extent
+                # logically, even across many frames, without storing or interpreting it.
+                self.cursor = (
+                    origin
+                    + at
+                    + layout.secondary_header_bytes
+                    + layout.secondary_item_bytes * count
+                    - layout.marker_byte_offset
+                )
+                self.core = None
+                continue
+            at = self.cursor - origin
+            if at + search.marker_byte_offset < 0:
+                self.reset()
+                return False
+            if at + search.record_bytes > len(window):
+                return False
+            if (
+                window[at + search.marker_byte_offset] != search.marker_byte_value
+                or decode_date(window, at + layout.kick_off_date_offset) is None
+                or window[at + layout.played_offset] not in (0, 1)
+            ):
+                self.reset()
+                return False
+            values = search.fields_struct.unpack_from(window, at + search.struct_start)
+            self.core = _raw_fixture(values, self.cursor, search)
+            # Reference and output-year bounds do not decide where the owned path ends.
+            # A filtered middle still supplies the next counted continuation.
+            if (
+                clock_year - layout.years_before_clock
+                <= self.core.kick_off_year
+                <= clock_year + layout.years_after_clock
+                and search.lowest_team_id <= self.core.home_team_id <= search.highest_team_id
+                and search.lowest_team_id <= self.core.away_team_id <= search.highest_team_id
+            ):
+                self.pending.append(self.core)
+        return False
 
 
 def _collect_table_blocks(
@@ -1046,6 +1129,17 @@ def scan_span(
     carry_over_bytes = layouts.carry_over_bytes
 
     fixtures: list[RawFixture] = []
+    fixture_continuations: list[RawFixtureContinuation] = []
+    continuation = _FixtureContinuationState()
+    if (
+        layouts.fixtures.secondary_count_offset < 1
+        or layouts.fixtures.secondary_count_offset + _UINT32.size
+        > layouts.fixtures.secondary_header_bytes
+        or layouts.fixtures.secondary_item_bytes <= 0
+        or layouts.fixtures.secondary_header_bytes > carry_over_bytes
+        or fixture_search.record_bytes - fixture_search.marker_byte_offset > carry_over_bytes
+    ):
+        raise ValueError("fixture continuation headers must fit the streamed carry")
     table_blocks: list[RawTableBlock] = []
     rules_blocks: list[RawRulesBlock] = []
     results: list[RawStageResult] = []
@@ -1068,6 +1162,7 @@ def scan_span(
         frame_count += 1
         span_bytes += len(frame_bytes)
         try:
+            first_new_fixture = len(fixtures)
             fixtures_considered_to, found_fixtures = _collect_fixtures(
                 window,
                 window_origin,
@@ -1075,6 +1170,34 @@ def scan_span(
                 fixture_search,
                 fixtures_considered_to,
                 fixtures,
+            )
+            for anchor in fixtures[first_new_fixture:]:
+                closed = continuation.advance(
+                    window,
+                    window_origin,
+                    fixture_search,
+                    layouts.fixtures,
+                    clock.year,
+                    anchor.span_offset,
+                )
+                if closed and continuation.pending and continuation.left is not None:
+                    fixture_continuations.append(
+                        RawFixtureContinuation(
+                            continuation.left,
+                            anchor.span_offset,
+                            tuple(continuation.pending),
+                        )
+                    )
+                continuation.reset(anchor)
+            # Advance on every frame, including frames without a new strict anchor. Only
+            # fixed-header scalars and provisional decoded rows survive the next frame.
+            continuation.advance(
+                window,
+                window_origin,
+                fixture_search,
+                layouts.fixtures,
+                clock.year,
+                None,
             )
             tables_considered_to, found_blocks = _collect_table_blocks(
                 window,
@@ -1137,4 +1260,5 @@ def scan_span(
         result_candidates=result_candidates,
         span_bytes=span_bytes,
         frame_count=frame_count,
+        fixture_continuations=tuple(fixture_continuations),
     )

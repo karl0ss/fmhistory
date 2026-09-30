@@ -796,3 +796,155 @@ def test_a_span_cut_in_the_middle_of_a_block_reads_what_is_whole(tmp_path: Path)
 
     assert records.table_blocks == ()
     assert records.fixtures == ()
+
+
+def continuation_fixture(*, year: int = KICK_OFF_YEAR, home: int | None = None) -> bytes:
+    blob = bytearray(example_fixture_blob(1, year=year, home_team_id=home))
+    # These bytes are deliberately not interpreted as inline goals.
+    blob[16], blob[23] = 7, 9
+    return bytes(blob)
+
+
+def continuation_payload(*, event_count: int = 0, middles: Sequence[bytes] | None = None) -> bytes:
+    from tests.fixtures.span import counted_fixture_bytes
+
+    if middles is None:
+        middles = [continuation_fixture()]
+    return (
+        counted_fixture_bytes(example_fixture_blob(0), event_count=event_count)
+        + b"".join(counted_fixture_bytes(row, event_count=event_count) for row in middles)
+        + example_fixture_blob(2)
+    )
+
+
+def test_counted_fixture_continuations_preserve_the_strict_anchor_records() -> None:
+    payload = continuation_payload(event_count=3)
+    records = scan([payload])
+    assert len(records.fixtures) == 2
+    assert len(records.fixture_continuations) == 1
+    continuation = records.fixture_continuations[0]
+    assert (continuation.left_offset, continuation.right_offset) == (
+        records.fixtures[0].span_offset,
+        records.fixtures[1].span_offset,
+    )
+    assert len(continuation.fixtures) == 1
+    middle = continuation.fixtures[0]
+    assert middle.home_team_id == HOME_TEAM_IDS[1]
+    assert middle.away_team_id == AWAY_TEAM_IDS[1]
+    assert (middle.r39_42, middle.r47_54) == (0x11223344, 0x0102030405060708)
+
+
+def test_a_short_continuation_is_invariant_at_every_frame_split() -> None:
+    payload = continuation_payload(event_count=2)
+    expected = scan([payload])
+    for split in range(1, len(payload)):
+        actual = scan([payload[:split], payload[split:]])
+        assert actual.fixtures == expected.fixtures
+        assert actual.fixture_continuations == expected.fixture_continuations
+    one_byte = scan([payload[i : i + 1] for i in range(len(payload))])
+    assert one_byte.fixtures == expected.fixtures
+    assert one_byte.fixture_continuations == expected.fixture_continuations
+
+
+def test_a_path_longer_than_the_carry_is_invariant_with_one_byte_frames() -> None:
+    payload = continuation_payload(middles=[continuation_fixture()] * 676)
+    assert len(payload) > span_layouts().carry_over_bytes
+    expected = scan([payload])
+    actual = scan([payload[i : i + 1] for i in range(len(payload))])
+    assert actual.fixtures == expected.fixtures
+    assert actual.fixture_continuations == expected.fixture_continuations
+    assert len(actual.fixture_continuations[0].fixtures) == 676
+
+
+def test_event_arrays_are_skipped_across_frames_without_an_observed_count_cap() -> None:
+    payload = continuation_payload(event_count=4097)
+    expected = scan([payload])
+    actual = scan([payload[i : i + 113] for i in range(0, len(payload), 113)])
+    assert len(actual.fixture_continuations) == 1
+    assert actual.fixture_continuations == expected.fixture_continuations
+
+
+@pytest.mark.parametrize(
+    "damage",
+    ["secondary-marker", "inflated-count", "middle-marker", "date", "played", "tail-count"],
+)
+def test_a_broken_counted_path_cannot_emit_any_middle(damage: str) -> None:
+    payload = bytearray(continuation_payload())
+    if damage == "secondary-marker":
+        payload[68] = 0
+    elif damage == "inflated-count":
+        payload[93:97] = (0xFFFFFFFF).to_bytes(4, "little")
+    elif damage == "middle-marker":
+        payload[97] = 0
+    elif damage == "date":
+        payload[122:126] = bytes(4)
+    elif damage == "played":
+        payload[164] = 2
+    else:
+        payload[190:194] = (1).to_bytes(4, "little")
+    records = scan([bytes(payload)])
+    assert len(records.fixtures) == 2
+    assert records.fixture_continuations == ()
+
+
+def test_an_unclosed_continuation_at_eof_is_not_emitted() -> None:
+    payload = continuation_payload()[:-80]
+    assert scan([payload]).fixture_continuations == ()
+
+
+def test_a_bad_large_count_does_not_mask_a_later_independent_good_path() -> None:
+    bad = bytearray(continuation_payload())
+    bad[93:97] = (0xFFFFFFFF).to_bytes(4, "little")
+    payload = bytes(bad) + bytes(20) + continuation_payload()
+    records = scan([payload])
+    assert len(records.fixtures) == 4
+    assert len(records.fixture_continuations) == 1
+    assert records.fixture_continuations[0].left_offset > len(bad)
+
+
+def test_filtered_middle_references_and_years_still_frame_the_known_later_row() -> None:
+    payload = continuation_payload(
+        middles=[
+            continuation_fixture(year=1905),
+            continuation_fixture(home=0),
+            continuation_fixture(),
+        ]
+    )
+    records = scan([payload])
+    assert len(records.fixture_continuations) == 1
+    assert [r.home_team_id for r in records.fixture_continuations[0].fixtures] == [HOME_TEAM_IDS[1]]
+
+
+def test_consecutive_anchors_in_different_clusters_cannot_own_a_continuation() -> None:
+    import dataclasses
+
+    payload = continuation_payload()
+    layouts = span_layouts()
+    small_clusters = dataclasses.replace(
+        layouts, fixtures=dataclasses.replace(layouts.fixtures, cluster_gap_bytes=100)
+    )
+    records = scan_span([payload], small_clusters, CLOCK, FILE_NAME)
+    assert len(records.fixtures) == 2
+    assert records.fixture_continuations == ()
+
+
+def test_an_exact_closing_anchor_beyond_the_cluster_gap_is_never_committed() -> None:
+    from tests.fixtures.span import counted_fixture_bytes
+
+    gap = span_layouts().fixtures.cluster_gap_bytes
+    payload = counted_fixture_bytes(
+        example_fixture_blob(0), event_count=gap // 16
+    ) + example_fixture_blob(2)
+    whole = scan([payload])
+    fragmented = scan([payload[i : i + 4096] for i in range(0, len(payload), 4096)])
+    assert len(whole.fixtures) == 2
+    assert whole.fixtures == fragmented.fixtures
+    assert whole.fixture_continuations == fragmented.fixture_continuations == ()
+
+
+def test_owned_unplayed_middle_stays_unplayed_without_invented_inline_goals() -> None:
+    middle = bytearray(continuation_fixture())
+    middle[67] = 0
+    records = scan([continuation_payload(middles=[bytes(middle)])])
+    assert len(records.fixture_continuations) == 1
+    assert records.fixture_continuations[0].fixtures[0].played is False
