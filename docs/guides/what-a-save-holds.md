@@ -37,8 +37,9 @@ Fixtures are the calendar: date, teams, round, and a score where the save still 
 
 `player_season_stats()` is each player's current season, as the squad and player screens show it:
 one row per competition type and team, with counts such as minutes, xG, passes and tackles, and
-the per-90 and percentage figures the game shows. `player_match_stats()` goes match by match,
-but only for about the last twenty matches.
+the per-90 and percentage figures the game shows. `player_match_stats()` reads individual match
+histories stored within player records. Coverage varies by save and player; it is not a complete
+career match log. Some saves have no histories in the formats the reader currently supports.
 
 ## Injuries
 

@@ -2,27 +2,12 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
-
-- Exclude contract-like bytes inside closed club records from staff discovery.
-
-- Recover structurally complete player and staff objects whose allocated identity header carries two distinct words.
-
-- Keep valid club staff-list members when another slot has no person selector.
-
-- Recognize the stadium table's closing header instead of returning it as a ground or reporting an incomplete walk.
-
-### Fixed
-
-- `tactics()` reads every tactic stored for a managed team, including predefined tactics and previously missed variants.
-- `tactics()` and `set_pieces()` read additional continued careers. Incomplete tactic lists cannot borrow records from the trailing tactic library; validation now includes `tactic_records_count_matching`.
-- Fresh careers with explicitly empty tactic lists pass validation without excusing missing records in lists that claim tactics.
-
 ## [Unreleased]
 
 ### Fixed
 
 - `tactics()` reads stored preset and alternate tactics and checks every team's declared list, including empty lists.
+- `tactics()` and `set_pieces()` read additional continued careers. Incomplete tactic lists cannot borrow records from the trailing tactic library; validation now includes `tactic_records_count_matching`.
 - `stadiums()` stops at the table's closing header, avoiding a spurious ground row.
 - `staff_lists()` keeps valid members when a list contains an empty reference.
 - Player and staff readers recognize complete allocated-person header variants, recovering their contracts and season-stat joins. Staff discovery excludes contract-like bytes inside closed club objects.
