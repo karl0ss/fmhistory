@@ -750,6 +750,12 @@ class FixtureCalendarLayout:
     secondary_header_bytes: int
     secondary_count_offset: int
     secondary_item_bytes: int
+    secondary_home_goals_offset: int
+    secondary_away_goals_offset: int
+    secondary_optional_home_goals_offset: int
+    secondary_optional_away_goals_offset: int
+    secondary_missing_goals: int
+    secondary_goals_maximum: int
 
 
 @dataclass(frozen=True, slots=True)

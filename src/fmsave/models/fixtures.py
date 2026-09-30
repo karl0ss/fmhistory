@@ -74,8 +74,8 @@ class Fixture:
             or None when the team does not resolve.
         home_goals: Goals the home side scored, or None when no unambiguous score was
             decoded. Empty goals on a played match do not mean it finished goalless. The
-            calendar itself stores no score: separate result records and counted match
-            summaries supply scores for part of a career.
+            core calendar record stores no score: framed adjoining packets, separate result
+            records and counted match summaries supply scores for part of a career.
         away_goals: Goals the away side scored, or None when no unambiguous score was
             decoded, as for home_goals.
         played: Whether the save marks the match as played.
@@ -103,8 +103,8 @@ class Fixture:
             match uses. It is a template many competitions share and is **never** a
             competition id (unconfirmed).
         unknown: Numeric fields with no known meaning. "result_r22" is the byte stored beside
-            a stage-keyed result. A score recovered only from a match summary carries no
-            such byte (unconfirmed).
+            a stage-keyed result. A score recovered only from a match summary or calendar
+            packet carries no such byte (unconfirmed).
     """
 
     stage_id: int | None

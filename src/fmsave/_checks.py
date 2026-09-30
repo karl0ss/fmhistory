@@ -1047,6 +1047,13 @@ def check_fixtures(
                 "summary_existing_disagreements": result_stats.summary_existing_disagreements,
                 "summary_stage_conflicts": result_stats.summary_stage_conflicts,
                 "summary_scored_fixtures": result_stats.summary_scored_fixtures,
+                "packet_score_records": result_stats.packet_score_records,
+                "packet_unsafe_scores": result_stats.packet_unsafe_scores,
+                "packet_for_unplayed": result_stats.packet_for_unplayed,
+                "packet_stage_conflicts": result_stats.packet_stage_conflicts,
+                "packet_summary_conflicts": result_stats.packet_summary_conflicts,
+                "packet_existing_disagreements": result_stats.packet_existing_disagreements,
+                "packet_scored_fixtures": result_stats.packet_scored_fixtures,
             }
         ),
     )

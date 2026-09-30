@@ -759,6 +759,12 @@ FIXTURE_CALENDAR = FixtureCalendarLayout(
     secondary_header_bytes=29,
     secondary_count_offset=25,
     secondary_item_bytes=16,
+    secondary_home_goals_offset=5,
+    secondary_away_goals_offset=9,
+    secondary_optional_home_goals_offset=6,
+    secondary_optional_away_goals_offset=10,
+    secondary_missing_goals=0xFF,
+    secondary_goals_maximum=40,
 )
 
 # A stage-keyed result record is 27 bytes carrying one match's score. The locator anchors on the

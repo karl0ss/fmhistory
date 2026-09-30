@@ -205,6 +205,21 @@ def build_fixtures(
     stadium_index: StadiumIndex,
     layout: FixtureCalendarLayout,
 ) -> tuple[tuple[Fixture, ...], FixtureStats]:
+    """Decode the calendar, retaining the existing fixture-builder return shape."""
+    fixtures, stats, _offsets = build_fixtures_with_offsets(
+        span_records, stage_index, competition_index, club_index, stadium_index, layout
+    )
+    return fixtures, stats
+
+
+def build_fixtures_with_offsets(
+    span_records: SpanRecords,
+    stage_index: StageIndex,
+    competition_index: CompetitionIndex,
+    club_index: ClubIndex,
+    stadium_index: StadiumIndex,
+    layout: FixtureCalendarLayout,
+) -> tuple[tuple[Fixture, ...], FixtureStats, tuple[int, ...]]:
     """Decode, join and sort the calendar, and count what the fixture checks judge.
 
     The stadium each record stores is an ordinal into the stadium table, and the ordinal itself
@@ -379,4 +394,4 @@ def build_fixtures(
         stadium_resolved=stadium_resolved,
         stub_team_references=stub_team_references,
     )
-    return tuple(fixtures), stats
+    return tuple(fixtures), stats, tuple(decoded.raw.span_offset for decoded in decoded_records)

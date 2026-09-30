@@ -215,7 +215,7 @@ class ResultStats:
     such a fixture keeps no score at all. No save measured has held one.
 
     `played_fixtures` counts the played matches in the calendar and `scored_fixtures` those that
-    came out of both score passes carrying a complete score.
+    came out of the score passes carrying a complete score.
 
     The `summary_` counters describe the separate owned match summaries, without changing the
     stage-result counts above. `summary_records` and `summary_invalid_scores` count raw rows.
@@ -225,6 +225,10 @@ class ResultStats:
     counts keys with conflicting or invalid score pairs, and `summary_stage_conflicts` those
     blocked because stage results already contradicted each other. `summary_scored_fixtures`
     counts newly filled fixtures; existing scores are never overwritten.
+
+    The `packet_` counters describe physically owned calendar packets for selected fixture
+    positions. Unsafe packets, unplayed fixtures, existing disagreements and stage/summary
+    poisons remain visible; `packet_scored_fixtures` counts only newly filled pairs.
     """
 
     candidates: int
@@ -247,6 +251,13 @@ class ResultStats:
     summary_existing_disagreements: int = 0
     summary_stage_conflicts: int = 0
     summary_scored_fixtures: int = 0
+    packet_score_records: int = 0
+    packet_unsafe_scores: int = 0
+    packet_for_unplayed: int = 0
+    packet_stage_conflicts: int = 0
+    packet_summary_conflicts: int = 0
+    packet_existing_disagreements: int = 0
+    packet_scored_fixtures: int = 0
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,4 +1,4 @@
-"""Stage results and owned match summaries, joined onto the fixture calendar.
+"""Stage results, owned match summaries and framed calendar scores.
 
 A fixture record carries no score, so the goals of a finished match come from a separate
 27-byte record that names the match by its date and its two team ids. Those records sit in the
@@ -29,6 +29,11 @@ joined by exact date, competition and both teams after stage results are applied
 only missing complete scores for uniquely matched played fixtures; existing scores and
 stage-result contradictions remain authoritative. A played fixture with empty goals is an
 unresolved result, not a goalless match.
+
+Counted packets between calendar records carry scores for the following physical record.
+The span pass retains them only after exact path closure. They can fill missing played
+scores even when date/team keys are duplicated, without choosing between those copies.
+Existing scores, stage contradictions and poisoned summary keys remain authoritative.
 """
 
 from __future__ import annotations
@@ -37,7 +42,7 @@ import datetime
 import functools
 import re
 import struct
-from collections.abc import Container, Iterable, Sequence
+from collections.abc import Container, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 
 from fmsave._frozen import FrozenMapping
@@ -331,6 +336,7 @@ def apply_results(
     *,
     candidates: int,
     summaries: MatchSummaryScores | None = None,
+    packet_scores: Mapping[int, tuple[int, int] | None] | None = None,
 ) -> tuple[tuple[Fixture, ...], ResultStats]:
     """Join the results onto the calendar and return new fixtures carrying their scores.
 
@@ -351,10 +357,14 @@ def apply_results(
     arrival order decides, and nothing counts it. Calling that a disagreement would be claiming
     to know what a byte whose meaning is unidentified ought to hold.
 
+    Owned calendar packets fill only their exact physical fixture positions after the other
+    sources, with the same existing-score and contradiction exclusions.
+
     Owned summaries can fill remaining played fixtures using their date, competition and
     both team ids. Their lookup already blocks conflicting or invalid score pairs. They never
     overwrite a score, fill a partial score, or revive a stage-result contradiction.
     """
+    # Physical packet scores apply last so no independent source can revive a poisoned result.
     positions_by_key: dict[tuple[datetime.date, int, int], list[int]] = {}
     played_fixtures = 0
     for position, fixture in enumerate(fixtures):
@@ -468,6 +478,52 @@ def apply_results(
                 fixture, home_goals=summary_score[0], away_goals=summary_score[1]
             )
             summary_scored_fixtures += 1
+    packet_unsafe_scores = 0
+    packet_for_unplayed = 0
+    packet_stage_conflicts = 0
+    packet_summary_conflicts = 0
+    packet_existing_disagreements = 0
+    packet_scored_fixtures = 0
+    if packet_scores is not None:
+        for position, packet_score in packet_scores.items():
+            if not 0 <= position < len(scored_fixtures):
+                raise ValueError("packet score position lies outside the fixture calendar")
+            if packet_score is None:
+                packet_unsafe_scores += 1
+                continue
+            fixture = scored_fixtures[position]
+            if not fixture.played:
+                packet_for_unplayed += 1
+                continue
+            if position in contradicted_positions:
+                packet_stage_conflicts += 1
+                continue
+            if (
+                summaries is not None
+                and fixture.date is not None
+                and fixture.competition_id is not None
+            ):
+                summary_key = (
+                    fixture.date,
+                    fixture.competition_id,
+                    fixture.home_team_id,
+                    fixture.away_team_id,
+                )
+                if summary_key in summaries.scores and summaries.scores[summary_key] is None:
+                    packet_summary_conflicts += 1
+                    continue
+            known_score = (fixture.home_goals, fixture.away_goals)
+            if any(goal is not None for goal in known_score):
+                if any(
+                    goal is not None and goal != packet_score[side]
+                    for side, goal in enumerate(known_score)
+                ):
+                    packet_existing_disagreements += 1
+                continue
+            scored_fixtures[position] = replace(
+                fixture, home_goals=packet_score[0], away_goals=packet_score[1]
+            )
+            packet_scored_fixtures += 1
     stats = ResultStats(
         candidates=candidates,
         accepted=accepted,
@@ -492,5 +548,12 @@ def apply_results(
         summary_existing_disagreements=summary_existing_disagreements,
         summary_stage_conflicts=summary_stage_conflicts,
         summary_scored_fixtures=summary_scored_fixtures,
+        packet_score_records=len(packet_scores) if packet_scores is not None else 0,
+        packet_unsafe_scores=packet_unsafe_scores,
+        packet_for_unplayed=packet_for_unplayed,
+        packet_stage_conflicts=packet_stage_conflicts,
+        packet_summary_conflicts=packet_summary_conflicts,
+        packet_existing_disagreements=packet_existing_disagreements,
+        packet_scored_fixtures=packet_scored_fixtures,
     )
     return tuple(scored_fixtures), stats

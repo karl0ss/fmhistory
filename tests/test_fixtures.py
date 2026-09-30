@@ -743,6 +743,13 @@ def test_the_build_counts_exactly_what_the_checks_read(career_save_path: Path) -
         "summary_existing_disagreements": 0,
         "summary_stage_conflicts": 0,
         "summary_scored_fixtures": 0,
+        "packet_score_records": 0,
+        "packet_unsafe_scores": 0,
+        "packet_for_unplayed": 0,
+        "packet_stage_conflicts": 0,
+        "packet_summary_conflicts": 0,
+        "packet_existing_disagreements": 0,
+        "packet_scored_fixtures": 0,
     }
 
 
@@ -853,3 +860,25 @@ def test_continuation_merge_preserves_anchor_priority_and_semantic_duplicates(
                 extras.append(fixture)
         assert position == len(expected)
         assert len(extras) == 1 and extras[0] in expected
+
+
+def test_internal_fixture_offsets_follow_calendar_sort(career_save_path: Path) -> None:
+    from fmsave.readers.fixtures import build_fixtures_with_offsets
+
+    with fmsave.open(career_save_path) as save:
+        context = save._context
+        with context.section(GAME_DB_SECTION):
+            clubs = context.club_index()
+            stages = context.stage_index()
+            competitions = context.competition_index()
+            stadiums = context.stadium_index()
+        span = context.span_records()
+        rows, stats, offsets = build_fixtures_with_offsets(
+            span, stages, competitions, clubs, stadiums, FIXTURE_LAYOUT
+        )
+        assert (rows, stats) == built_from(save)
+        assert len(offsets) == len(rows)
+        assert offsets[2] == span.fixtures[0].span_offset
+        assert offsets[0] > offsets[2]
+        assert rows[0].date is not None and rows[2].date is not None
+        assert rows[0].date < rows[2].date

@@ -841,9 +841,11 @@ def test_a_short_continuation_is_invariant_at_every_frame_split() -> None:
         actual = scan([payload[:split], payload[split:]])
         assert actual.fixtures == expected.fixtures
         assert actual.fixture_continuations == expected.fixture_continuations
+        assert actual.fixture_scores == expected.fixture_scores
     one_byte = scan([payload[i : i + 1] for i in range(len(payload))])
     assert one_byte.fixtures == expected.fixtures
     assert one_byte.fixture_continuations == expected.fixture_continuations
+    assert one_byte.fixture_scores == expected.fixture_scores
 
 
 def test_a_path_longer_than_the_carry_is_invariant_with_one_byte_frames() -> None:
@@ -854,6 +856,8 @@ def test_a_path_longer_than_the_carry_is_invariant_with_one_byte_frames() -> Non
     assert actual.fixtures == expected.fixtures
     assert actual.fixture_continuations == expected.fixture_continuations
     assert len(actual.fixture_continuations[0].fixtures) == 676
+    assert actual.fixture_scores == expected.fixture_scores
+    assert len(actual.fixture_scores) == 677
 
 
 def test_event_arrays_are_skipped_across_frames_without_an_observed_count_cap() -> None:
@@ -862,6 +866,7 @@ def test_event_arrays_are_skipped_across_frames_without_an_observed_count_cap() 
     actual = scan([payload[i : i + 113] for i in range(0, len(payload), 113)])
     assert len(actual.fixture_continuations) == 1
     assert actual.fixture_continuations == expected.fixture_continuations
+    assert actual.fixture_scores == expected.fixture_scores
 
 
 @pytest.mark.parametrize(
@@ -885,6 +890,7 @@ def test_a_broken_counted_path_cannot_emit_any_middle(damage: str) -> None:
     records = scan([bytes(payload)])
     assert len(records.fixtures) == 2
     assert records.fixture_continuations == ()
+    assert records.fixture_scores == ()
 
 
 def test_an_unclosed_continuation_at_eof_is_not_emitted() -> None:
@@ -940,6 +946,7 @@ def test_an_exact_closing_anchor_beyond_the_cluster_gap_is_never_committed() -> 
     assert len(whole.fixtures) == 2
     assert whole.fixtures == fragmented.fixtures
     assert whole.fixture_continuations == fragmented.fixture_continuations == ()
+    assert whole.fixture_scores == fragmented.fixture_scores == ()
 
 
 def test_owned_unplayed_middle_stays_unplayed_without_invented_inline_goals() -> None:
@@ -948,3 +955,124 @@ def test_owned_unplayed_middle_stays_unplayed_without_invented_inline_goals() ->
     records = scan([continuation_payload(middles=[bytes(middle)])])
     assert len(records.fixture_continuations) == 1
     assert records.fixture_continuations[0].fixtures[0].played is False
+
+
+def test_counted_scores_belong_to_the_following_physical_core_including_strict_anchors() -> None:
+    from tests.fixtures.span import counted_fixture_bytes
+
+    payload = (
+        counted_fixture_bytes(example_fixture_blob(0), goals=(2, 1), event_count=3)
+        + counted_fixture_bytes(continuation_fixture(), goals=(0, 0), optional_goals=(1, 2))
+        + example_fixture_blob(2)
+    )
+    records = scan([payload])
+    assert [(s.span_offset, s.home_goals, s.away_goals) for s in records.fixture_scores] == [
+        (12 + 97 + 3 * 16, 2, 1),
+        (12 + 2 * 97 + 3 * 16, 1, 2),
+    ]
+    assert records.fixture_scores[0].span_offset not in {r.span_offset for r in records.fixtures}
+    assert records.fixture_scores[1].span_offset == records.fixtures[1].span_offset
+
+
+def test_an_owned_packet_between_two_strict_anchors_needs_no_recovered_middle() -> None:
+    from tests.fixtures.span import counted_fixture_bytes
+
+    payload = counted_fixture_bytes(example_fixture_blob(0), goals=(3, 2)) + example_fixture_blob(2)
+    records = scan([payload])
+    assert records.fixture_continuations == ()
+    assert [(s.span_offset, s.home_goals, s.away_goals) for s in records.fixture_scores] == [
+        (109, 3, 2)
+    ]
+    assert (
+        scan([payload[i : i + 1] for i in range(len(payload))]).fixture_scores
+        == records.fixture_scores
+    )
+
+
+@pytest.mark.parametrize(
+    ("basic", "optional", "expected"),
+    [
+        ((2, 1), (255, 255), (2, 1)),
+        ((1, 1), (2, 3), (2, 3)),
+        ((1, 1), (1, 1), (1, 1)),
+        ((255, 1), (2, 3), (None, None)),
+        ((41, 1), (42, 3), (None, None)),
+        ((1, 1), (255, 2), (None, None)),
+        ((1, 1), (2, 255), (None, None)),
+        ((2, 1), (1, 3), (None, None)),
+        ((1, 2), (3, 1), (None, None)),
+        ((1, 1), (41, 3), (None, None)),
+    ],
+)
+def test_score_safety_rejects_only_its_own_evidence(
+    basic: tuple[int, int], optional: tuple[int, int], expected: tuple[int | None, int | None]
+) -> None:
+    from tests.fixtures.span import counted_fixture_bytes
+
+    payload = (
+        counted_fixture_bytes(example_fixture_blob(0), goals=basic, optional_goals=optional)
+        + counted_fixture_bytes(continuation_fixture(), goals=(4, 0))
+        + example_fixture_blob(2)
+    )
+    records = scan([payload])
+    assert len(records.fixture_continuations) == 1
+    assert [(s.home_goals, s.away_goals) for s in records.fixture_scores] == [expected, (4, 0)]
+
+
+def test_shootout_and_partial_aggregate_values_cannot_change_match_goals() -> None:
+    from tests.fixtures.span import counted_fixture_bytes
+
+    payload = counted_fixture_bytes(
+        example_fixture_blob(0), goals=(1, 1), optional_goals=(2, 2), other_goals=(5, 6, 255, 4)
+    ) + example_fixture_blob(2)
+    score = scan([payload]).fixture_scores[0]
+    assert (score.home_goals, score.away_goals) == (2, 2)
+
+
+def test_incomplete_counted_ownership_cannot_publish_even_a_safe_packet_score() -> None:
+    payload = continuation_payload()[:-80]
+    assert scan([payload]).fixture_scores == ()
+    bad = bytearray(continuation_payload())
+    bad[190:194] = (1).to_bytes(4, "little")
+    assert scan([bytes(bad)]).fixture_scores == ()
+
+
+def test_score_fields_follow_registered_offsets_and_validate_their_extent() -> None:
+    import dataclasses
+
+    from tests.fixtures.span import counted_fixture_bytes
+
+    layout = span_layouts()
+    changed = dataclasses.replace(
+        layout,
+        fixtures=dataclasses.replace(
+            layout.fixtures, secondary_home_goals_offset=9, secondary_away_goals_offset=5
+        ),
+    )
+    payload = counted_fixture_bytes(example_fixture_blob(0), goals=(2, 1)) + example_fixture_blob(2)
+    scores = scan_span([payload], changed, CLOCK, FILE_NAME).fixture_scores
+    assert (scores[0].home_goals, scores[0].away_goals) == (1, 2)
+    broken = dataclasses.replace(
+        layout, fixtures=dataclasses.replace(layout.fixtures, secondary_home_goals_offset=25)
+    )
+    with pytest.raises(ValueError, match="score fields"):
+        scan_span([payload], broken, CLOCK, FILE_NAME)
+
+
+@pytest.mark.parametrize("damage", ["played", "date"])
+def test_score_evidence_checks_a_strict_target_without_removing_the_old_anchor(damage: str) -> None:
+    from tests.fixtures.span import counted_fixture_bytes
+
+    right = bytearray(example_fixture_blob(2))
+    if damage == "played":
+        right[67] = 2
+    else:
+        right[25:27] = bytes(2)
+    payload = counted_fixture_bytes(example_fixture_blob(0), goals=(3, 2)) + bytes(right)
+    records = scan([payload])
+    assert len(records.fixtures) == 2
+    assert [(s.home_goals, s.away_goals) for s in records.fixture_scores] == [(None, None)]
+    assert (
+        scan([payload[i : i + 1] for i in range(len(payload))]).fixture_scores
+        == records.fixture_scores
+    )

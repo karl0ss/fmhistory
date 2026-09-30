@@ -1282,10 +1282,16 @@
         'round_index_none_value': 255,
         'round_index_offset': 38,
         'season_start_year_offset': 26,
+        'secondary_away_goals_offset': 9,
         'secondary_count_offset': 25,
+        'secondary_goals_maximum': 40,
         'secondary_header_bytes': 29,
+        'secondary_home_goals_offset': 5,
         'secondary_item_bytes': 16,
         'secondary_marker': 28,
+        'secondary_missing_goals': 255,
+        'secondary_optional_away_goals_offset': 10,
+        'secondary_optional_home_goals_offset': 6,
         'sentinel_offsets': tuple(
           tuple(
             4,

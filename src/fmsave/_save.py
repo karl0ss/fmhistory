@@ -69,7 +69,7 @@ from fmsave.readers.affiliates import (
 )
 from fmsave.readers.facilities import find_facility_layout, read_club_facilities
 from fmsave.readers.finances import find_finance_layouts, read_club_finances
-from fmsave.readers.fixtures import build_fixtures
+from fmsave.readers.fixtures import build_fixtures_with_offsets
 from fmsave.readers.injuries import (
     build_injury_records,
     find_injury_manager_layout,
@@ -507,7 +507,7 @@ class Save:
         not resolve leaves its fields empty rather than being guessed.
 
         `home_goals` and `away_goals` carry scores decoded from separate stage results and
-        counted owned match summaries; the calendar itself stores no score, and coverage
+        counted owned match summaries and physically owned calendar packets; coverage
         varies between saves. A played match with empty goals has no unambiguous decoded
         result. This does not establish whether the save retained its score, and does not mean
         the match finished goalless.
@@ -571,7 +571,7 @@ class Save:
             )
         del game_db
         span_records = context.span_records()
-        fixtures, fixture_stats = build_fixtures(
+        fixtures, fixture_stats, fixture_offsets = build_fixtures_with_offsets(
             span_records, stage_index, competition_index, club_index, stadium_index, layout
         )
         fixtures, result_stats = self._scored_fixtures(
@@ -580,6 +580,7 @@ class Save:
             stage_index,
             find_result_layout(save_info.build),
             summaries=summaries,
+            fixture_offsets=fixture_offsets,
         )
         fixture_check = _checks.check_fixtures(
             fixture_stats, result_stats, gate_bounds, span_records.span_bytes
@@ -596,8 +597,9 @@ class Save:
         layout: StageResultLayout,
         *,
         summaries: MatchSummaryScores | None = None,
+        fixture_offsets: tuple[int, ...] = (),
     ) -> tuple[tuple[Fixture, ...], ResultStats]:
-        """Join stage results and fill remaining scores from owned match summaries.
+        """Join stage results, owned summaries and physically bound calendar packet scores.
 
         The records come from the span pass, which collected them on what each one settles by
         itself, and from the sections the layout names, read one at a time. Both routes are
@@ -615,6 +617,8 @@ class Save:
         Summaries use a separate exact date/competition/team key and cannot replace a known
         score or revive a contradiction between stage results. Their counts remain separate
         from the stage locator's checks.
+        Calendar packets use the builder's sorted physical offsets, preserve existing and
+        partial scores, and cannot revive a stage or summary contradiction.
         """
         context = self._context
         # The stage table is a rejection filter here and nothing else: this join asks only
@@ -627,10 +631,32 @@ class Save:
         # A fixture row does carry stage-derived fields, its competition and round among them,
         # but `build_fixtures` puts them there; they do not arrive through this join.
         stage_by_id = stage_index.stage_by_id
+        if fixture_offsets and len(fixture_offsets) != len(fixtures):
+            raise ValueError("fixture offsets do not match the sorted calendar")
+        scores_by_offset: dict[int, tuple[int, int] | None] = {}
+        for raw in span_records.fixture_scores:
+            score = (
+                None
+                if raw.home_goals is None or raw.away_goals is None
+                else (raw.home_goals, raw.away_goals)
+            )
+            if raw.span_offset in scores_by_offset and scores_by_offset[raw.span_offset] != score:
+                scores_by_offset[raw.span_offset] = None
+            else:
+                scores_by_offset[raw.span_offset] = score
+        packet_scores = {
+            position: scores_by_offset[offset]
+            for position, offset in enumerate(fixture_offsets)
+            if offset in scores_by_offset
+        }
         covered_dates = calendar_dates(fixtures)
         if covered_dates is None:
             return apply_results(
-                fixtures, (), candidates=span_records.result_candidates, summaries=summaries
+                fixtures,
+                (),
+                candidates=span_records.result_candidates,
+                summaries=summaries,
+                packet_scores=packet_scores,
             )
         earliest_date, latest_date = covered_dates
         candidates = span_records.result_candidates
@@ -649,7 +675,13 @@ class Save:
                 )
             candidates += located.candidates
             collected.extend(located.results)
-        return apply_results(fixtures, collected, candidates=candidates, summaries=summaries)
+        return apply_results(
+            fixtures,
+            collected,
+            candidates=candidates,
+            summaries=summaries,
+            packet_scores=packet_scores,
+        )
 
     def stadiums(self) -> Table[Stadium]:
         """Every ground the save's database holds, in the order the save stores them.

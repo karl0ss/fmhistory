@@ -9,6 +9,7 @@ import pytest
 
 import fmsave
 from fmsave._checks import GateResult, enforce, evaluate_results
+from fmsave._context import SaveContext
 from fmsave._frozen import FrozenMapping
 from fmsave._layouts import GateBounds, find_layout
 from fmsave._reader_stats import ResultStats
@@ -22,6 +23,7 @@ from fmsave.readers.results import (
     find_result_layout,
     result_in_scope,
 )
+from fmsave.readers.span import RawFixtureScore, SpanRecords
 from tests.fixtures.career import (
     ATHLETIC_TEAM_A,
     CUP_FIXTURE_STAGE_ID,
@@ -720,3 +722,134 @@ def test_save_reports_fixture_scores_recovered_from_owned_summaries(
     assert anomalies["scored_fixtures"] == 1
     assert anomalies["summary_existing_disagreements"] == 0
     assert anomalies["score_disagreements"] == 0
+
+
+def test_packet_scores_fill_only_the_physically_owned_duplicate(career_save_path: Path) -> None:
+    fixture = fixtures_of(career_save_path)[FIRST_LEAGUE_MATCH]
+    duplicate = dataclasses.replace(fixture, stage_id=UNRESOLVED_FIXTURE_STAGE_ID)
+    stage = raw_result(LEAGUE_MATCH_DAY, NORTHBRIDGE_TEAM_A, SOUTHPORT_TEAM, 2, 1)
+    scored, stats = apply_results(
+        (fixture, duplicate),
+        (stage,),
+        candidates=1,
+        summaries=summary_scores(fixture),
+        packet_scores={1: (2, 1)},
+    )
+    assert scored[0] == fixture
+    assert (scored[1].home_goals, scored[1].away_goals) == (2, 1)
+    assert scored[1].unknown.get("result_r22") is None
+    assert stats.ambiguous == stats.summary_ambiguous == 1
+    assert stats.packet_scored_fixtures == stats.scored_fixtures == 1
+
+
+@pytest.mark.parametrize(
+    ("changes", "score", "disagreements", "unplayed", "unsafe"),
+    [
+        ({"played": False}, (2, 1), 0, 1, 0),
+        ({"home_goals": 2}, (2, 1), 0, 0, 0),
+        ({"away_goals": 0}, (2, 1), 1, 0, 0),
+        ({"home_goals": 4, "away_goals": 3}, (2, 1), 1, 0, 0),
+        ({"home_goals": 4, "away_goals": 3}, None, 0, 0, 1),
+    ],
+)
+def test_packet_scores_preserve_existing_partial_and_unplayed(
+    career_save_path: Path,
+    changes: dict[str, object],
+    score: tuple[int, int] | None,
+    disagreements: int,
+    unplayed: int,
+    unsafe: int,
+) -> None:
+    fixture = dataclasses.replace(fixtures_of(career_save_path)[FIRST_LEAGUE_MATCH], **changes)
+    scored, stats = apply_results((fixture,), (), candidates=0, packet_scores={0: score})
+    assert scored == (fixture,)
+    assert stats.packet_existing_disagreements == disagreements
+    assert stats.packet_for_unplayed == unplayed
+    assert stats.packet_unsafe_scores == unsafe
+    assert stats.packet_scored_fixtures == 0
+
+
+def test_packet_scores_cannot_revive_stage_or_summary_poison(career_save_path: Path) -> None:
+    fixture = fixtures_of(career_save_path)[FIRST_LEAGUE_MATCH]
+    first = raw_result(LEAGUE_MATCH_DAY, NORTHBRIDGE_TEAM_A, SOUTHPORT_TEAM, 2, 1)
+    second = dataclasses.replace(first, home_goals=3)
+    scored, stats = apply_results(
+        (fixture,), (first, second), candidates=2, packet_scores={0: (2, 1)}
+    )
+    assert scored == (fixture,)
+    assert stats.packet_stage_conflicts == stats.score_disagreements == 1
+    scored, stats = apply_results(
+        (fixture,),
+        (),
+        candidates=0,
+        summaries=summary_scores(fixture, None),
+        packet_scores={0: (2, 1)},
+    )
+    assert scored == (fixture,)
+    assert stats.packet_summary_conflicts == stats.summary_unsafe_keys == 1
+
+
+def test_packet_scores_preserve_stage_score_and_unknown_byte(career_save_path: Path) -> None:
+    fixture = fixtures_of(career_save_path)[FIRST_LEAGUE_MATCH]
+    stage = raw_result(LEAGUE_MATCH_DAY, NORTHBRIDGE_TEAM_A, SOUTHPORT_TEAM, 2, 1)
+    scored, stats = apply_results((fixture,), (stage,), candidates=1, packet_scores={0: (3, 1)})
+    assert (scored[0].home_goals, scored[0].away_goals) == (2, 1)
+    assert scored[0].unknown["result_r22"] == stage.r22
+    assert stats.packet_existing_disagreements == 1
+    assert stats.packet_scored_fixtures == 0
+
+
+@pytest.mark.parametrize("position", [-1, 1])
+def test_packet_scores_reject_positions_outside_the_calendar(
+    career_save_path: Path, position: int
+) -> None:
+    fixture = fixtures_of(career_save_path)[FIRST_LEAGUE_MATCH]
+    with pytest.raises(ValueError, match="outside the fixture calendar"):
+        apply_results((fixture,), (), candidates=0, packet_scores={position: (2, 1)})
+
+
+@pytest.mark.parametrize(
+    ("pairs", "expected", "unsafe"),
+    [
+        (((2, 1),), (2, 1), 0),
+        (((2, 1), (3, 1), (2, 1)), (None, None), 1),
+        (((None, None), (2, 1), (2, 1)), (None, None), 1),
+    ],
+)
+def test_save_packet_scores_follow_sorted_physical_offsets_and_keep_poison(
+    career_save_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    pairs: tuple[tuple[int | None, int | None], ...],
+    expected: tuple[int | None, int | None],
+    unsafe: int,
+) -> None:
+    original = SaveContext.span_records
+
+    def with_packets(context: SaveContext) -> SpanRecords:
+        span = original(context)
+        # Physical first calendar record is Feb20, but sorts third after Feb6/13.
+        target = span.fixtures[0]
+        assert target.home_team_id == NORTHBRIDGE_TEAM_A
+        assert target.away_team_id == SOUTHPORT_TEAM
+        return dataclasses.replace(
+            span,
+            fixture_scores=tuple(
+                RawFixtureScore(target.span_offset, home, away) for home, away in pairs
+            ),
+        )
+
+    monkeypatch.setattr(SaveContext, "span_records", with_packets)
+    with fmsave.open(career_save_path) as save:
+        rows = tuple(save.fixtures())
+        assert (
+            rows[FIRST_LEAGUE_MATCH].home_goals,
+            rows[FIRST_LEAGUE_MATCH].away_goals,
+        ) == expected
+        assert rows[FIRST_MATCH].home_goals is None
+        assert rows[SECOND_LEAGUE_MATCH].home_goals is None
+        check = save._reader_check("fixtures")
+        assert check is not None
+        stats = check.anomalies
+        assert stats["packet_score_records"] == 1
+        assert stats["packet_unsafe_scores"] == unsafe
+        assert stats["packet_scored_fixtures"] == int(unsafe == 0)

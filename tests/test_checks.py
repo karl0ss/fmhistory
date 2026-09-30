@@ -1201,6 +1201,13 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
             "summary_existing_disagreements": 0,
             "summary_stage_conflicts": 0,
             "summary_scored_fixtures": 0,
+            "packet_score_records": 0,
+            "packet_unsafe_scores": 0,
+            "packet_for_unplayed": 0,
+            "packet_stage_conflicts": 0,
+            "packet_summary_conflicts": 0,
+            "packet_existing_disagreements": 0,
+            "packet_scored_fixtures": 0,
         },
         "transfer_windows": {
             "dated_records_without_a_closing_time": 0,

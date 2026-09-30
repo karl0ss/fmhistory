@@ -188,6 +188,19 @@ class RawRulesBlock:
     fully_parsed: bool
 
 
+@dataclass(frozen=True, slots=True)
+class RawFixtureScore:
+    """A counted packet's score for its following physical fixture record.
+
+    Both goals are None when the packet's score fields are unsafe. This retains rejected
+    score evidence without changing the structural fixture path or another score source.
+    """
+
+    span_offset: int
+    home_goals: int | None
+    away_goals: int | None
+
+
 @dataclass(frozen=True, slots=True, repr=False)
 class SpanRecords:
     """What one pass over the unnamed span found. The repr gives counts only.
@@ -219,6 +232,7 @@ class SpanRecords:
     span_bytes: int
     frame_count: int
     fixture_continuations: tuple[RawFixtureContinuation, ...] = ()
+    fixture_scores: tuple[RawFixtureScore, ...] = ()
 
     def __repr__(self) -> str:
         return (
@@ -652,12 +666,16 @@ class _FixtureContinuationState:
     cursor: int = 0
     core: RawFixture | None = None
     pending: list[RawFixture] = field(default_factory=lambda: list[RawFixture]())
+    next_score: tuple[int, int] | None = None
+    pending_scores: list[RawFixtureScore] = field(default_factory=lambda: list[RawFixtureScore]())
 
     def reset(self, anchor: RawFixture | None = None) -> None:
         self.left = None if anchor is None else anchor.span_offset
         self.cursor = 0 if anchor is None else anchor.span_offset
         self.core = anchor
         self.pending.clear()
+        self.next_score = None
+        self.pending_scores.clear()
 
     def advance(
         self,
@@ -673,6 +691,15 @@ class _FixtureContinuationState:
                 self.reset()
                 return False
             if self.core is None and stop == self.cursor:
+                at = self.cursor - origin
+                if (
+                    at < 0
+                    or at + search.record_bytes > len(window)
+                    or decode_date(window, at + layout.kick_off_date_offset) is None
+                    or window[at + layout.played_offset] not in (0, 1)
+                ):
+                    self.next_score = None
+                self.pending_scores.append(self._score(self.cursor))
                 return True
             if stop is not None and self.cursor >= stop:
                 self.reset()
@@ -688,6 +715,27 @@ class _FixtureContinuationState:
                     self.reset()
                     return False
                 count = _UINT32.unpack_from(window, at + layout.secondary_count_offset)[0]
+                basic = (
+                    window[at + layout.secondary_home_goals_offset],
+                    window[at + layout.secondary_away_goals_offset],
+                )
+                optional = (
+                    window[at + layout.secondary_optional_home_goals_offset],
+                    window[at + layout.secondary_optional_away_goals_offset],
+                )
+                # These fields belong to the following core, not the preceding one.
+                # The other packet bytes include shootout/aggregate-like values and
+                # remain uninterpreted. Unsafe scores never invalidate framing.
+                self.next_score = None
+                if max(basic) <= layout.secondary_goals_maximum:
+                    if optional == (layout.secondary_missing_goals,) * 2:
+                        self.next_score = basic
+                    elif (
+                        max(optional) <= layout.secondary_goals_maximum
+                        and optional[0] >= basic[0]
+                        and optional[1] >= basic[1]
+                    ):
+                        self.next_score = optional
                 # Event rows carry unidentified fields. Skip their declared byte extent
                 # logically, even across many frames, without storing or interpreting it.
                 self.cursor = (
@@ -714,6 +762,7 @@ class _FixtureContinuationState:
                 return False
             values = search.fields_struct.unpack_from(window, at + search.struct_start)
             self.core = _raw_fixture(values, self.cursor, search)
+            self.pending_scores.append(self._score(self.cursor))
             # Reference and output-year bounds do not decide where the owned path ends.
             # A filtered middle still supplies the next counted continuation.
             if (
@@ -725,6 +774,10 @@ class _FixtureContinuationState:
             ):
                 self.pending.append(self.core)
         return False
+
+    def _score(self, offset: int) -> RawFixtureScore:
+        home, away = self.next_score if self.next_score is not None else (None, None)
+        return RawFixtureScore(offset, home, away)
 
 
 def _collect_table_blocks(
@@ -1130,6 +1183,7 @@ def scan_span(
 
     fixtures: list[RawFixture] = []
     fixture_continuations: list[RawFixtureContinuation] = []
+    fixture_scores: list[RawFixtureScore] = []
     continuation = _FixtureContinuationState()
     if (
         layouts.fixtures.secondary_count_offset < 1
@@ -1140,6 +1194,23 @@ def scan_span(
         or fixture_search.record_bytes - fixture_search.marker_byte_offset > carry_over_bytes
     ):
         raise ValueError("fixture continuation headers must fit the streamed carry")
+    score_offsets = (
+        layouts.fixtures.secondary_home_goals_offset,
+        layouts.fixtures.secondary_away_goals_offset,
+        layouts.fixtures.secondary_optional_home_goals_offset,
+        layouts.fixtures.secondary_optional_away_goals_offset,
+    )
+    if (
+        len(set(score_offsets)) != len(score_offsets)
+        or any(
+            not 1 <= offset < layouts.fixtures.secondary_count_offset for offset in score_offsets
+        )
+        or not 0
+        <= layouts.fixtures.secondary_goals_maximum
+        < layouts.fixtures.secondary_missing_goals
+        or layouts.fixtures.secondary_missing_goals > 255
+    ):
+        raise ValueError("fixture score fields must fit the secondary header")
     table_blocks: list[RawTableBlock] = []
     rules_blocks: list[RawRulesBlock] = []
     results: list[RawStageResult] = []
@@ -1188,6 +1259,8 @@ def scan_span(
                             tuple(continuation.pending),
                         )
                     )
+                if closed:
+                    fixture_scores.extend(continuation.pending_scores)
                 continuation.reset(anchor)
             # Advance on every frame, including frames without a new strict anchor. Only
             # fixed-header scalars and provisional decoded rows survive the next frame.
@@ -1261,4 +1334,5 @@ def scan_span(
         span_bytes=span_bytes,
         frame_count=frame_count,
         fixture_continuations=tuple(fixture_continuations),
+        fixture_scores=tuple(fixture_scores),
     )
