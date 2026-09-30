@@ -213,7 +213,7 @@ def located(
     player_records = synthetic_player_records(player_offsets)
     return build_player_match_stats(
         locate_match_records(
-            buffer_with_records(record_offset - 10, match_list_bytes(records)),
+            buffer_with_records(record_offset - 12, match_list_bytes(records)),
             player_records,
             layout,
             clock,
@@ -489,9 +489,9 @@ def test_a_date_that_does_not_decode_is_not_a_record() -> None:
 def test_the_search_never_reaches_back_before_the_first_player_window() -> None:
     """A search starts where the first player's window does, so nothing before it is read."""
     window_start = PLAYER_RECORD_OFFSET - OWNER_BACK_OFFSET
-    _rows, before_stats = located(match_bytes(), record_offset=window_start + 9)
+    _rows, before_stats = located(match_bytes(), record_offset=window_start + 11)
     assert (before_stats.records, before_stats.unowned) == (0, 0)
-    rows, at_start_stats = located(match_bytes(), record_offset=window_start + 10)
+    rows, at_start_stats = located(match_bytes(), record_offset=window_start + 12)
     assert (at_start_stats.records, at_start_stats.unowned) == (1, 0)
     assert rows[0].player_uid == SYNTHETIC_FIRST_UID
 
@@ -997,11 +997,11 @@ def test_unframed_match_shaped_bytes_cannot_become_a_players_history() -> None:
 def test_incomplete_counted_lists_cannot_publish_a_valid_prefix(damage: str) -> None:
     framed = bytearray(match_list_bytes(match_bytes() + match_bytes(played=False)))
     if damage == "count":
-        framed[6:10] = (3).to_bytes(4, "little")
+        framed[8:12] = (3).to_bytes(4, "little")
     elif damage == "date":
-        framed[65:69] = bytes(4)
+        framed[67:71] = bytes(4)
     elif damage == "flag":
-        framed[78] = 2
+        framed[80] = 2
     else:
         framed = framed[:-1]
     buffer = bytes(390) + framed
@@ -1083,8 +1083,8 @@ def test_zero_count_in_unrelated_fields_is_not_proof_of_empty_history() -> None:
 
 def test_an_impossible_count_with_invalid_header_ids_is_not_a_claimed_list() -> None:
     framed = bytearray(match_list_bytes(match_bytes()))
-    framed[6:10] = (0xFF003001).to_bytes(4, "little")
-    framed[15:19] = bytes(4)
+    framed[8:12] = (0xFF003001).to_bytes(4, "little")
+    framed[17:21] = bytes(4)
     records = locate_match_records(
         buffer_with_records(390, bytes(framed)),
         synthetic_player_records((200,)),
@@ -1097,7 +1097,7 @@ def test_an_impossible_count_with_invalid_header_ids_is_not_a_claimed_list() -> 
 
 def test_an_inflated_count_on_a_valid_header_still_fails_beside_a_good_list() -> None:
     bad = bytearray(match_list_bytes(match_bytes()))
-    bad[6:10] = (0xFF003001).to_bytes(4, "little")
+    bad[8:12] = (0xFF003001).to_bytes(4, "little")
     good = match_list_bytes(match_bytes())
     buffer = bytearray(1000)
     buffer[390 : 390 + len(bad)] = bad
@@ -1138,9 +1138,14 @@ def test_failed_nested_match_lists_do_not_rewalk_the_same_suffix(
         row = bytearray(match_bytes())
         # Unknown trailing bytes can resemble another header immediately before the next
         # real row. Every candidate overclaims by one, so they all fail at the same end.
-        row[44:54] = b"\x14\x01" + struct.pack("<II", 901, record_count - index)
+        row[42:54] = b"\x01\x01\x14\x01" + struct.pack("<II", 901, record_count - index)
         rows.append(bytes(row))
-    data = bytes(390) + b"\x14\x01" + struct.pack("<II", 901, record_count + 1) + b"".join(rows)
+    data = (
+        bytes(390)
+        + b"\x01\x01\x14\x01"
+        + struct.pack("<II", 901, record_count + 1)
+        + b"".join(rows)
+    )
     original = match_reader._read_match_record
     reads = 0
 
@@ -1167,9 +1172,14 @@ def test_a_shorter_valid_nested_list_survives_a_failed_outer_walk() -> None:
     for index in range(record_count):
         row = bytearray(match_bytes(day_of_year=50 + index))
         declared = 2 if index == 4 else record_count - index
-        row[44:54] = b"\x14\x01" + struct.pack("<II", 901, declared)
+        row[42:54] = b"\x01\x01\x14\x01" + struct.pack("<II", 901, declared)
         rows.append(bytes(row))
-    data = bytes(390) + b"\x14\x01" + struct.pack("<II", 901, record_count + 1) + b"".join(rows)
+    data = (
+        bytes(390)
+        + b"\x01\x01\x14\x01"
+        + struct.pack("<II", 901, record_count + 1)
+        + b"".join(rows)
+    )
     records = match_reader.locate_match_records(
         data, synthetic_player_records((200,)), registered_match_layout(), CLOCK
     )
@@ -1190,9 +1200,14 @@ def test_failed_suffix_lengths_count_records_excluded_from_output() -> None:
             )
         )
         declared = record_count - index - 1 if index == 4 else record_count - index
-        row[44:54] = b"\x14\x01" + struct.pack("<II", 901, declared)
+        row[42:54] = b"\x01\x01\x14\x01" + struct.pack("<II", 901, declared)
         rows.append(bytes(row))
-    data = bytes(390) + b"\x14\x01" + struct.pack("<II", 901, record_count + 1) + b"".join(rows)
+    data = (
+        bytes(390)
+        + b"\x01\x01\x14\x01"
+        + struct.pack("<II", 901, record_count + 1)
+        + b"".join(rows)
+    )
     records = match_reader.locate_match_records(
         data, synthetic_player_records((200,)), registered_match_layout(), CLOCK
     )
@@ -1209,9 +1224,14 @@ def test_failed_suffixes_stay_inside_their_owner_when_another_player_has_valid_h
     rows = []
     for index in range(record_count):
         row = bytearray(match_bytes())
-        row[44:54] = b"\x14\x01" + struct.pack("<II", 901, record_count - index)
+        row[42:54] = b"\x01\x01\x14\x01" + struct.pack("<II", 901, record_count - index)
         rows.append(bytes(row))
-    first = bytes(390) + b"\x14\x01" + struct.pack("<II", 901, record_count + 1) + b"".join(rows)
+    first = (
+        bytes(390)
+        + b"\x01\x01\x14\x01"
+        + struct.pack("<II", 901, record_count + 1)
+        + b"".join(rows)
+    )
     boundary = len(first)
     second = match_list_bytes(match_bytes(day_of_year=61) + match_bytes(day_of_year=62))
     records = match_reader.locate_match_records(
@@ -1224,3 +1244,154 @@ def test_failed_suffixes_stay_inside_their_owner_when_another_player_has_valid_h
     assert [row.date for row in records[1]] == [date(2031, 3, 2), date(2031, 3, 3)]
     assert records.lists_found == record_count + 1
     assert records.lists_decoded == 1
+
+
+def history_bytes(*children: bytes) -> bytes:
+    """Frame child lists from fictional helpers under one declared parent."""
+    return b"\x01" + bytes([len(children)]) + b"".join(child[2:] for child in children)
+
+
+def test_a_complete_parent_walks_missing_team_references_and_all_siblings() -> None:
+    framed = history_bytes(
+        match_list_bytes(match_bytes(day_of_year=51), team_id=0),
+        match_list_bytes(match_bytes(day_of_year=52), team_id=901),
+    )
+    records = locate_match_records(
+        buffer_with_records(390, framed),
+        synthetic_player_records((200,)),
+        registered_match_layout(),
+        CLOCK,
+    )
+    assert records.lists_found == records.lists_decoded == 2
+    assert [r.date for r in records[0]] == [date(2031, 2, 20), date(2031, 2, 21)]
+
+
+@pytest.mark.parametrize("damage", ["missing-child", "bad-date", "bad-marker", "owner-boundary"])
+def test_a_bad_later_child_prevents_every_sibling_from_being_emitted(damage: str) -> None:
+    first = match_list_bytes(match_bytes())
+    second = bytearray(match_list_bytes(match_bytes()))
+    if damage == "bad-date":
+        second[13:17] = bytes(4)
+    elif damage == "bad-marker":
+        second[2] = 0
+    framed = history_bytes(first, bytes(second))
+    if damage == "missing-child":
+        framed = framed[: -len(second) + 2]
+    players = (200, 500) if damage == "owner-boundary" else (200,)
+    records = locate_match_records(
+        buffer_with_records(390, framed),
+        synthetic_player_records(players),
+        registered_match_layout(),
+        CLOCK,
+    )
+    assert records == {}
+    assert (records.lists_found, records.lists_decoded) == (2, 0)
+
+
+def test_a_child_header_without_its_parent_is_not_a_history() -> None:
+    records = locate_match_records(
+        buffer_with_records(390, match_list_bytes(match_bytes())[2:]),
+        synthetic_player_records((200,)),
+        registered_match_layout(),
+        CLOCK,
+    )
+    assert records == {}
+    assert records.lists_found == records.lists_decoded == 0
+
+
+def test_a_valid_later_parent_is_recovered_after_a_failed_parent() -> None:
+    first = history_bytes(match_list_bytes(match_bytes()), match_list_bytes(match_bytes()))
+    damaged = bytearray(first)
+    damaged[-54 + 14] = 2
+    first = bytes(damaged)
+    later = match_list_bytes(match_bytes(day_of_year=60))
+    records = locate_match_records(
+        bytes(390) + first + bytes(30) + later,
+        synthetic_player_records((200,)),
+        registered_match_layout(),
+        CLOCK,
+    )
+    assert (records.lists_found, records.lists_decoded) == (3, 1)
+    assert [r.date for r in records[0]] == [date(2031, 3, 1)]
+
+
+@pytest.mark.parametrize("record_count", [100, 400])
+def test_complete_children_are_not_rewalked_after_their_parent_fails(
+    record_count: int,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fmsave.readers import matches as match_reader
+
+    rows = []
+    for i in range(record_count):
+        row = bytearray(match_bytes())
+        row[42:54] = b"\x01\x02\x14\x01" + struct.pack("<II", 901, record_count - i - 1)
+        rows.append(bytes(row))
+    # The first child frames completely; the claimed second child is missing. The embedded
+    # parents would each revisit a valid suffix if the retry floor did not skip that child.
+    data = bytes(390) + b"\x01\x02\x14\x01" + struct.pack("<II", 901, record_count) + b"".join(rows)
+    original = match_reader._read_match_record
+    reads = 0
+
+    def counted_read(*args: object) -> object:
+        nonlocal reads
+        reads += 1
+        return original(*args)  # pyright: ignore[reportArgumentType]
+
+    monkeypatch.setattr(match_reader, "_read_match_record", counted_read)
+    records = match_reader.locate_match_records(
+        data,
+        synthetic_player_records((200,)),
+        registered_match_layout(),
+        CLOCK,
+    )
+    assert records == {}
+    assert (records.lists_found, records.lists_decoded) == (2, 0)
+    assert reads <= record_count + 2
+
+
+def test_a_complete_additional_child_rejects_an_understated_parent_count() -> None:
+    framed = bytearray(
+        history_bytes(
+            match_list_bytes(match_bytes()),
+            match_list_bytes(match_bytes()),
+        )
+    )
+    framed[1] = 1
+    records = locate_match_records(
+        buffer_with_records(390, bytes(framed)),
+        synthetic_player_records((200,)),
+        registered_match_layout(),
+        CLOCK,
+    )
+    assert records == {}
+    assert (records.lists_found, records.lists_decoded) == (1, 0)
+
+
+def test_following_marker_bytes_alone_do_not_invalidate_a_complete_parent() -> None:
+    framed = match_list_bytes(match_bytes()) + b"\x14\x01" + bytes(8)
+    records = locate_match_records(
+        buffer_with_records(390, framed),
+        synthetic_player_records((200,)),
+        registered_match_layout(),
+        CLOCK,
+    )
+    assert len(records[0]) == 1
+    assert records.lists_found == records.lists_decoded == 1
+
+
+def test_missing_competition_children_frame_without_hiding_known_sibling_rows() -> None:
+    framed = history_bytes(
+        match_list_bytes(
+            match_bytes(competition_id=0xFFFFFFFF) + match_bytes(competition_id=0xFFFFFFFF)
+        ),
+        match_list_bytes(match_bytes(competition_id=901)),
+    )
+    records = locate_match_records(
+        buffer_with_records(390, framed),
+        synthetic_player_records((200,)),
+        registered_match_layout(),
+        CLOCK,
+    )
+    assert records.lists_found == records.lists_decoded == 2
+    assert [r.competition_id for r in records[0]] == [901]

@@ -423,6 +423,7 @@ class ContractDecoder:
     tail_e24_offset: int
     tail_struct: struct.Struct
     loan_block_max_event_count: int
+    nonterms_block_prefix: bytes
 
     # Clause locator and reader.
     clause_step_bytes: int
@@ -1215,6 +1216,38 @@ class ContractDecoder:
             hit = find(_FOUR_FF, hit + 1, find_end)
         return best_start, best_end
 
+    def _is_retained_nonterms_block(
+        self,
+        game_db: bytes,
+        chain_offset: int,
+        record: _ChainRecordTuple,
+        record_start: int,
+        record_end: int,
+    ) -> bool:
+        """Recognize the complete empty-terms form without assigning it contract semantics.
+
+        It remains part of the raw chain. Only a player explicitly lacking registration,
+        with no other terms or current fallback date, can lose a current selection on this
+        evidence; registered players and loan date selection keep their existing behavior.
+        """
+        base = chain_offset - self.tail_base_offset
+        block_end = base + max(
+            len(self.nonterms_block_prefix),
+            self.tail_end_offset + 4,
+            self.tail_printed_start_offset + len(self.tag),
+            self.tail_event_count_offset + 4,
+        )
+        if record[CHAIN_RECORD_HAS_TERMS] or base < record_start:
+            return False
+        if block_end > min(record_end, len(game_db)):
+            return False
+        return (
+            game_db.startswith(self.nonterms_block_prefix, base)
+            and game_db.startswith(self.tag, base + self.tail_printed_start_offset)
+            and _U32.unpack_from(game_db, base + self.tail_event_count_offset)[0] == 0
+            and decode_date(game_db, base + self.tail_end_offset) is not None
+        )
+
     def decode(
         self,
         game_db: bytes,
@@ -1225,6 +1258,8 @@ class ContractDecoder:
         player_uid: int,
         player_name: str | None,
         player_club_uid: int | None,
+        *,
+        registration_missing: bool = False,
     ) -> tuple[Contract | None, bool | None, int | None, str | None, date | None, date | None]:
         """Assemble one player's contract from their chain records and, when needed, the
         fallback reader.
@@ -1292,7 +1327,21 @@ class ContractDecoder:
                 end, end_source = None, ContractEndSource.NONE
         else:
             self.players_with_chain_count += 1
-            in_effect_record = self._in_effect_record(chain_records, player_club_uid)
+            only_retained_nonterms = (
+                registration_missing
+                and (fallback_end is None or fallback_end < clock)
+                and all(
+                    self._is_retained_nonterms_block(
+                        game_db, offset, record, record_offset, record_window_end
+                    )
+                    for offset, record in zip(chain_offsets, chain_records, strict=True)
+                )
+            )
+            in_effect_record = (
+                None
+                if only_retained_nonterms
+                else self._in_effect_record(chain_records, player_club_uid)
+            )
 
             if in_effect_record is None:
                 self.without_contract_in_effect_count += 1
@@ -1490,6 +1539,7 @@ def build_contract_decoder(
         tail_e24_offset=layout.tail_e24_offset,
         tail_struct=_build_tail_struct(layout),
         loan_block_max_event_count=layout.loan_block_max_event_count,
+        nonterms_block_prefix=layout.nonterms_block_prefix,
         clause_step_bytes=layout.clause_step_bytes,
         clause_max_count=layout.clause_max_count,
         clause_ff_offset=layout.clause_ff_offset,

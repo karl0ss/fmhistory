@@ -491,6 +491,7 @@ class ContractLayout:
     tail_e39_offset: int
     tail_event_count_offset: int
     loan_block_max_event_count: int
+    nonterms_block_prefix: bytes
 
     clause_step_bytes: int
     clause_max_count: int
@@ -550,6 +551,12 @@ class SuspensionLayout:
     `scope_code_offset` says which id space it belongs to: `competition_scope_code` means a
     competition id in the stage id space, and each code in `nation_scope_codes` means a nation
     id. A code in neither list leaves the id unread, because nothing then says what it is.
+
+    The standalone signature remains supported. Additional attached forms require a complete
+    parent beginning with `parent_prefix` and a u8 child count. Each child has
+    `entry_core_bytes` followed by either `null_suffix` or an attachment extending through
+    `linked_entry_bytes`. Attachment offsets count from the child's start; its signature,
+    date and flag constrain framing without assigning meanings to its other raw fields.
     """
 
     signature: tuple[tuple[int, int], ...]
@@ -561,13 +568,23 @@ class SuspensionLayout:
     scope_id_exclusive_range: tuple[int, int]
     competition_scope_code: int
     nation_scope_codes: tuple[int, ...]
+    parent_prefix: bytes
+    entry_core_bytes: int
+    null_suffix: bytes
+    linked_entry_bytes: int
+    linked_signature: tuple[tuple[int, int], ...]
+    linked_date_offset: int
+    linked_flag_offset: int
+    linked_flag_values: tuple[int, ...]
 
 
 @dataclass(frozen=True, slots=True)
 class MatchRecordLayout:
     """How to find a player's per-match records in `game_db`, and where their fields sit.
 
-    Record offsets count from the lead byte. A list starts with one of the observed
+    A parent marker and byte count enclose contiguous team lists. All declared children
+    must frame completely before any rows are emitted. Record offsets count from the lead
+    byte. A child list starts with one of the observed
     `list_markers`, followed by its team word and declared record count inside
     `list_header_bytes`. The meaning of each marker's first byte remains unconfirmed.
     Every declared record must be walked within its player's ownership window before
@@ -623,6 +640,9 @@ class MatchRecordLayout:
     list_header_bytes: int
     list_team_id_offset: int
     list_count_offset: int
+    parent_marker: bytes
+    parent_header_bytes: int
+    parent_count_offset: int
 
 
 @dataclass(frozen=True, slots=True)

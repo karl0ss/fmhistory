@@ -349,6 +349,7 @@
         'head_money_c_offset': -24,
         'head_type_offset': -33,
         'loan_block_max_event_count': 60,
+        'nonterms_block_prefix': b'\x00\x00\xff\x00\x00\x00\x00\x00\x00\xff\x00\x00\x00\x00\xff\xff\x00\x00\x00\x00\xff\xff\xff\xff\xff\xff\xff\xff',
         'selector_offset': 5,
         'start_offset': -19,
         'tag': b'\x01\x00l\x07',
@@ -486,13 +487,45 @@
       'build': '26.3.2+2329565',
       'layout': dict({
         'competition_scope_code': 1,
+        'entry_core_bytes': 18,
         'issued_date_offset': 9,
+        'linked_date_offset': 21,
+        'linked_entry_bytes': 46,
+        'linked_flag_offset': 29,
+        'linked_flag_values': tuple(
+          1,
+          2,
+        ),
+        'linked_signature': tuple(
+          tuple(
+            18,
+            3,
+          ),
+          tuple(
+            19,
+            1,
+          ),
+          tuple(
+            20,
+            1,
+          ),
+          tuple(
+            30,
+            0,
+          ),
+          tuple(
+            35,
+            0,
+          ),
+        ),
         'nation_scope_codes': tuple(
           5,
           6,
           10,
         ),
+        'null_suffix': b'\xff\x00',
         'owner_back_offset': 30,
+        'parent_prefix': b'\x01\x00',
         'scope_code_offset': 14,
         'scope_id_exclusive_range': tuple(
           0,
@@ -555,6 +588,9 @@
         'minutes_offset': 39,
         'opponent_team_id_offset': 5,
         'owner_back_offset': 30,
+        'parent_count_offset': 1,
+        'parent_header_bytes': 2,
+        'parent_marker': b'\x01',
         'passes_attempted_offset': 41,
         'passes_completed_offset': 42,
         'position_bits': tuple(

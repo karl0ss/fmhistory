@@ -52,7 +52,9 @@ class ContractStats:
     """What one decode pass counted over the players' contract chain records.
 
     `without_contract_in_effect` counts players with chain records none of which is the
-    contract in effect at the in-game date, because every one of them starts after it.
+    contract in effect at the in-game date, because every one starts after it, or an
+    explicitly unregistered player has only retained nonterms blocks and no current
+    independent fallback end date.
     `date_marked_chain_records` counts the chain records found by a date in their tag slot
     rather than by the tag itself. `tails_without_clause_table` counts parsed tails where no
     clause table is found, and

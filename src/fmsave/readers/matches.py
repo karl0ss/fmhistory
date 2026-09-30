@@ -1,8 +1,9 @@
 """Read complete counted per-match histories within player objects.
 
-A ten-byte list header carries an observed marker, a team word and the number of records.
+A marker and byte count enclose contiguous team lists. Each ten-byte child header carries
+an observed marker, a raw team word and the number of records.
 Records without performance data are fifteen bytes; records with a body are fifty-four.
-The full declared list is walked before any rows are emitted. Year and identity bounds
+The full declared parent is walked before any rows are emitted. Year and identity bounds
 filter output, while implausible statistics remain visible for validation.
 """
 
@@ -24,7 +25,7 @@ from fmsave.models.clubs import Club
 from fmsave.models.common import CodedValue
 from fmsave.models.matches import MatchPosition, PlayerMatchStats
 from fmsave.models.players import Player
-from fmsave.readers._common import GAME_DB_SECTION, build_gap_padded_struct
+from fmsave.readers._common import GAME_DB_SECTION, MISSING_REFERENCE, build_gap_padded_struct
 from fmsave.readers.clubs import ClubIndex
 from fmsave.readers.player_scan import PlayerRecords
 from fmsave.readers.stages import StageIndex
@@ -107,6 +108,7 @@ class _MatchSearch:
     """
 
     list_pattern: re.Pattern[bytes]
+    parent_pattern: re.Pattern[bytes]
     list_header_struct: struct.Struct
     list_header_bytes: int
     header_struct: struct.Struct
@@ -239,8 +241,16 @@ def _match_search(layout: MatchRecordLayout, clock_year: int) -> _MatchSearch:
         + re.escape(bytes((layout.lead_byte_value,))),
         re.DOTALL,
     )
+    if layout.parent_header_bytes != len(
+        layout.parent_marker
+    ) + 1 or layout.parent_count_offset != len(layout.parent_marker):
+        raise ValueError("match parent must contain its marker followed by a byte count")
+    parent_pattern = re.compile(
+        re.escape(layout.parent_marker) + rb"[\x01-\xff]" + list_pattern.pattern, re.DOTALL
+    )
     return _MatchSearch(
         list_pattern=list_pattern,
+        parent_pattern=parent_pattern,
         list_header_struct=list_header_struct,
         list_header_bytes=layout.list_header_bytes,
         header_struct=header_struct,
@@ -325,8 +335,9 @@ def locate_match_records(
 ) -> LocatedMatchRecords:
     """Read complete counted match lists within each player's ownership window.
 
-    The two observed list markers precede a team word and a record count. Every declared
-    record must frame correctly, including records outside the output year/ID window.
+    The parent marker and byte count enclose contiguous child lists. Each observed child
+    marker precedes a raw team word and a record count. Every child must frame completely,
+    including records outside the output year/ID window, before any sibling is emitted.
     Those output bounds do not determine where a list ends. Statistic values never decide
     framing: a genuine record with a bad rating remains visible to the validation checks.
     Empty history has no confirmed outer framing yet, so a random zero count is not accepted
@@ -341,39 +352,10 @@ def locate_match_records(
     lists_found = lists_decoded = 0
     suffix_lengths: dict[int, int] = {}
     suffix_owner: int | None = None
-    while (hit := search.list_pattern.search(game_db, start)) is not None:
-        list_at = hit.start()
-        start = list_at + 1
-        first_at = list_at + search.list_header_bytes
-        team, count = search.list_header_struct.unpack_from(game_db, list_at)
-        if not search.lowest_team_id <= team <= search.highest_team_id or count == 0:
-            continue
-        position = bisect_right(offsets, first_at + search.owner_back_offset) - 1
-        end = (
-            offsets[position + 1] - search.owner_back_offset
-            if position + 1 < len(offsets)
-            else len(game_db)
-        )
-        owned_start = max(0, offsets[position] - search.owner_back_offset)
-        if list_at < owned_start or first_at + search.header_bytes > end:
-            continue
-        if decode_date(game_db, first_at + search.date_offset) is None:
-            continue
-        first_header = search.header_struct.unpack_from(game_db, first_at)
-        first_opponent = first_header[search.opponent_team_id_index]
-        first_competition = first_header[search.competition_id_index]
-        if not search.lowest_team_id <= first_opponent <= search.highest_team_id:
-            continue
-        # Zero competition words occur in otherwise complete histories. They remain outside
-        # the output ID window, but cannot prevent walking that history's later records.
-        if not 0 <= first_competition <= search.highest_competition_id:
-            continue
-        lists_found += 1
+
+    def walk_child(first_at: int, count: int, end: int) -> tuple[list[RawMatchRecord], int] | None:
         if count > (end - first_at) // search.header_bytes:
-            continue
-        if position != suffix_owner:
-            suffix_lengths.clear()
-            suffix_owner = position
+            return None
         at = first_at
         records: list[RawMatchRecord] = []
         visited: list[int] = []
@@ -401,17 +383,89 @@ def locate_match_records(
             ):
                 records.append(record)
         else:
-            lists_decoded += 1
-            start = at
-            if records:
-                records_by_position.setdefault(position, []).extend(records)
-            continue
+            return records, at
         # A failed walk establishes the exact valid suffix length at each visited start.
         # Reusing those lengths avoids walking the same malformed suffix for nested headers;
         # a shorter claim can still decode, so genuine overlapping lists remain discoverable.
         for record_at in reversed(visited):
             available += 1
             suffix_lengths[record_at] = available
+        return None
+
+    while (hit := search.parent_pattern.search(game_db, start)) is not None:
+        parent_at = hit.start()
+        start = parent_at + 1
+        list_at = parent_at + layout.parent_header_bytes
+        first_at = list_at + search.list_header_bytes
+        position = bisect_right(offsets, first_at + search.owner_back_offset) - 1
+        end = (
+            offsets[position + 1] - search.owner_back_offset
+            if position + 1 < len(offsets)
+            else len(game_db)
+        )
+        owned_start = max(0, offsets[position] - search.owner_back_offset)
+        if parent_at < owned_start or first_at + search.header_bytes > end:
+            continue
+        if decode_date(game_db, first_at + search.date_offset) is None:
+            continue
+        first_header = search.header_struct.unpack_from(game_db, first_at)
+        if (
+            not search.lowest_team_id
+            <= first_header[search.opponent_team_id_index]
+            <= search.highest_team_id
+        ):
+            continue
+        first_competition = first_header[search.competition_id_index]
+        if not (
+            0 <= first_competition <= search.highest_competition_id
+            or first_competition == MISSING_REFERENCE
+        ):
+            continue
+        child_count = game_db[parent_at + layout.parent_count_offset]
+        lists_found += child_count
+        if position != suffix_owner:
+            suffix_lengths.clear()
+            suffix_owner = position
+        records: list[RawMatchRecord] = []
+        for _ in range(child_count):
+            if (
+                list_at + search.list_header_bytes > end
+                or game_db[list_at : list_at + 2] not in layout.list_markers
+            ):
+                break
+            # The team word is a raw reference, not a structural boundary. Zero occurs in
+            # complete owned histories and does not prevent decoding its sibling lists.
+            _team, count = search.list_header_struct.unpack_from(game_db, list_at)
+            if count == 0:
+                # No independently anchored empty-history grammar has been established.
+                break
+            walked = walk_child(list_at + search.list_header_bytes, count, end)
+            if walked is None:
+                break
+            child_records, list_at = walked
+            records.extend(child_records)
+            # A completely framed child cannot contain another history parent. Skip its
+            # bytes on retry even if a later sibling fails; failed children retain the
+            # suffix memo and nested recovery path above.
+            start = list_at
+        else:
+            # A complete additional child at the exact continuation contradicts the parent
+            # count. Marker bytes alone are insufficient: a following property may share
+            # them, so require the whole additional child before rejecting this parent.
+            if (
+                list_at + search.list_header_bytes <= end
+                and game_db[list_at : list_at + 2] in layout.list_markers
+            ):
+                _team, extra_count = search.list_header_struct.unpack_from(game_db, list_at)
+                if extra_count:
+                    extra = walk_child(list_at + search.list_header_bytes, extra_count, end)
+                    if extra is not None:
+                        start = extra[1]
+                        continue
+            lists_decoded += child_count
+            start = list_at
+            if records:
+                records_by_position.setdefault(position, []).extend(records)
     return LocatedMatchRecords(
         {position: tuple(records) for position, records in records_by_position.items()},
         lists_found=lists_found,

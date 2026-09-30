@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import dataclasses
 import pickle
+import struct
 from array import array
 from datetime import date
 from pathlib import Path
@@ -211,6 +212,172 @@ VALID_ENTRY = suspension_entry_bytes(
     scope_id=1234, issued=packed_date(51, 2031), e7=3, scope_code=1
 )
 VALID_ENTRY_LOCATED = SuspensionEntry(COMPETITION, 1, 1234, date(2031, 2, 20), 3)
+
+
+def attached_suspension_bytes(*, scope_code: int = 1, e7: int = 1) -> bytes:
+    """A counted child with the independently observed 28-byte attached-match suffix."""
+    core = suspension_entry_bytes(
+        scope_id=1234, issued=packed_date(51, 2031), e7=e7, scope_code=scope_code
+    )[:18]
+    suffix = (
+        bytes.fromhex("030101")
+        + packed_date(50, 2031, time_slot=7)
+        + struct.pack("<I", 400)
+        + bytes.fromhex("0200")
+        + struct.pack("<I", 101)
+        + b"\x00"
+        + struct.pack("<I", 202)
+        + bytes((3, 2))
+        + struct.pack("<I", 700)
+    )
+    assert len(core + suffix) == 46
+    return core + suffix
+
+
+def test_counted_mixed_suspensions_preserve_order_and_raw_fields() -> None:
+    attached = attached_suspension_bytes(e7=61)
+    payload = bytes.fromhex("010003") + attached + VALID_ENTRY + attached
+    located = locate_suspensions(
+        buffer_with_entry(300, payload),
+        synthetic_player_records((200,)),
+        registered_suspension_layout(),
+    )
+    expected_attached = dataclasses.replace(VALID_ENTRY_LOCATED, e7=61)
+    assert dict(located) == {0: (expected_attached, VALID_ENTRY_LOCATED, expected_attached)}
+
+
+@pytest.mark.parametrize("offset", [4, 5, 13, 15, 18, 19, 20, 30, 35])
+def test_attached_suspension_requires_all_core_and_attachment_markers(offset: int) -> None:
+    attached = bytearray(attached_suspension_bytes())
+    attached[offset] ^= 0x80
+    located = locate_suspensions(
+        buffer_with_entry(300, bytes.fromhex("010001") + attached),
+        synthetic_player_records((200,)),
+        registered_suspension_layout(),
+    )
+    assert dict(located) == {}
+
+
+@pytest.mark.parametrize("date_offset", [9, 21])
+def test_attached_suspension_rejects_invalid_core_or_attachment_date(date_offset: int) -> None:
+    attached = bytearray(attached_suspension_bytes())
+    attached[date_offset : date_offset + 4] = packed_date(366, 2031)
+    located = locate_suspensions(
+        buffer_with_entry(300, bytes.fromhex("010001") + attached),
+        synthetic_player_records((200,)),
+        registered_suspension_layout(),
+    )
+    assert dict(located) == {}
+
+
+@pytest.mark.parametrize("flag", [0, 3])
+def test_attached_suspension_rejects_unproved_attachment_flag(flag: int) -> None:
+    attached = bytearray(attached_suspension_bytes())
+    attached[29] = flag
+    located = locate_suspensions(
+        buffer_with_entry(300, bytes.fromhex("010001") + attached),
+        synthetic_player_records((200,)),
+        registered_suspension_layout(),
+    )
+    assert dict(located) == {}
+
+
+@pytest.mark.parametrize("scope_id", [0, 60000])
+def test_attached_suspension_keeps_existing_scope_id_bounds(scope_id: int) -> None:
+    attached = bytearray(attached_suspension_bytes())
+    struct.pack_into("<H", attached, 16, scope_id)
+    located = locate_suspensions(
+        buffer_with_entry(300, bytes.fromhex("010001") + attached),
+        synthetic_player_records((200,)),
+        registered_suspension_layout(),
+    )
+    assert dict(located) == {}
+
+
+@pytest.mark.parametrize("prefix", [b"", bytes.fromhex("ffff01"), bytes.fromhex("010000")])
+def test_standalone_or_unproved_parent_cannot_admit_attached_suspension(prefix: bytes) -> None:
+    located = locate_suspensions(
+        buffer_with_entry(300, prefix + attached_suspension_bytes()),
+        synthetic_player_records((200,)),
+        registered_suspension_layout(),
+    )
+    assert dict(located) == {}
+
+
+@pytest.mark.parametrize("removed_bytes", [1, 10, 27])
+def test_truncated_attached_tail_preserves_independent_strict_entry(removed_bytes: int) -> None:
+    payload = bytes(300) + bytes.fromhex("010002") + VALID_ENTRY + attached_suspension_bytes()
+    located = locate_suspensions(
+        payload[:-removed_bytes], synthetic_player_records((200,)), registered_suspension_layout()
+    )
+    assert dict(located) == {0: (VALID_ENTRY_LOCATED,)}
+
+
+def test_corrupt_last_child_withholds_earlier_attached_child_but_preserves_strict_scan() -> None:
+    corrupt = bytearray(attached_suspension_bytes())
+    corrupt[35] = 1
+    payload = bytes.fromhex("010003") + VALID_ENTRY + attached_suspension_bytes() + corrupt
+    located = locate_suspensions(
+        buffer_with_entry(300, payload),
+        synthetic_player_records((200,)),
+        registered_suspension_layout(),
+    )
+    assert dict(located) == {0: (VALID_ENTRY_LOCATED,)}
+
+
+def test_attached_parent_cannot_cross_the_next_player_window() -> None:
+    payload = bytes.fromhex("010002") + attached_suspension_bytes() * 2
+    located = locate_suspensions(
+        buffer_with_entry(410, payload),
+        synthetic_player_records((200, 500)),
+        registered_suspension_layout(),
+    )
+    assert dict(located) == {}
+
+
+def test_complete_u8_parent_has_no_invented_small_count_cap() -> None:
+    payload = bytes.fromhex("0100ff") + attached_suspension_bytes(scope_code=77) * 255
+    located = locate_suspensions(
+        bytes(300) + payload,
+        synthetic_player_records((200,)),
+        registered_suspension_layout(),
+    )
+    assert len(located[0]) == 255
+    assert all(
+        entry.scope is SuspensionScope.UNKNOWN and entry.scope_code == 77 for entry in located[0]
+    )
+
+
+def test_invalid_overlapping_parent_cannot_hide_a_complete_attached_parent() -> None:
+    payload = bytearray(1000)
+    payload[300:303] = bytes.fromhex("010001")
+    payload[307:309] = b"\xff\xff"
+    attached = bytearray(attached_suspension_bytes())
+    attached[3] = 5  # Also satisfies the earlier parent's core signature at +13.
+    payload[310:359] = bytes.fromhex("010001") + attached
+    # The earlier parent's date is invalid, but its signature overlaps the real parent.
+    located = locate_suspensions(
+        bytes(payload), synthetic_player_records((200,)), registered_suspension_layout()
+    )
+    assert dict(located) == {0: (dataclasses.replace(VALID_ENTRY_LOCATED, e7=1),)}
+
+
+def test_overlapping_complete_parents_emit_each_attached_source_offset_once() -> None:
+    first = bytearray(attached_suspension_bytes(e7=1))
+    # Unidentified trailing bytes also form a second parent, enclosing children2 and3.
+    first[42:46] = bytes.fromhex("00010002")
+    payload = (
+        bytes.fromhex("010002")
+        + first
+        + attached_suspension_bytes(e7=2)
+        + attached_suspension_bytes(e7=3)
+    )
+    located = locate_suspensions(
+        buffer_with_entry(300, payload),
+        synthetic_player_records((200,)),
+        registered_suspension_layout(),
+    )
+    assert [entry.e7 for entry in located[0]] == [1, 2, 3]
 
 
 @pytest.fixture

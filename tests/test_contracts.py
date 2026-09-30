@@ -1039,6 +1039,120 @@ def test_a_record_without_a_tail_is_in_effect_when_no_tailed_record_is() -> None
     assert contract.squad_status is None
 
 
+def retained_nonterms_record(*, end: bytes = ENDS_AFTER_THE_CLOCK) -> bytes:
+    """A fictional full short block, independently assembled from its serialized fields."""
+    blob, marker = contract_bytes(
+        selector=SELECTION_PINDEX + 1,
+        team_id=NORTHBRIDGE_TEAM_A,
+        wage=2700,
+        start=LATER_BEFORE_THE_CLOCK,
+        tail={"end": end},
+        clause_table=False,
+    )
+    buffer = bytearray(blob)
+    base = marker - 66
+    buffer[base : base + 28] = bytes.fromhex(
+        "0000ff000000000000ff00000000ffff00000000ffffffffffffffff"
+    )
+    buffer[base + 32 : base + 36] = CONTRACT_TAG
+    return bytes(buffer)
+
+
+def test_unregistered_retained_nonterms_do_not_become_a_paid_current_contract() -> None:
+    contract = selected_contract(retained_nonterms_record(), team_id=0xFFFFFFFF)
+    assert (contract.club_uid, contract.team_id, contract.wage, contract.start) == (
+        None,
+        None,
+        None,
+        None,
+    )
+    assert contract.end is None
+    assert len(contract.chain) == 1
+    assert contract.chain[0].wage == 2700
+    assert contract.chain[0].has_terms is False
+
+
+@pytest.mark.parametrize("team_id", [NORTHBRIDGE_TEAM_A, UNREGISTERED_TEAM_ID])
+def test_nonmissing_registration_retains_short_block_selection(team_id: int) -> None:
+    contract = selected_contract(retained_nonterms_record(), team_id=team_id)
+    assert contract.wage == 2700
+    assert contract.club_uid == NORTHBRIDGE_CLUB_UID
+
+
+def test_mixed_normal_terms_keep_the_real_employer_after_registration_ends() -> None:
+    normal = selection_record(
+        team_id=NORTHBRIDGE_TEAM_A,
+        wage=4200,
+        start=BEFORE_THE_CLOCK,
+        end=ENDED_BEFORE_THE_CLOCK,
+    )
+    contract = selected_contract(normal + retained_nonterms_record(), team_id=0xFFFFFFFF)
+    assert contract.wage == 4200
+    assert contract.end == date(2030, 6, 30)
+    assert len(contract.chain) == 2
+
+
+@pytest.mark.parametrize("end", [ENDS_AFTER_THE_CLOCK, ENDED_BEFORE_THE_CLOCK])
+def test_retained_nonterms_preserve_independent_current_fallback_only(end: bytes) -> None:
+    fallback = fallback_contract_bytes(end=end, start=BEFORE_THE_CLOCK)
+    contract = selected_contract(
+        retained_nonterms_record() + fallback + bytes(300), team_id=0xFFFFFFFF
+    )
+    if end == ENDS_AFTER_THE_CLOCK:
+        assert contract.wage == 2700
+        assert contract.end == date(2032, 6, 30)
+        assert contract.end_source == ContractEndSource.PLAYER_RECORD
+    else:
+        assert contract.wage is None
+        assert contract.end is None
+
+
+def test_short_block_preserves_registered_loan_parent_and_existing_loan_dates() -> None:
+    normal = selection_record(
+        team_id=SOUTHPORT_TEAM_ID,
+        wage=4200,
+        start=BEFORE_THE_CLOCK,
+        end=ENDS_LATER_STILL,
+    )
+    contract = selected_contract(normal + retained_nonterms_record())
+    assert contract.club_uid == SOUTHPORT_CLUB_UID
+    assert contract.wage == 4200
+    assert contract.on_loan is True
+    assert contract.loan_start is None
+    assert contract.loan_end == date(2032, 6, 30)
+
+
+@pytest.mark.parametrize("field", ["prefix", "printed_start", "events", "end"])
+def test_short_block_classification_requires_the_complete_supported_shape(field: str) -> None:
+    blob = bytearray(retained_nonterms_record())
+    marker = len(blob) - 40
+    base = marker - 66
+    if field == "prefix":
+        blob[base + 9] = 0
+    elif field == "printed_start":
+        blob[base + 32 : base + 36] = BEFORE_THE_CLOCK
+    elif field == "events":
+        struct.pack_into("<I", blob, base + 42, 1)
+    else:
+        blob[base + 28 : base + 32] = CONTRACT_TAG
+    contract = selected_contract(bytes(blob), team_id=0xFFFFFFFF)
+    assert contract.wage == 2700
+
+
+def test_retained_nonterms_classifier_does_not_cross_person_or_buffer_bounds() -> None:
+    blob = retained_nonterms_record()
+    marker = len(blob) - 40
+    base = marker - 66
+    decoder = build_contract_decoder(
+        registered_contract_layout(), EMPTY_CLUB_INDEX, CLOCK, FILE_NAME
+    )
+    record = decoder.decode_chain_record(blob, marker)
+    assert decoder._is_retained_nonterms_block(blob, marker, record, base, len(blob))
+    assert not decoder._is_retained_nonterms_block(blob, marker, record, base + 1, len(blob))
+    assert not decoder._is_retained_nonterms_block(blob, marker, record, base, base + 45)
+    assert not decoder._is_retained_nonterms_block(blob[: base + 45], marker, record, 0, len(blob))
+
+
 def test_players_with_no_contract_in_effect_are_counted_for_the_checks() -> None:
     game_db = selection_game_db(
         selection_record(

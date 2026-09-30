@@ -479,6 +479,8 @@ CONTRACTS = ContractLayout(
     tail_event_count_offset=42,
     # The loan blocks seen sit at most a few steps back; the cap leaves room for far more.
     loan_block_max_event_count=60,
+    # A retained affiliation block with no printed start or substantive terms.
+    nonterms_block_prefix=bytes.fromhex("0000ff000000000000ff00000000ffff00000000ffffffffffffffff"),
     clause_step_bytes=8,
     clause_max_count=23,
     clause_ff_offset=-16,
@@ -603,7 +605,9 @@ FACILITY_BYTE = FacilityByteLayout(
     value_range=(1, 20),
 )
 
-# A suspension entry is 20 bytes long; its signature bytes pin 5 of them. The byte at +14 is
+# A suspension entry has an 18-byte core and either a two-byte null suffix or a 28-byte
+# attached-match suffix. Attached forms are accepted only inside complete counted parents.
+# The byte at +14 is
 # the ban's scope and decides what the u16 at +16 is: 1 names one competition in the stage id
 # space, and 5, 6 and 10 each name a nation whose competitions the ban covers. Those are the
 # only four codes seen on any save measured; a fifth would leave the id unread rather than
@@ -618,6 +622,14 @@ SUSPENSIONS = SuspensionLayout(
     scope_id_exclusive_range=(0, 60_000),
     competition_scope_code=1,
     nation_scope_codes=(5, 6, 10),
+    parent_prefix=bytes.fromhex("0100"),
+    entry_core_bytes=18,
+    null_suffix=bytes.fromhex("ff00"),
+    linked_entry_bytes=46,
+    linked_signature=((18, 3), (19, 1), (20, 1), (30, 0), (35, 0)),
+    linked_date_offset=21,
+    linked_flag_offset=29,
+    linked_flag_values=(1, 2),
 )
 
 # A per-match player record is 15 bytes when the save keeps no performance body for the match
@@ -673,6 +685,9 @@ MATCH_RECORDS = MatchRecordLayout(
     position_bits=((0, "GOALKEEPER"),),
     list_markers=(b"\x14\x01", b"\x3c\x01"),
     list_header_bytes=10,
+    parent_marker=b"\x01",
+    parent_header_bytes=2,
+    parent_count_offset=1,
     list_team_id_offset=2,
     list_count_offset=6,
 )

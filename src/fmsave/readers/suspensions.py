@@ -1,12 +1,16 @@
 """Locating unserved suspension entries in `game_db` and joining them to their players.
 
-A suspension entry is a short fixed-size record carrying a byte signature (see
+A suspension entry has a shared core and either a null or attached-match suffix (see
 `SuspensionLayout`). `locate_suspensions` scans the player region, from just before the first
 player record to the end of `game_db`, with a compiled regex that resumes one byte after every
 match start, so signatures that overlap one another are all considered. It gives each entry to
 its owning player by bisecting the sorted record offsets. The pattern, the field Struct, the
 offsets and the bounds are derived from the layout once per layout, and checked for
 consistency at that point, so the search loop never reads the layout.
+
+The established standalone null-form search is retained. Attached forms additionally require
+a complete prefix/u8-count parent whose children all frame within one player's window. The
+attachment is validated structurally; its unidentified values add no public fields.
 
 An entry stores one id and one scope code that says what the id is. The layout lists which
 codes name a competition and which name a nation, and every row built here reads the id
@@ -21,7 +25,7 @@ import functools
 import re
 import struct
 from bisect import bisect_right
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import date
 
@@ -197,6 +201,9 @@ def locate_suspensions(
     readable game date, so day 366 of a non-leap year is rejected) and a scope id strictly
     inside the layout's range. A scope code the layout does not list keeps its entry, with the
     scope UNKNOWN, so the ban is still reported: only the meaning of its id is withheld.
+    Attached forms also require a complete counted parent, valid attachment dates and the
+    layout's attachment markers. An incomplete parent adds no attached entries and does not
+    discard standalone entries accepted by the established search.
 
     Raises:
         ValueError: The layout is inconsistent (see `_suspension_search`).
@@ -220,7 +227,7 @@ def locate_suspensions(
     game_db_length = len(game_db)
 
     region_start = max(0, record_offsets[0] - owner_back_offset)
-    entries_by_position: dict[int, list[SuspensionEntry]] = {}
+    entries_by_position: dict[int, list[tuple[int, SuspensionEntry]]] = {}
     match = find_signature(game_db, region_start, game_db_length)
     while match is not None:
         signature_start = match.start()
@@ -248,10 +255,135 @@ def locate_suspensions(
         )
         position_entries = entries_by_position.get(position)
         if position_entries is None:
-            entries_by_position[position] = [entry]
+            entries_by_position[position] = [(entry_offset, entry)]
         else:
-            position_entries.append(entry)
-    return {position: tuple(entries) for position, entries in entries_by_position.items()}
+            position_entries.append((entry_offset, entry))
+    attached_offsets: set[int] = set()
+    for position, entry_offset, entry in _counted_attached_entries(
+        game_db, player_records, layout, search
+    ):
+        if entry_offset in attached_offsets:
+            continue
+        attached_offsets.add(entry_offset)
+        entries_by_position.setdefault(position, []).append((entry_offset, entry))
+    return {
+        position: tuple(entry for _, entry in sorted(entries, key=lambda item: item[0]))
+        for position, entries in sorted(entries_by_position.items())
+    }
+
+
+@functools.cache
+def _parent_search(
+    layout: SuspensionLayout,
+) -> tuple[re.Pattern[bytes], tuple[tuple[int, int], ...]]:
+    """The counted-parent locator and the shared 18-byte entry constraints."""
+    if not layout.parent_prefix or not layout.null_suffix:
+        raise ValueError("suspension parent prefix and null suffix must not be empty")
+    if layout.linked_entry_bytes <= layout.entry_core_bytes:
+        raise ValueError("attached suspension entry must extend its common core")
+    if not 0 <= layout.linked_date_offset <= layout.linked_entry_bytes - 4:
+        raise ValueError("attached suspension date lies outside the entry")
+    if not 0 <= layout.linked_flag_offset < layout.linked_entry_bytes:
+        raise ValueError("attached suspension flag lies outside the entry")
+    if any(not 0 <= offset < layout.linked_entry_bytes for offset, _ in layout.linked_signature):
+        raise ValueError("attached suspension signature lies outside the entry")
+    core_signature = tuple(
+        (offset, value) for offset, value in layout.signature if offset < layout.entry_core_bytes
+    )
+    if layout.entry_core_bytes < _suspension_search(layout).fields_struct.size:
+        raise ValueError("suspension fields extend beyond the common core")
+    header_bytes = len(layout.parent_prefix) + 1
+    constraints = tuple(enumerate(layout.parent_prefix)) + tuple(
+        (header_bytes + offset, value) for offset, value in core_signature
+    )
+    pattern, _, _ = _build_signature_pattern(constraints)
+    return pattern, core_signature
+
+
+def _counted_attached_entries(
+    game_db: bytes,
+    player_records: PlayerRecords,
+    layout: SuspensionLayout,
+    search: _SuspensionSearch,
+) -> Iterator[tuple[int, int, SuspensionEntry]]:
+    """Add attached forms only after every child fits and decodes in one owned parent.
+
+    The preceding prefix's meaning and the attachment's extra fields remain unconfirmed.
+    A u8 count bounds the walk; no guessed match counts or namespace joins select framing.
+    The older standalone signature search remains independent of this stricter path.
+    """
+    pattern, core_signature = _parent_search(layout)
+    prefix_bytes = len(layout.parent_prefix)
+    header_bytes = prefix_bytes + 1
+    offsets = player_records.record_offsets
+    match = pattern.search(game_db, max(0, offsets[0] - search.owner_back_offset))
+    while match is not None:
+        parent_at = match.start()
+        # Invalid parents may overlap real ones, just as standalone signatures can.
+        match = pattern.search(game_db, parent_at + 1)
+        cursor = parent_at + header_bytes
+        position = bisect_right(offsets, cursor + search.owner_back_offset) - 1
+        if position < 0:
+            continue
+        end = (
+            offsets[position + 1] - search.owner_back_offset
+            if position + 1 < len(offsets)
+            else len(game_db)
+        )
+        if parent_at < max(0, offsets[position] - search.owner_back_offset):
+            continue
+        count = game_db[parent_at + prefix_bytes]
+        if not count:
+            continue
+        pending: list[tuple[int, int, SuspensionEntry]] = []
+        for _ in range(count):
+            if cursor + max(layout.entry_core_bytes, search.fields_struct.size) > end:
+                break
+            if any(game_db[cursor + offset] != value for offset, value in core_signature):
+                break
+            values = search.fields_struct.unpack_from(game_db, cursor)
+            scope_id = values[search.scope_id_index]
+            issued = decode_date(game_db, cursor + search.issued_date_offset)
+            if (
+                issued is None
+                or not search.scope_id_lower_bound < scope_id < search.scope_id_upper_bound
+            ):
+                break
+            suffix_at = cursor + layout.entry_core_bytes
+            null_end = suffix_at + len(layout.null_suffix)
+            linked = False
+            if null_end <= end and game_db[suffix_at:null_end] == layout.null_suffix:
+                next_cursor = null_end
+            elif (
+                cursor + layout.linked_entry_bytes <= end
+                and all(
+                    game_db[cursor + offset] == value for offset, value in layout.linked_signature
+                )
+                and game_db[cursor + layout.linked_flag_offset] in layout.linked_flag_values
+                and decode_date(game_db, cursor + layout.linked_date_offset) is not None
+            ):
+                next_cursor = cursor + layout.linked_entry_bytes
+                linked = True
+            else:
+                break
+            if linked:
+                code = values[search.scope_code_index]
+                pending.append(
+                    (
+                        position,
+                        cursor,
+                        SuspensionEntry(
+                            search.scope_by_code.get(code, SuspensionScope.UNKNOWN),
+                            code,
+                            scope_id,
+                            issued,
+                            values[search.e7_index],
+                        ),
+                    )
+                )
+            cursor = next_cursor
+        else:
+            yield from pending
 
 
 def suspension_stats(

@@ -625,7 +625,7 @@ def match_list_bytes(records: bytes, *, marker: bytes = b"\x14\x01", team_id: in
         count += 1
     if at != len(records):
         raise ValueError("incomplete synthetic match body")
-    return marker + struct.pack("<II", team_id, count) + records
+    return b"\x01\x01" + marker + struct.pack("<II", team_id, count) + records
 
 
 # Contract chain records: fixed byte layout, written directly here (never imported from
