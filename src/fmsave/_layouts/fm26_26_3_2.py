@@ -813,6 +813,24 @@ FIXTURE_CALENDAR = FixtureCalendarLayout(
     secondary_optional_away_goals_offset=10,
     secondary_missing_goals=0xFF,
     secondary_goals_maximum=40,
+    # These separate counted copies follow a fully recognised table block. Their
+    # primary is shorter than the calendar's, so it must not borrow packet bytes.
+    cache_vector_count_offset=4,
+    cache_vector_count_copy_offsets=(5, 11),
+    cache_vector_constant_offset=7,
+    cache_vector_constant=bytes.fromhex("00ffffff"),
+    cache_vector_entries_offset=13,
+    cache_dates_prefix=b"\x00",
+    cache_vector_tail_bytes=11,
+    cache_primary_bytes=63,
+    cache_primary_suffix_offset=47,
+    cache_primary_suffix=bytes.fromhex("feff"),
+    cache_next_prefix=bytes(15),
+    cache_next_header_bytes=19,
+    cache_next_tag_offset=3,
+    cache_next_tag_bytes=4,
+    cache_next_constant_offset=7,
+    cache_next_constant=bytes.fromhex("000000000000ffff00000000"),
 )
 
 # A stage-keyed result record is 27 bytes carrying one match's score. The locator anchors on the

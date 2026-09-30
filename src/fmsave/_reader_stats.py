@@ -165,8 +165,11 @@ class CompetitionStats:
 class FixtureStats:
     """What building the fixture calendar counted.
 
-    `span_records` counts every raw record the span pass found and `cluster_records` those in
-    the run kept as the calendar, so `clusters` above one means stray copies were dropped.
+    `span_records` counts calendar candidates after independently owned cache records are
+    excluded, including admitted continuations. `cluster_records` counts those in the run
+    kept as the calendar, so `clusters` above one means stray copies were dropped.
+    `cache_records_excluded` counts strict raw discoveries proved to belong to a separate
+    cache; the raw span records remain available for audit.
     `strays_without_a_copy` counts the dropped records the calendar holds no copy of, which is
     what dropping them actually loses: most strays repeat a match the calendar already lists,
     and the rest are the template block every save carries plus, on one save measured, a few
@@ -196,6 +199,7 @@ class FixtureStats:
     with_stadium: int
     stadium_resolved: int
     stub_team_references: int = 0
+    cache_records_excluded: int = 0
 
 
 @dataclass(frozen=True, slots=True)

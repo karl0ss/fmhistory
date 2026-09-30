@@ -1166,3 +1166,222 @@ def test_invalid_prefix_drops_owned_evidence_but_not_a_later_independent_path() 
     assert len(records.fixture_presence) == 1
     assert records.fixture_presence[0].span_offset > len(failed)
     assert [(s.home_goals, s.away_goals) for s in records.fixture_scores] == [(1, 0)]
+
+
+def cache_payload(
+    *,
+    first_count: int = 2,
+    second_count: int = 1,
+    event_count: int = 0,
+    vector: bytes = b"\x07\x00\xff\x2a",
+    calendar_cores: bool = False,
+    cache_dates: list[tuple[int, int]] | None = None,
+) -> bytes:
+    from tests.fixtures.span import fixture_cache_bytes
+
+    return fixture_cache_bytes(
+        example_table_block(),
+        [example_fixture_blob(0)] * first_count,
+        [example_fixture_blob(1)] * second_count,
+        event_count=event_count,
+        vector=vector,
+        calendar_cores=calendar_cores,
+        cache_dates=cache_dates,
+    )
+
+
+def test_separate_counted_cache_rows_keep_all_original_span_anchors() -> None:
+    payload = cache_payload()
+    records = scan([payload])
+    assert len(records.table_blocks) == 1
+    assert len(records.fixture_cache_offsets) == 3
+    assert records.fixture_cache_offsets == tuple(r.span_offset for r in records.fixtures)
+    # The unsafe packet scores and opaque suffix word do not control ownership.
+    assert {r.r47_54 & 0xFFFFFFFF for r in records.fixtures} == {0x0309FFFE}
+
+
+@pytest.mark.parametrize("dates", [None, [], [(1, 2024), (366, 2024), (230, 2025)]])
+def test_cache_nullable_dates_close_before_both_counted_lists(
+    dates: list[tuple[int, int]] | None,
+) -> None:
+    payload = cache_payload(cache_dates=dates)
+    expected = scan([payload])
+    assert len(expected.fixture_cache_offsets) == 3
+    for split in range(1, len(payload)):
+        actual = scan([payload[:split], payload[split:]])
+        assert actual.fixture_cache_offsets == expected.fixture_cache_offsets, split
+    assert (
+        scan([payload[i : i + 1] for i in range(len(payload))]).fixture_cache_offsets
+        == expected.fixture_cache_offsets
+    )
+
+
+@pytest.mark.parametrize(
+    "damage", ["prefix", "presence", "count_over", "count_under", "huge_count", "date"]
+)
+def test_malformed_nullable_dates_reject_the_whole_cache_parent(damage: str) -> None:
+    payload = bytearray(cache_payload(cache_dates=[(12, 2025), (13, 2025)]))
+    dates_at = len(example_table_block()) + 13 + 4
+    if damage == "prefix":
+        payload[dates_at] = 1
+    elif damage == "presence":
+        payload[dates_at + 1] = 2
+    elif damage == "date":
+        struct.pack_into("<H", payload, dates_at + 6 + 2, 0)
+    else:
+        count = {"count_over": 3, "count_under": 1, "huge_count": 0xFFFFFFFF}[damage]
+        struct.pack_into("<I", payload, dates_at + 2, count)
+    assert scan([bytes(payload)]).fixture_cache_offsets == ()
+
+
+def test_truncated_nullable_date_array_and_raw_tail_never_commit_cache_rows() -> None:
+    payload = cache_payload(cache_dates=[(12, 2025), (13, 2025)])
+    dates_at = len(example_table_block()) + 13 + 4
+    for cut in range(dates_at, dates_at + 2 + 4 + 8 + 11):
+        assert scan([payload[:cut]]).fixture_cache_offsets == (), cut
+
+
+@pytest.mark.parametrize(("first", "second"), [(0, 2), (2, 0), (0, 0)])
+def test_cache_lists_can_be_explicitly_empty(first: int, second: int) -> None:
+    payload = cache_payload(first_count=first, second_count=second)
+    records = scan([payload])
+    assert len(records.fixture_cache_offsets) == first + second
+    assert records.fixture_cache_offsets == tuple(r.span_offset for r in records.fixtures)
+
+
+def test_cache_ownership_is_identical_at_every_frame_split_and_one_byte_frames() -> None:
+    payload = cache_payload()
+    expected = scan([payload])
+    for split in range(1, len(payload)):
+        actual = scan([payload[:split], payload[split:]])
+        assert actual.fixture_cache_offsets == expected.fixture_cache_offsets, split
+        assert actual.fixtures == expected.fixtures, split
+    actual = scan([payload[i : i + 1] for i in range(len(payload))])
+    assert actual.fixture_cache_offsets == expected.fixture_cache_offsets
+    assert actual.fixtures == expected.fixtures
+
+
+@pytest.mark.parametrize("count", [0, 255])
+def test_raw_cache_vector_entries_have_their_own_repeated_count(count: int) -> None:
+    payload = cache_payload(vector=bytes(i % 256 for i in range(count)))
+    assert len(scan([payload]).fixture_cache_offsets) == 3
+    broken = bytearray(payload)
+    vector_start = len(example_table_block())
+    struct.pack_into("<H", broken, vector_start + 11, count + 1)
+    assert scan([bytes(broken)]).fixture_cache_offsets == ()
+
+
+@pytest.mark.parametrize(
+    "damage",
+    [
+        "first_count",
+        "first_under",
+        "second_count",
+        "second_under",
+        "huge_count",
+        "events",
+        "core",
+        "date",
+        "suffix",
+        "prefix",
+        "header",
+    ],
+)
+def test_malformed_cache_parent_never_excludes_a_complete_prefix(damage: str) -> None:
+    payload = bytearray(cache_payload())
+    table_end = len(example_table_block())
+    first = table_end + 13 + 4 + 13
+    second = first + 4 + 2 * 92
+    if damage == "first_count":
+        struct.pack_into("<I", payload, first, 3)
+    elif damage == "first_under":
+        struct.pack_into("<I", payload, first, 1)
+    elif damage == "huge_count":
+        struct.pack_into("<I", payload, first, 0xFFFFFFFF)
+    elif damage == "second_count":
+        struct.pack_into("<I", payload, second, 2)
+    elif damage == "second_under":
+        struct.pack_into("<I", payload, second, 0)
+    elif damage == "events":
+        struct.pack_into("<I", payload, second + 4 + 25, 0xFFFFFFFF)
+    elif damage == "core":
+        payload[second + 4 + 29] = 0
+    elif damage == "date":
+        struct.pack_into("<H", payload, second + 4 + 29 + 27, 0)
+    elif damage == "suffix":
+        payload[second + 4 + 29 + 59] = 0
+    elif damage == "prefix":
+        payload[-34] = 1
+    else:
+        payload[-12] = 1
+    assert scan([bytes(payload)]).fixture_cache_offsets == ()
+
+
+def test_missing_cache_tail_or_next_object_prefix_never_commits_rows() -> None:
+    payload = cache_payload()
+    for cut in range(len(payload) - 34, len(payload)):
+        assert scan([payload[:cut]]).fixture_cache_offsets == (), cut
+
+
+def test_a_real_calendar_core_cannot_be_reinterpreted_as_a_short_cache_core() -> None:
+    payload = cache_payload(calendar_cores=True)
+    assert scan([payload]).fixture_cache_offsets == ()
+
+
+@pytest.mark.parametrize("bad_table", ["empty", "arithmetic"])
+def test_unaccepted_table_lookalikes_do_not_own_cache_arrays(bad_table: str) -> None:
+    from tests.fixtures.span import fixture_cache_bytes
+
+    table = (
+        example_table_block(total={})
+        if bad_table == "empty"
+        else example_table_block(total={"played": 4, "won": 0})
+    )
+    payload = fixture_cache_bytes(table, [example_fixture_blob(0)], [example_fixture_blob(1)])
+    assert scan([payload]).fixture_cache_offsets == ()
+
+
+def test_long_cache_packets_progress_without_another_table_or_strict_anchor() -> None:
+    payload = cache_payload(first_count=1, second_count=1, event_count=5000)
+    assert len(payload) > span_layouts().carry_over_bytes
+    expected = scan([payload])
+    assert len(expected.fixture_cache_offsets) == 2
+    actual = scan([payload[i : i + 31] for i in range(0, len(payload), 31)])
+    assert actual.fixture_cache_offsets == expected.fixture_cache_offsets
+    assert actual.fixtures == expected.fixtures
+
+
+def test_cache_event_skip_cannot_cross_the_existing_calendar_cluster_bound() -> None:
+    event_count = span_layouts().fixtures.cluster_gap_bytes // 16
+    payload = cache_payload(first_count=1, second_count=0, event_count=event_count)
+    expected = scan([payload])
+    assert expected.fixture_cache_offsets == ()
+    actual = scan([payload[:600], payload[600:-100], payload[-100:]])
+    assert actual.fixture_cache_offsets == ()
+
+
+def test_a_failed_parent_does_not_hide_a_later_separately_owned_cache() -> None:
+    bad = cache_payload()[:-19]
+    good = cache_payload(first_count=1, second_count=0)
+    expected = scan([good]).fixture_cache_offsets
+    records = scan([bad + bytes(30) + good])
+    assert records.fixture_cache_offsets == tuple(len(bad) + 30 + o for o in expected)
+
+
+def test_cache_framing_keeps_raw_references_and_dates_outside_calendar_output_scope() -> None:
+    from tests.fixtures.span import fixture_cache_bytes
+
+    raw = example_fixture_blob(0, year=1905, home_team_id=0xFFFFFFFF, away_team_id=0)
+    payload = fixture_cache_bytes(example_table_block(), [raw], [])
+    records = scan([payload])
+    assert records.fixtures == ()
+    assert len(records.fixture_cache_offsets) == 1
+
+
+def test_long_cache_is_also_invariant_with_one_byte_frames() -> None:
+    payload = cache_payload(first_count=1, second_count=0, event_count=4200)
+    assert len(payload) > span_layouts().carry_over_bytes
+    expected = scan([payload])
+    actual = scan([payload[i : i + 1] for i in range(len(payload))])
+    assert actual.fixture_cache_offsets == expected.fixture_cache_offsets
+    assert len(actual.fixture_cache_offsets) == 1

@@ -39,6 +39,63 @@ TABLE_MATCHES_AT = 87
 UNPLAYED_KEY = 0xFFFFFFFF
 DEFAULT_HEAD_BYTES = bytes(range(TABLE_HEAD_BYTES))
 
+
+def fixture_cache_bytes(
+    table: bytes,
+    first: Sequence[bytes],
+    second: Sequence[bytes],
+    *,
+    event_count: int = 0,
+    vector: bytes = b"\x07\x00\xff\x2a",
+    suffix_word: bytes = b"\x09\x03",
+    calendar_cores: bool = False,
+    cache_dates: Sequence[tuple[int, int]] | None = None,
+) -> bytes:
+    """A separate table-owned pair of match lists, with a following object prefix.
+
+    The following prefix is only its nineteen-byte identifier/header, not an entire
+    decoded object. Counts, ids and raw fields are fictional. The two suffix bytes
+    remain unidentified and the secondary scores do not decide list framing.
+    """
+    vector_header = bytearray(13)
+    vector_header[4] = len(vector)
+    struct.pack_into("<H", vector_header, 5, len(vector))
+    vector_header[7:11] = b"\x00\xff\xff\xff"
+    struct.pack_into("<H", vector_header, 11, len(vector))
+
+    def rows(records: Sequence[bytes]) -> bytes:
+        payload = bytearray(struct.pack("<I", len(records)))
+        for record in records:
+            packet = bytearray(29)
+            packet[0] = 0x1C
+            packet[5], packet[9] = 255, 43  # Unsafe scores still frame a complete list.
+            struct.pack_into("<I", packet, 25, event_count)
+            core = bytearray(record[:67] if calendar_cores else record[:63])
+            core[59:63] = b"\xfe\xff" + suffix_word
+            payload.extend(packet)
+            payload.extend(bytes(16 * event_count))
+            payload.extend(core)
+        return bytes(payload)
+
+    next_prefix = struct.pack("<HB", 4401, 201) + b" 1! "
+    next_prefix += bytes.fromhex("000000000000ffff00000000")
+    dated_tail = b"\x00\x00"
+    if cache_dates is not None:
+        dated_tail = b"\x00\x01" + struct.pack("<I", len(cache_dates))
+        dated_tail += b"".join(packed_date(day, year) for day, year in cache_dates)
+    dated_tail += bytes(11)
+    return (
+        table
+        + bytes(vector_header)
+        + vector
+        + dated_tail
+        + rows(first)
+        + rows(second)
+        + bytes(15)
+        + next_prefix
+    )
+
+
 # Competition rules: the promotion quad twice, the 15-byte marker, then the body.
 RULES_MARKER = bytes.fromhex("03000001000000ffff000001ffffff")
 RULES_BODY_OFFSET = 16

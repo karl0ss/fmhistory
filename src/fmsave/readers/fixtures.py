@@ -89,7 +89,11 @@ class _SplitSpan:
     clusters: int
 
 
-def _split_span(raw_fixtures: Sequence[RawFixture], cluster_gap_bytes: int) -> _SplitSpan:
+def _split_span(
+    raw_fixtures: Sequence[RawFixture],
+    cluster_gap_bytes: int,
+    excluded_offsets: frozenset[int] = frozenset(),
+) -> _SplitSpan:
     """Split the records into the calendar and everything else, walking the runs once.
 
     Records are split into runs wherever the distance between one record and the next is more
@@ -101,6 +105,27 @@ def _split_span(raw_fixtures: Sequence[RawFixture], cluster_gap_bytes: int) -> _
     bounds = _cluster_bounds(raw_fixtures, cluster_gap_bytes)
     if not bounds:
         return _SplitSpan((), (), 0)
+    if excluded_offsets:
+        # A cache can occupy bytes between calendar records without belonging to
+        # their calendar. Retain the original physical runs, but let only eligible
+        # anchors vote for a run or appear in its output.
+        runs = [
+            tuple(
+                record
+                for record in raw_fixtures[start:stop]
+                if record.span_offset not in excluded_offsets
+            )
+            for start, stop in bounds
+        ]
+        runs = [run for run in runs if run]
+        if not runs:
+            return _SplitSpan((), (), 0)
+        selected = max(range(len(runs)), key=lambda index: len(runs[index]))
+        return _SplitSpan(
+            runs[selected],
+            tuple(record for index, run in enumerate(runs) if index != selected for record in run),
+            len(runs),
+        )
     run_start, run_stop = max(bounds, key=lambda bound: bound[1] - bound[0])
     return _SplitSpan(
         tuple(raw_fixtures[run_start:run_stop]),
@@ -227,8 +252,14 @@ def build_fixtures_with_offsets(
     stadium table's own rows are keyed by. The same ordinal also decides `is_neutral_venue`,
     which compares grounds rather than naming one and so needs no uid at all.
     """
-    raw_fixtures = span_records.fixtures
-    split_span = _split_span(raw_fixtures, layout.cluster_gap_bytes)
+    # Proven counted cache children remain available in the raw span audit, but are
+    # not calendar anchors. Exclude their votes inside the original physical runs.
+    cache_offsets = frozenset(span_records.fixture_cache_offsets)
+    raw_fixtures = tuple(
+        record for record in span_records.fixtures if record.span_offset not in cache_offsets
+    )
+    cache_records_excluded = len(span_records.fixtures) - len(raw_fixtures)
+    split_span = _split_span(span_records.fixtures, layout.cluster_gap_bytes, cache_offsets)
     kept_records = split_span.kept
     recovered: dict[int, RawFixture] = {}
     if kept_records:
@@ -239,7 +270,10 @@ def build_fixtures_with_offsets(
                 and continuation.right_offset in anchor_offsets
             ):
                 for record in continuation.fixtures:
-                    if continuation.left_offset < record.span_offset < continuation.right_offset:
+                    if (
+                        continuation.left_offset < record.span_offset < continuation.right_offset
+                        and record.span_offset not in cache_offsets
+                    ):
                         recovered.setdefault(record.span_offset, record)
         # Original anchors always win a physical-position collision. Distinct positions,
         # including duplicate semantic fixture keys, remain distinct for result joins.
@@ -407,5 +441,6 @@ def build_fixtures_with_offsets(
         with_stadium=with_stadium,
         stadium_resolved=stadium_resolved,
         stub_team_references=stub_team_references,
+        cache_records_excluded=cache_records_excluded,
     )
     return tuple(fixtures), stats, tuple(decoded.raw.span_offset for decoded in decoded_records)

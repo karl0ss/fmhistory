@@ -242,6 +242,7 @@ class SpanRecords:
     fixture_continuations: tuple[RawFixtureContinuation, ...] = ()
     fixture_scores: tuple[RawFixtureScore, ...] = ()
     fixture_presence: tuple[RawFixturePresence, ...] = ()
+    fixture_cache_offsets: tuple[int, ...] = ()
 
     def __repr__(self) -> str:
         return (
@@ -840,6 +841,146 @@ class _FixtureContinuationState:
         return RawFixtureScore(offset, home, away)
 
 
+@dataclass(slots=True)
+class _FixtureCacheState:
+    """An optional table-owned pair of counted lists, never a calendar search.
+
+    Only scalar cursors and provisional offsets survive a frame. The raw vector,
+    packet payloads and unidentified suffix words are skipped without interpreting
+    them. Offsets become exclusions only after both lists and the next object prefix
+    close. A rejected or truncated parent contributes nothing.
+    """
+
+    cursor: int
+    limit: int
+    phase: str = "vector"
+    list_number: int = 0
+    remaining: int = 0
+    offsets: list[int] = field(default_factory=lambda: list[int]())
+
+    def advance(
+        self, window: bytes, origin: int, layout: FixtureCalendarLayout
+    ) -> tuple[int, ...] | None:
+        end = origin + len(window)
+        home_at = -layout.marker_byte_offset
+        while True:
+            if self.phase == "vector":
+                needed = layout.cache_vector_entries_offset
+            elif self.phase == "dates":
+                needed = len(layout.cache_dates_prefix) + 1
+            elif self.phase in ("count", "date_count", "date"):
+                needed = _UINT32.size
+            elif self.phase == "packet":
+                needed = layout.secondary_header_bytes
+            elif self.phase == "core":
+                needed = layout.cache_primary_bytes
+            else:
+                needed = len(layout.cache_next_prefix) + layout.cache_next_header_bytes
+            if self.cursor < origin or self.cursor + needed > self.limit:
+                return ()
+            if self.cursor + needed > end:
+                return None
+            at = self.cursor - origin
+            if self.phase == "vector":
+                count = window[at + layout.cache_vector_count_offset]
+                if any(
+                    _UINT16.unpack_from(window, at + offset)[0] != count
+                    for offset in layout.cache_vector_count_copy_offsets
+                ):
+                    return ()
+                constant_at = at + layout.cache_vector_constant_offset
+                if window[constant_at : constant_at + len(layout.cache_vector_constant)] != (
+                    layout.cache_vector_constant
+                ):
+                    return ()
+                self.cursor += layout.cache_vector_entries_offset + count
+                self.phase = "dates"
+            elif self.phase == "dates":
+                prefix_end = at + len(layout.cache_dates_prefix)
+                present = window[prefix_end]
+                if window[at:prefix_end] != layout.cache_dates_prefix or present not in (0, 1):
+                    return ()
+                self.cursor += needed
+                if present:
+                    self.phase = "date_count"
+                else:
+                    self.cursor += layout.cache_vector_tail_bytes
+                    self.phase = "count"
+            elif self.phase == "date_count":
+                self.remaining = _UINT32.unpack_from(window, at)[0]
+                self.cursor += _UINT32.size
+                if (
+                    self.remaining * _UINT32.size + layout.cache_vector_tail_bytes
+                    > self.limit - self.cursor
+                ):
+                    return ()
+                if self.remaining:
+                    self.phase = "date"
+                else:
+                    self.cursor += layout.cache_vector_tail_bytes
+                    self.phase = "count"
+            elif self.phase == "date":
+                if decode_date(window, at) is None:
+                    return ()
+                self.cursor += _UINT32.size
+                self.remaining -= 1
+                if not self.remaining:
+                    self.cursor += layout.cache_vector_tail_bytes
+                    self.phase = "count"
+            elif self.phase == "count":
+                self.remaining = _UINT32.unpack_from(window, at)[0]
+                self.cursor += _UINT32.size
+                minimum_row = layout.secondary_header_bytes + layout.cache_primary_bytes
+                if self.remaining * minimum_row > self.limit - self.cursor:
+                    return ()
+                if self.remaining:
+                    self.phase = "packet"
+                elif self.list_number == 0:
+                    self.list_number = 1
+                else:
+                    self.phase = "next"
+            elif self.phase == "packet":
+                if window[at] != layout.secondary_marker:
+                    return ()
+                count = _UINT32.unpack_from(window, at + layout.secondary_count_offset)[0]
+                self.cursor += layout.secondary_header_bytes + count * layout.secondary_item_bytes
+                self.phase = "core"
+            elif self.phase == "core":
+                home = at + home_at
+                suffix_at = home + layout.cache_primary_suffix_offset
+                if (
+                    window[at] != layout.marker_byte_value
+                    or decode_date(window, home + layout.kick_off_date_offset) is None
+                    or window[suffix_at : suffix_at + len(layout.cache_primary_suffix)]
+                    != layout.cache_primary_suffix
+                ):
+                    return ()
+                self.offsets.append(self.cursor + home_at)
+                self.cursor += layout.cache_primary_bytes
+                self.remaining -= 1
+                if self.remaining:
+                    self.phase = "packet"
+                elif self.list_number == 0:
+                    self.list_number = 1
+                    self.phase = "count"
+                else:
+                    self.phase = "next"
+            else:
+                prefix_end = at + len(layout.cache_next_prefix)
+                if window[at:prefix_end] != layout.cache_next_prefix:
+                    return ()
+                tag_at = prefix_end + layout.cache_next_tag_offset
+                tag = window[tag_at : tag_at + layout.cache_next_tag_bytes]
+                constant_at = prefix_end + layout.cache_next_constant_offset
+                if (
+                    any(not 32 <= byte <= 126 for byte in tag)
+                    or window[constant_at : constant_at + len(layout.cache_next_constant)]
+                    != layout.cache_next_constant
+                ):
+                    return ()
+                return tuple(self.offsets)
+
+
 def _collect_table_blocks(
     window: bytes,
     window_origin: int,
@@ -1245,6 +1386,8 @@ def scan_span(
     fixture_continuations: list[RawFixtureContinuation] = []
     fixture_scores: list[RawFixtureScore] = []
     fixture_presence: list[RawFixturePresence] = []
+    fixture_cache_offsets: set[int] = set()
+    cache_states: list[_FixtureCacheState] = []
     continuation = _FixtureContinuationState()
     if (
         layouts.fixtures.secondary_count_offset < 1
@@ -1272,6 +1415,41 @@ def scan_span(
         or layouts.fixtures.secondary_missing_goals > 255
     ):
         raise ValueError("fixture score fields must fit the secondary header")
+    cache_layout = layouts.fixtures
+    home_at = -cache_layout.marker_byte_offset
+    if (
+        not 0 <= cache_layout.cache_vector_count_offset < cache_layout.cache_vector_entries_offset
+        or any(
+            not 0 <= offset <= cache_layout.cache_vector_entries_offset - _UINT16.size
+            for offset in cache_layout.cache_vector_count_copy_offsets
+        )
+        or not 0
+        <= cache_layout.cache_vector_constant_offset
+        <= cache_layout.cache_vector_entries_offset - len(cache_layout.cache_vector_constant)
+        or cache_layout.cache_vector_tail_bytes < 0
+        or home_at < 0
+        or home_at + cache_layout.kick_off_date_offset < 0
+        or home_at + cache_layout.kick_off_date_offset + 4 > cache_layout.cache_primary_bytes
+        or home_at + cache_layout.cache_primary_suffix_offset < 0
+        or home_at
+        + cache_layout.cache_primary_suffix_offset
+        + len(cache_layout.cache_primary_suffix)
+        > cache_layout.cache_primary_bytes
+        or not 0
+        <= cache_layout.cache_next_tag_offset
+        <= cache_layout.cache_next_header_bytes - cache_layout.cache_next_tag_bytes
+        or not 0
+        <= cache_layout.cache_next_constant_offset
+        <= cache_layout.cache_next_header_bytes - len(cache_layout.cache_next_constant)
+        or max(
+            cache_layout.cache_vector_entries_offset,
+            len(cache_layout.cache_dates_prefix) + 1,
+            cache_layout.cache_primary_bytes,
+            len(cache_layout.cache_next_prefix) + cache_layout.cache_next_header_bytes,
+        )
+        > carry_over_bytes
+    ):
+        raise ValueError("fixture cache fields must fit their owned streamed headers")
     table_blocks: list[RawTableBlock] = []
     rules_blocks: list[RawRulesBlock] = []
     results: list[RawStageResult] = []
@@ -1334,6 +1512,7 @@ def scan_span(
                 clock.year,
                 None,
             )
+            first_new_table = len(table_blocks)
             tables_considered_to, found_blocks = _collect_table_blocks(
                 window,
                 window_origin,
@@ -1342,6 +1521,23 @@ def scan_span(
                 tables_considered_to,
                 table_blocks,
             )
+            for block in table_blocks[first_new_table:]:
+                block_end = (
+                    block.span_offset
+                    + layouts.tables.matches_offset
+                    + layouts.tables.row_bytes * 2 * block.rounds_per_venue
+                )
+                cache_states.append(
+                    _FixtureCacheState(block_end, block_end + cache_layout.cluster_gap_bytes)
+                )
+            pending_caches: list[_FixtureCacheState] = []
+            for cache in cache_states:
+                offsets = cache.advance(window, window_origin, cache_layout)
+                if offsets is None:
+                    pending_caches.append(cache)
+                else:
+                    fixture_cache_offsets.update(offsets)
+            cache_states = pending_caches
             rules_considered_to, found_markers = _collect_rules_blocks(
                 window,
                 window_origin,
@@ -1398,4 +1594,5 @@ def scan_span(
         fixture_continuations=tuple(fixture_continuations),
         fixture_scores=tuple(fixture_scores),
         fixture_presence=tuple(fixture_presence),
+        fixture_cache_offsets=tuple(sorted(fixture_cache_offsets)),
     )

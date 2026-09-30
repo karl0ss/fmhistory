@@ -1003,6 +1003,9 @@ def check_fixtures(
     vote never ran at all. `unresolved_stadiums` counts the records storing a ground the
     stadium table does not hold, which every save carries a few dozen of.
 
+    `cache_records_excluded` counts independently owned noncalendar cache records removed
+    before clustering. They are excluded from the calendar population and stray counts.
+
     `unjoined_results` counts the score records that named no match in this calendar, which is
     most of what a save holds: several seasons of history whose fixtures are long gone.
     `ambiguous_results` counts those naming more than one fixture at once, which fill none of
@@ -1020,6 +1023,7 @@ def check_fixtures(
         FrozenMapping(
             {
                 "stray_records": stats.span_records - cluster_records,
+                "cache_records_excluded": stats.cache_records_excluded,
                 "stray_clusters": max(stats.clusters - 1, 0),
                 "strays_without_a_copy": stats.strays_without_a_copy,
                 "fixtures_without_a_stage": cluster_records - stats.with_stage,

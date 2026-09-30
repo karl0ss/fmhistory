@@ -799,6 +799,22 @@ class FixtureCalendarLayout:
     secondary_optional_away_goals_offset: int
     secondary_missing_goals: int
     secondary_goals_maximum: int
+    cache_vector_count_offset: int
+    cache_vector_count_copy_offsets: tuple[int, ...]
+    cache_vector_constant_offset: int
+    cache_vector_constant: bytes
+    cache_vector_entries_offset: int
+    cache_dates_prefix: bytes
+    cache_vector_tail_bytes: int
+    cache_primary_bytes: int
+    cache_primary_suffix_offset: int
+    cache_primary_suffix: bytes
+    cache_next_prefix: bytes
+    cache_next_header_bytes: int
+    cache_next_tag_offset: int
+    cache_next_tag_bytes: int
+    cache_next_constant_offset: int
+    cache_next_constant: bytes
 
 
 @dataclass(frozen=True, slots=True)

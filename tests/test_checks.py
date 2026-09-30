@@ -1176,6 +1176,7 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
         "competitions": {"database_id_conflicts": 0},
         "fixtures": {
             "stray_records": 0,
+            "cache_records_excluded": 0,
             "stray_clusters": 0,
             "strays_without_a_copy": 0,
             "fixtures_without_a_stage": 0,

@@ -720,6 +720,7 @@ def test_the_build_counts_exactly_what_the_checks_read(career_save_path: Path) -
         "stray_records": STRAY_FIXTURE_COUNT,
         "stray_clusters": 1,
         "strays_without_a_copy": STRAY_FIXTURE_COUNT,
+        "cache_records_excluded": 0,
         "fixtures_without_a_stage": 0,
         "unresolved_stages": 1,
         "unresolved_teams": 0,
