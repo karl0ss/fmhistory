@@ -564,6 +564,140 @@
       'layout': dict({
         'assists_offset': 28,
         'body_flag_offset': 14,
+        'cache_layout': dict({
+          'attribute_block_bytes': 31,
+          'dated_attachment_bytes': 28,
+          'dated_child_date_offset': 9,
+          'dated_child_marker_offset': 13,
+          'dated_child_type_offset': 14,
+          'dated_child_widths': tuple(
+            tuple(
+              1,
+              18,
+            ),
+            tuple(
+              5,
+              18,
+            ),
+            tuple(
+              6,
+              18,
+            ),
+            tuple(
+              10,
+              18,
+            ),
+            tuple(
+              15,
+              17,
+            ),
+            tuple(
+              20,
+              20,
+            ),
+            tuple(
+              25,
+              20,
+            ),
+            tuple(
+              26,
+              20,
+            ),
+            tuple(
+              27,
+              20,
+            ),
+            tuple(
+              28,
+              20,
+            ),
+            tuple(
+              29,
+              20,
+            ),
+            tuple(
+              30,
+              20,
+            ),
+            tuple(
+              31,
+              18,
+            ),
+            tuple(
+              32,
+              20,
+            ),
+            tuple(
+              33,
+              20,
+            ),
+            tuple(
+              34,
+              21,
+            ),
+            tuple(
+              38,
+              20,
+            ),
+            tuple(
+              39,
+              20,
+            ),
+            tuple(
+              40,
+              21,
+            ),
+          ),
+          'fixed_row_bytes': 24,
+          'fixed_row_dates': tuple(
+            4,
+            20,
+          ),
+          'fixed_row_marker': b'\x04\x05',
+          'header_marker': b'\t\x07',
+          'header_marker_offset': 4,
+          'header_offset': 129,
+          'header_suffix_bytes': 15,
+          'medical_optional_bytes': 26,
+          'medical_row_bytes': 34,
+          'nullable_prefix_bytes': tuple(
+            8,
+            12,
+            14,
+          ),
+          'nullable_suffix_bytes': tuple(
+            44,
+            60,
+            70,
+            14,
+            18,
+          ),
+          'raw_body_bytes': 32,
+          'raw_suffix_bytes': 12,
+          'reference_bytes': 13,
+          'reference_dates': tuple(
+            0,
+            5,
+            9,
+          ),
+          'tagged_child_bytes': 6,
+          'tagged_expression_bytes': 24,
+          'tagged_expression_prefix': b'\x01\x00\x00\x00tjbo\x01\n\x01\x00\x00\x00ferd\x01\x01',
+          'tagged_scalar_bytes': tuple(
+            tuple(
+              0,
+              0,
+            ),
+            tuple(
+              17,
+              1,
+            ),
+            tuple(
+              24,
+              8,
+            ),
+          ),
+        }),
         'competition_id_offset': 9,
         'competition_id_range': tuple(
           1,

@@ -374,6 +374,12 @@ def test_an_opponent_no_club_lists_leaves_its_four_fields_empty_and_is_counted(
         "statistics_outside_their_ranges": 1,
         "records_without_an_owner": 0,
         "incomplete_match_lists": 0,
+        "history_slots": 4,
+        "history_containing_null": 0,
+        "history_null": 0,
+        "history_empty": 0,
+        "history_nonempty": 0,
+        "history_unknown": 4,
     }
 
 
@@ -592,6 +598,12 @@ def test_the_counts_the_checks_judge_come_from_the_records_themselves() -> None:
         unowned=0,
         lists_found=1,
         lists_decoded=1,
+        history_slots=1,
+        history_containing_null=0,
+        history_null=0,
+        history_empty=0,
+        history_nonempty=0,
+        history_unknown=1,
     )
 
 

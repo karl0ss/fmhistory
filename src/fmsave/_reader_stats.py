@@ -413,6 +413,12 @@ class MatchStats:
     counts histories whose declared records were walked completely. These counts include
     records outside the output year/identity window. None means structural metadata was
     not supplied by a caller; actual save reads always supply both counts.
+
+    The optional `history_*` counts describe independently located declarations in
+    accepted player records. `history_slots` is the accepted player population;
+    a null containing property, null history or explicitly empty array proves absence
+    for that slot. Unsupported or malformed predecessor fields remain unknown.
+    These counts do not depend on whether a present history produces output rows.
     """
 
     records: int
@@ -426,6 +432,12 @@ class MatchStats:
     unowned: int
     lists_found: int | None = None
     lists_decoded: int | None = None
+    history_slots: int | None = None
+    history_containing_null: int | None = None
+    history_null: int | None = None
+    history_empty: int | None = None
+    history_nonempty: int | None = None
+    history_unknown: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

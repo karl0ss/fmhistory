@@ -1238,6 +1238,12 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
             "statistics_outside_their_ranges": 0,
             "records_without_an_owner": 0,
             "incomplete_match_lists": 0,
+            "history_slots": 2,
+            "history_containing_null": 0,
+            "history_null": 0,
+            "history_empty": 0,
+            "history_nonempty": 0,
+            "history_unknown": 2,
         },
         "player_season_stats": {
             "records_without_a_player": 3,

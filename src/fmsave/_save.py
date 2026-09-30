@@ -1272,6 +1272,11 @@ class Save:
         holds the statistics of carries its date, competition and opponent, `has_stats` is
         false, and every field the statistics would fill is empty.
 
+        On a full-size save, an empty table passes this reader's checks only when every
+        accepted player has an independently located null or explicitly empty stored history.
+        An unsupported or malformed predecessor remains unresolved; it is not treated as an
+        empty history.
+
         This reader decodes the players to fill `player_name`, so a cold call pays for the
         player pass; a caller who has already called `players()` pays nothing extra for it. The
         table is read on the first call; later calls return the same table.

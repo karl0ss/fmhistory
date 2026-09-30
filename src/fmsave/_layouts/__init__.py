@@ -579,6 +579,42 @@ class SuspensionLayout:
 
 
 @dataclass(frozen=True, slots=True)
+class MatchCacheLayout:
+    """Bounded field geometry preceding an owned nullable match cache.
+
+    These fields describe serialization, not the meanings of the intervening properties.
+    The initial offset counts from an independently accepted player's ability field.
+    Unknown tags or incomplete fields do not establish an empty cache.
+    """
+
+    header_offset: int
+    header_suffix_bytes: int
+    header_marker_offset: int
+    header_marker: bytes
+    fixed_row_bytes: int
+    fixed_row_marker: bytes
+    fixed_row_dates: tuple[int, ...]
+    tagged_scalar_bytes: tuple[tuple[int, int], ...]
+    tagged_expression_prefix: bytes
+    tagged_expression_bytes: int
+    tagged_child_bytes: int
+    nullable_prefix_bytes: tuple[int, int, int]
+    raw_body_bytes: int
+    reference_bytes: int
+    reference_dates: tuple[int, ...]
+    raw_suffix_bytes: int
+    attribute_block_bytes: int
+    medical_row_bytes: int
+    medical_optional_bytes: int
+    dated_child_widths: tuple[tuple[int, int], ...]
+    dated_child_marker_offset: int
+    dated_child_date_offset: int
+    dated_child_type_offset: int
+    dated_attachment_bytes: int
+    nullable_suffix_bytes: tuple[int, int, int, int, int]
+
+
+@dataclass(frozen=True, slots=True)
 class MatchRecordLayout:
     """How to find a player's per-match records in `game_db`, and where their fields sit.
 
@@ -643,6 +679,7 @@ class MatchRecordLayout:
     parent_marker: bytes
     parent_header_bytes: int
     parent_count_offset: int
+    cache_layout: MatchCacheLayout | None = None
 
 
 @dataclass(frozen=True, slots=True)

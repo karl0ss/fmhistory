@@ -1234,17 +1234,35 @@ def evaluate_player_match_stats(
 
     No population floor is imposed because historical output varies with the career.
     Every recognized nonempty list must decode completely, independently of output year
-    and ID bounds. An empty search still fails the competition check and, when structural
-    metadata is available, completeness too: empty outer collection framing is unconfirmed.
+    and ID bounds. An empty search fails unless every accepted player has an independently
+    located null or explicitly empty history declaration. In that case there are no match
+    identities or nonempty lists to judge, so their ratios remain None and do not apply.
     """
     applied = _applies(bounds, game_db_bytes)
     with_stats = stats.with_stats
+    confirmed_empty = (
+        stats.records == 0
+        and stats.lists_found == 0
+        and stats.lists_decoded == 0
+        and stats.history_slots is not None
+        and stats.history_slots > 0
+        and stats.history_unknown == 0
+        and stats.history_nonempty == 0
+        and stats.history_containing_null is not None
+        and stats.history_containing_null >= 0
+        and stats.history_null is not None
+        and stats.history_null >= 0
+        and stats.history_empty is not None
+        and stats.history_empty >= 0
+        and stats.history_containing_null + stats.history_null + stats.history_empty
+        == stats.history_slots
+    )
     return (
         _gate(
             "per_match_competition_in_stage_space",
             _rate(stats.competition_in_stage_space, stats.records),
             bounds.per_match_competition_in_stage_space,
-            applied,
+            applied and not confirmed_empty,
         ),
         _share_gate(
             "per_match_minutes_in_range",
@@ -1264,7 +1282,7 @@ def evaluate_player_match_stats(
             "per_match_lists_complete",
             _rate(stats.lists_decoded or 0, stats.lists_found or 0),
             bounds.per_match_lists_complete,
-            applied and stats.lists_found is not None,
+            applied and stats.lists_found is not None and not confirmed_empty,
         ),
     )
 
@@ -1281,6 +1299,18 @@ def check_player_match_stats(
     lying before the first player's window, which belong to no player and build no row.
     """
     records = stats.records
+    history_counts = {
+        name: value
+        for name, value in (
+            ("history_slots", stats.history_slots),
+            ("history_containing_null", stats.history_containing_null),
+            ("history_null", stats.history_null),
+            ("history_empty", stats.history_empty),
+            ("history_nonempty", stats.history_nonempty),
+            ("history_unknown", stats.history_unknown),
+        )
+        if value is not None
+    }
     return ReaderCheck(
         PLAYER_MATCH_STATS_READER,
         records,
@@ -1295,6 +1325,7 @@ def check_player_match_stats(
                 "statistics_outside_their_ranges": stats.with_stats - stats.stats_in_range,
                 "records_without_an_owner": stats.unowned,
                 "incomplete_match_lists": (stats.lists_found or 0) - (stats.lists_decoded or 0),
+                **history_counts,
             }
         ),
     )

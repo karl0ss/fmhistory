@@ -27,6 +27,7 @@ from fmsave.models.matches import MatchPosition, PlayerMatchStats
 from fmsave.models.players import Player
 from fmsave.readers._common import GAME_DB_SECTION, MISSING_REFERENCE, build_gap_padded_struct
 from fmsave.readers.clubs import ClubIndex
+from fmsave.readers.match_cache import CacheDeclarations, MatchCacheWalker
 from fmsave.readers.player_scan import PlayerRecords
 from fmsave.readers.stages import StageIndex
 from fmsave.table import Table
@@ -289,10 +290,51 @@ class LocatedMatchRecords(dict[int, tuple[RawMatchRecord, ...]]):
         *,
         lists_found: int,
         lists_decoded: int,
+        history_declarations: CacheDeclarations | None = None,
     ) -> None:
         super().__init__(records)
         self.lists_found = lists_found
         self.lists_decoded = lists_decoded
+        self.history_declarations = history_declarations
+
+
+def _cache_declarations(
+    game_db: bytes,
+    player_records: PlayerRecords,
+    layout: MatchRecordLayout,
+    search: _MatchSearch,
+) -> CacheDeclarations | None:
+    """Count owned declarations independently of emitted rows and output filters."""
+    if layout.cache_layout is None:
+        return None
+    walker = MatchCacheWalker(layout.cache_layout)
+    counts = {"containing_null": 0, "null": 0, "empty": 0, "nonempty": 0, "unknown": 0}
+    offsets = player_records.record_offsets
+    for position, ability in enumerate(offsets):
+        end = (
+            offsets[position + 1] - search.owner_back_offset
+            if position + 1 < len(offsets)
+            else len(game_db)
+        )
+        declaration = walker.locate(game_db, ability, end)
+        state = declaration.state
+        if state == "empty" and declaration.offset is not None:
+            at = declaration.offset + layout.parent_header_bytes
+            # Retain the nonempty parent's complete-extra-child contradiction control.
+            # A following marker alone may belong to another property and proves nothing.
+            if at + search.list_header_bytes <= end and game_db[at : at + 2] in layout.list_markers:
+                _team, count = search.list_header_struct.unpack_from(game_db, at)
+                at += search.list_header_bytes
+                if 0 < count <= (end - at) // search.header_bytes:
+                    for _ in range(count):
+                        decoded = _read_match_record(game_db, at, search, end)
+                        if decoded is None:
+                            break
+                        at += decoded[1]
+                    else:
+                        state = "unknown"
+        counts[state] += 1
+    return CacheDeclarations(slots=len(offsets), **counts)
 
 
 def _read_match_record(
@@ -340,13 +382,19 @@ def locate_match_records(
     including records outside the output year/ID window, before any sibling is emitted.
     Those output bounds do not determine where a list ends. Statistic values never decide
     framing: a genuine record with a bad rating remains visible to the validation checks.
-    Empty history has no confirmed outer framing yet, so a random zero count is not accepted
-    as proof of a player's empty match collection.
+    A separate bounded field walk establishes owned null/empty cache declarations. Its
+    counts are independent of this nonempty scan and its output filters; unsupported
+    preceding fields remain unknown.
     """
     search = _match_search(layout, clock.year)
     offsets = player_records.record_offsets
     if not offsets:
-        return LocatedMatchRecords({}, lists_found=0, lists_decoded=0)
+        return LocatedMatchRecords(
+            {},
+            lists_found=0,
+            lists_decoded=0,
+            history_declarations=_cache_declarations(game_db, player_records, layout, search),
+        )
     start = max(0, offsets[0] - search.owner_back_offset)
     records_by_position: dict[int, list[RawMatchRecord]] = {}
     lists_found = lists_decoded = 0
@@ -470,6 +518,7 @@ def locate_match_records(
         {position: tuple(records) for position, records in records_by_position.items()},
         lists_found=lists_found,
         lists_decoded=lists_decoded,
+        history_declarations=_cache_declarations(game_db, player_records, layout, search),
     )
 
 
@@ -645,6 +694,13 @@ def build_player_match_stats(
                 )
             )
 
+    declarations = (
+        records_by_position.history_declarations
+        if isinstance(records_by_position, LocatedMatchRecords)
+        else None
+    )
+    if declarations is not None and declarations.slots != len(player_records.uids):
+        declarations = None
     stats = MatchStats(
         records=record_count,
         with_stats=with_stats,
@@ -661,5 +717,11 @@ def build_player_match_stats(
         lists_decoded=records_by_position.lists_decoded
         if isinstance(records_by_position, LocatedMatchRecords)
         else None,
+        history_slots=len(player_records.uids) if declarations is not None else None,
+        history_containing_null=declarations.containing_null if declarations is not None else None,
+        history_null=declarations.null if declarations is not None else None,
+        history_empty=declarations.empty if declarations is not None else None,
+        history_nonempty=declarations.nonempty if declarations is not None else None,
+        history_unknown=declarations.unknown if declarations is not None else None,
     )
     return tuple(rows), stats
