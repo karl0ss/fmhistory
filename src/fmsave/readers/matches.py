@@ -339,6 +339,8 @@ def locate_match_records(
     start = max(0, offsets[0] - search.owner_back_offset)
     records_by_position: dict[int, list[RawMatchRecord]] = {}
     lists_found = lists_decoded = 0
+    suffix_lengths: dict[int, int] = {}
+    suffix_owner: int | None = None
     while (hit := search.list_pattern.search(game_db, start)) is not None:
         list_at = hit.start()
         start = list_at + 1
@@ -369,12 +371,23 @@ def locate_match_records(
         lists_found += 1
         if count > (end - first_at) // search.header_bytes:
             continue
+        if position != suffix_owner:
+            suffix_lengths.clear()
+            suffix_owner = position
         at = first_at
         records: list[RawMatchRecord] = []
-        for _ in range(count):
+        visited: list[int] = []
+        available = 0
+        for index in range(count):
+            known_length = suffix_lengths.get(at)
+            if known_length is not None and count - index > known_length:
+                available = known_length
+                break
             decoded = _read_match_record(game_db, at, search, end)
             if decoded is None:
+                suffix_lengths[at] = 0
                 break
+            visited.append(at)
             record, size = decoded
             at += size
             if (
@@ -392,6 +405,13 @@ def locate_match_records(
             start = at
             if records:
                 records_by_position.setdefault(position, []).extend(records)
+            continue
+        # A failed walk establishes the exact valid suffix length at each visited start.
+        # Reusing those lengths avoids walking the same malformed suffix for nested headers;
+        # a shorter claim can still decode, so genuine overlapping lists remain discoverable.
+        for record_at in reversed(visited):
+            available += 1
+            suffix_lengths[record_at] = available
     return LocatedMatchRecords(
         {position: tuple(records) for position, records in records_by_position.items()},
         lists_found=lists_found,

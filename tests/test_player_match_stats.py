@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import dataclasses
 import pickle
+import struct
 from array import array
 from collections.abc import Sequence
 from datetime import date, timedelta
@@ -1124,3 +1125,102 @@ def test_a_body_missing_only_its_unknown_trailing_bytes_is_still_truncated() -> 
     )
     assert records == {}
     assert (records.lists_found, records.lists_decoded) == (1, 0)
+
+
+@pytest.mark.parametrize("record_count", (50, 100, 200, 400))
+def test_failed_nested_match_lists_do_not_rewalk_the_same_suffix(
+    record_count: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from fmsave.readers import matches as match_reader
+
+    rows = []
+    for index in range(record_count):
+        row = bytearray(match_bytes())
+        # Unknown trailing bytes can resemble another header immediately before the next
+        # real row. Every candidate overclaims by one, so they all fail at the same end.
+        row[44:54] = b"\x14\x01" + struct.pack("<II", 901, record_count - index)
+        rows.append(bytes(row))
+    data = bytes(390) + b"\x14\x01" + struct.pack("<II", 901, record_count + 1) + b"".join(rows)
+    original = match_reader._read_match_record
+    reads = 0
+
+    def counted_read(*args: object) -> object:
+        nonlocal reads
+        reads += 1
+        return original(*args)  # pyright: ignore[reportArgumentType]
+
+    monkeypatch.setattr(match_reader, "_read_match_record", counted_read)
+    records = match_reader.locate_match_records(
+        data, synthetic_player_records((200,)), registered_match_layout(), CLOCK
+    )
+    assert records == {}
+    assert records.lists_found == record_count
+    assert records.lists_decoded == 0
+    assert reads <= 3 * record_count + 16
+
+
+def test_a_shorter_valid_nested_list_survives_a_failed_outer_walk() -> None:
+    from fmsave.readers import matches as match_reader
+
+    record_count = 12
+    rows = []
+    for index in range(record_count):
+        row = bytearray(match_bytes(day_of_year=50 + index))
+        declared = 2 if index == 4 else record_count - index
+        row[44:54] = b"\x14\x01" + struct.pack("<II", 901, declared)
+        rows.append(bytes(row))
+    data = bytes(390) + b"\x14\x01" + struct.pack("<II", 901, record_count + 1) + b"".join(rows)
+    records = match_reader.locate_match_records(
+        data, synthetic_player_records((200,)), registered_match_layout(), CLOCK
+    )
+    assert [row.date for row in records[0]] == [date(2031, 2, 24), date(2031, 2, 25)]
+    assert records.lists_found == record_count - 2
+    assert records.lists_decoded == 1
+
+
+def test_failed_suffix_lengths_count_records_excluded_from_output() -> None:
+    from fmsave.readers import matches as match_reader
+
+    record_count = 12
+    rows = []
+    for index in range(record_count):
+        row = bytearray(
+            match_bytes(
+                day_of_year=50 + index, competition_id=0 if index == 6 else FIRST_COMPETITION_ID
+            )
+        )
+        declared = record_count - index - 1 if index == 4 else record_count - index
+        row[44:54] = b"\x14\x01" + struct.pack("<II", 901, declared)
+        rows.append(bytes(row))
+    data = bytes(390) + b"\x14\x01" + struct.pack("<II", 901, record_count + 1) + b"".join(rows)
+    records = match_reader.locate_match_records(
+        data, synthetic_player_records((200,)), registered_match_layout(), CLOCK
+    )
+    assert len(records[0]) == 6
+    assert all(row.competition_id != 0 for row in records[0])
+    assert records.lists_found == 6
+    assert records.lists_decoded == 1
+
+
+def test_failed_suffixes_stay_inside_their_owner_when_another_player_has_valid_history() -> None:
+    from fmsave.readers import matches as match_reader
+
+    record_count = 10
+    rows = []
+    for index in range(record_count):
+        row = bytearray(match_bytes())
+        row[44:54] = b"\x14\x01" + struct.pack("<II", 901, record_count - index)
+        rows.append(bytes(row))
+    first = bytes(390) + b"\x14\x01" + struct.pack("<II", 901, record_count + 1) + b"".join(rows)
+    boundary = len(first)
+    second = match_list_bytes(match_bytes(day_of_year=61) + match_bytes(day_of_year=62))
+    records = match_reader.locate_match_records(
+        first + bytes(20) + second,
+        synthetic_player_records((200, boundary + OWNER_BACK_OFFSET)),
+        registered_match_layout(),
+        CLOCK,
+    )
+    assert list(records) == [1]
+    assert [row.date for row in records[1]] == [date(2031, 3, 2), date(2031, 3, 3)]
+    assert records.lists_found == record_count + 1
+    assert records.lists_decoded == 1
