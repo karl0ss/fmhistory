@@ -2,7 +2,8 @@
 
 Read your Football Manager 26 saves from disk into Python records, DataFrames, CSV and JSON.
 
-**[Documentation](https://rhiever.github.io/fmsave/)**: guides and the full reference.
+[Documentation](https://rhiever.github.io/fmsave/): guides and the full reference.
+[Release notes](https://rhiever.github.io/fmsave/changelog.html) cover each release.
 
 ## Install
 
@@ -31,10 +32,11 @@ with fmsave.open("career.fm") as career_save:
     squad.write_csv("squad.csv")
 ```
 
-A player carries his names, birth date and age, nationality, club, height, positions, all 24
-attributes, the eight personality attributes, current and potential ability, reputation, transfer
+A player carries his names, birth date and age, nationality, club, height, positions, all 52
+attributes, the 8 personality attributes, current and potential ability, reputation, transfer
 value, condition, traits, his contract and any unserved ban. Records and tables are immutable and
-keep working after the save is closed.
+keep working after the save is closed. Use `uid` for joins within a save and `unique_id` to
+match database people or clubs across careers; created people can reuse deleted people's IDs.
 
 Each reader returns a `Table`: `where(...)`, `filter(...)`, `sorted_by(...)`, `find(name=...)`,
 `by_uid(...)`, `by_id(...)` and `coverage`, plus `to_dicts()`, `to_columns()`, `to_pandas()`,
@@ -42,7 +44,7 @@ Each reader returns a `Table`: `where(...)`, `filter(...)`, `sorted_by(...)`, `f
 
 ## What else it reads
 
-Twenty-seven readers in all, each returning a `Table` of records:
+27 readers in all, each returning a `Table` of records:
 
 - **People**: `players()`, `contracts()`, `suspensions()`, `staff()`, `staff_lists()`
 - **Clubs**: `clubs()`, `managed_clubs()`, `finances()`, `sponsorships()`, `facilities()`,
@@ -58,23 +60,23 @@ Every field is either verified against the game or unconfirmed; ask with
 fmsave cannot read is `None` rather than a guess, and money is kept in the unit the game stores it
 in, which is not the currency it displays.
 
-Each reader also measures what it decoded against loose bounds drawn from a couple of careers. A
-save unlike them can miss one and still be read perfectly well, so a missed bound is a warning and
-you get the table anyway. Pass `strict=True` to `fmsave.open` to have one raise instead.
+Reader checks test completeness, joins and expected ranges. A failed check warns and returns the
+table; `strict=True` raises instead. Structural failures raise in either mode. See
+[Trusting a number](https://rhiever.github.io/fmsave/guides/trust.html) before relying on a result.
 
 ## What it cannot read
 
 - **Names the game renders from its own installed database.** Competitions, leagues, nations,
-  cities and all but a couple of hundred grounds. fmsave ships none of these and reads nothing from
+  cities and most grounds. fmsave ships none of these and reads nothing from
   your game install. Competitions carry `database_id`, the id every outside name source is keyed
   on, so you can supply your own map. See [Competition names](#competition-names).
 - **Links the save does not store**, such as which competition a rules block belongs to, or which
   ground a club plays at. Worked out from the fixture calendar where possible, left empty where not.
 - **Meanings for numbers the game never displayed**, such as staff job titles or the settings
   inside a tactic. These come back as raw numbers rather than as labels fmsave guessed at.
-- **What the save keeps only in part or not at all**: scores for part of a career's matches,
-  injuries older than about two years, and today's availability, line-ups, staff
-  attribute values, card counts, club debt and asking prices.
+- **Partial history and unsupported fields**: match-score coverage that varies by save,
+  older injuries, and today's availability, line-ups, staff
+  attribute values, club debt and asking prices.
 
 ## Competition names
 
@@ -85,10 +87,10 @@ with fmsave.open("career.fm", competition_names=competition_names) as career_sav
         print(competition.database_id, competition.name)  # 12345 "Example League"
 ```
 
-The file is UTF-8, two columns, `database_id` then `name`; a leading header row is skipped. Any
+The file is UTF-8, 2 columns, `database_id` then `name`; a leading header row is skipped. Any
 mapping of database id to name works too. Without a map, `name` and every denormalised
-`competition_name` is `None`. About one competition in ten carries no database id and can never be
-named, and one the game created during a career carries an id no outside source holds.
+`competition_name` is `None`. Competitions without a database id cannot use this map; those created during a career may have
+no entry in an outside name source.
 
 ## Command line
 
@@ -99,7 +101,7 @@ fmsave export career.fm players --nation 7 --columns name,age,club_name,contract
 fmsave validate career.fm --json
 ```
 
-`export` writes any of the twenty-seven tables as CSV, JSON or JSON Lines, and needs a scope:
+`export` writes any of the 27 tables as CSV, JSON or JSON Lines, and needs a scope:
 `--club`, `--managed-club`, `--competition`, `--nation` or `--all`. Nested groups flatten to
 `contract_wage`-style columns and a coded value gives a label column plus a `_code` column, so JSON
 is the lossless format. `--all` is explicit and is for local analysis of your own single-player

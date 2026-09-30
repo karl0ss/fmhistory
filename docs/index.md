@@ -50,12 +50,12 @@ If the game is running, copy the save and read the copy.
   and filters. Read this one first.
 - [Getting data out](guides/exporting.md): DataFrames, CSV, JSON, and the `fmsave export`
   command.
-- [What a save holds](guides/what-a-save-holds.md): the twenty-seven readers, and what no save
-  can tell you.
+- [What a save holds](guides/what-a-save-holds.md): the 27 readers and their coverage limits.
 - [Trusting a number](guides/trust.md): how to tell a verified field from an unconfirmed one,
   and what a reader's checks mean.
 
 The reference section documents every record, field and command.
+[Release notes](changelog.md) cover features and fixes by version.
 
 ```{toctree}
 :maxdepth: 2
@@ -77,4 +77,11 @@ reference/enums
 reference/table
 reference/errors
 reference/cli
+```
+
+```{toctree}
+:maxdepth: 1
+:caption: Releases
+
+changelog
 ```

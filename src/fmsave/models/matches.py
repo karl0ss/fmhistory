@@ -1,13 +1,9 @@
 """Per-match player records: what one player did in one match the save still holds.
 
-**This is never a full season, and never a career.** The save keeps a capped history of about
-twenty matches per player per spell at a team, **counted across all competitions at once** and
-not per competition, dropping the oldest as new ones arrive. So a player who has played more
-than that in his current spell has only his most recent matches here, and **a per-competition
-total summed from these records is short without saying so**: it looks ordinary, nothing marks
-it as truncated, and a sum that happens to match a figure the game displays is a coincidence
-rather than a confirmation. Friendlies, internationals and youth matches are kept apart from
-these records and none of them appears here at all.
+Stored match histories may omit older matches and are not guaranteed season or career totals.
+Rows do not mark their histories as truncated, so summing them can undercount a player's season.
+Use `player_season_stats()` for the stored current-season totals. Friendlies, internationals and
+youth matches are outside this reader's coverage.
 
 A record's `competition_id` belongs to the **stage** id space, the same space `stages()`,
 `fixtures()`, the league tables and `Suspension.competition_id` use, so all of them join.
@@ -60,10 +56,8 @@ class MatchPosition(IntEnum):
 class PlayerMatchStats:
     """One player's record of one match the save still holds.
 
-    **Never a whole season and never a career.** The save keeps about twenty matches per player
-    per spell at a team, counted across all competitions at once rather than per competition,
-    and drops the oldest as new ones arrive. A per-competition total summed from these rows is
-    therefore short without saying so, and nothing in a row marks it as truncated. Friendlies,
+    These rows are retained match histories, not guaranteed season or career totals. Older
+    matches can be missing, and a row does not mark its history as truncated. Friendlies,
     internationals and youth matches are kept apart from these records and are not here at all.
 
     `competition_id` belongs to the **stage** id space, the same space `stages()`, `fixtures()`,
@@ -74,9 +68,8 @@ class PlayerMatchStats:
             holds it (unconfirmed).
         player_name: Denormalised name of player_uid (unconfirmed).
         date: The date the match was played.
-        competition_id: Id of the competition, in the **stage** id space (not the id space a
-            suspension's competition id belongs to). It is stored on the record itself rather
-            than reached through a stage.
+        competition_id: Id of the competition, in the **stage** id space. It is stored on the
+            record itself rather than reached through a stage.
         opponent_team_id: The opposing side's first-team id, exactly as stored. It is a team
             id and never a club index.
         opponent_club_uid: Uid of the club fielding the opposing team, or None when no club

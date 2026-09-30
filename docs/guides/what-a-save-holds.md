@@ -1,23 +1,22 @@
 # What a save holds
 
-A save is the whole game world, not only your club. A career a decade in holds over a hundred
-thousand players and tens of thousands of clubs, every fixture the calendar has ever generated,
-and every injury it has recorded.
+A save holds players, clubs and competitions across the game world. The available history
+varies by career; it is not a complete archive of every match or injury.
 
-Twenty-seven readers get at it. Each one returns a `Table` of records, and each one reads the save
+27 readers get at it. Each one returns a `Table` of records, and each one reads the save
 you point it at and nothing else.
 
 ## People
 
 `players()`, `contracts()`, `suspensions()`, `staff()`, `staff_lists()`
 
-Players carry names, birth date and age, nationality, club, height, positions, all 52 attributes,
-the eight personality attributes, current and potential ability, reputation, transfer value,
+Players carry names, birth date and age, nationality, club, height, positions, 52 attributes,
+the 8 personality attributes, current and potential ability, reputation, transfer value,
 condition, traits, contract and any unserved ban. `contracts()` is the same contract record as a
 table of its own, which is what you want when you are looking across every deal in the save
 rather than at one club's players. Staff carry their people data, ability, personality and how
-they prefer a side to be run; of the twenty or so attributes a staff profile rates, only
-adaptability has been located in the save.
+they prefer a side to be run. Of the attributes a staff profile rates, fmsave currently reads
+only adaptability.
 
 ## Clubs
 
@@ -25,8 +24,9 @@ adaptability has been located in the save.
 `affiliates()`, `job_vacancies()`
 
 `managed_clubs()` is the club you run, and is empty between jobs. `finances()` is monthly figures
-per club, in the save's own unit. `stadiums()` holds capacities and ownership for tens of
-thousands of grounds, but a name for only a couple of hundred of them.
+per club, in the save's own unit. `sponsorships()` includes historical contracts, so a row
+does not necessarily describe current income. `stadiums()` holds capacities and ownership;
+names are available for only some grounds.
 
 Club data still has limits. The meaning of a zero corporate-facilities rating and some
 sponsorship amounts is unconfirmed. Some finance histories still fail continuity checks.
@@ -38,50 +38,55 @@ See [Trusting a number](trust.md) before using these fields in an analysis.
 `stages()`, `competitions()`, `fixtures()`, `league_tables()`, `competition_rules()`,
 `transfer_windows()`, `player_match_stats()`, `player_season_stats()`
 
-Fixtures are the calendar: date, teams, round, and a score where the save still keeps one.
+Fixtures provide dates, teams, rounds and scores where fmsave can decode an unambiguous result.
 
 `player_season_stats()` is each player's current season, as the squad and player screens show it:
 one row per competition type and team, with counts such as minutes, xG, passes and tackles, and
 the per-90 and percentage figures the game shows. `player_match_stats()` reads individual match
 histories stored within player records. Coverage varies by save and player; it is not a complete
-career match log. Some saves have no histories in the formats the reader currently supports.
+career match log. Empty output passes validation when every player explicitly has no stored
+history.
+Incomplete or unresolved histories fail the reader checks.
 
 ## Injuries
 
 `injury_types()`, `injuries()`
 
-A career keeps a long injury history, but not an endless one.
+`injuries()` reads retained injury history, not a complete career medical record.
 
 ## Your own club's work
 
 `training()`, `mentoring()`, `tactics()`, `set_pieces()`
 
-Only the club you manage stores these. Every other club returns no rows. It is not a gap in
-fmsave; the data is not in the save.
+These readers return data for the club you manage. Other clubs return no rows. `tactics()`
+includes stored preset and alternate tactics; a row is a copy for one team, so the same tactic
+can appear more than once.
 
-## What no save can tell you
+## Limits and missing values
 
-This half of the page matters as much as the half above. Knowing a thing is absent saves you an
-afternoon and saves the tracker a bug report.
+**Names from the installed game database.** fmsave ships no competition, league, nation or city
+names and reads nothing from your game install. Some stadium names are available in the save.
+See [Competition names](#competition-names) below.
 
-**Names the game renders from its own installed database.** Competitions, leagues, nations, cities
-and all but a couple of hundred grounds. fmsave ships none of these and reads nothing from your
-game install. See [Competition names](#competition-names) below.
+**Unresolved links.** Some rules blocks cannot be linked to a competition. A club's home ground
+is inferred from fixtures where possible. Missing links remain `None`.
 
-**Links the save does not store.** Which competition a rules block belongs to, which ground a club
-plays at. fmsave works these out from the fixture calendar where it can and leaves them empty
-where it cannot.
+**Unconfirmed meanings.** Most tactic settings and staff job codes have no confirmed labels.
+They keep their raw numbers. Other fields can have a value whose meaning is still unconfirmed;
+[Trusting a number](trust.md) explains how to check.
 
-**Meanings for numbers the game never displayed.** Staff job titles, the settings inside a tactic.
-These come back as raw numbers rather than as labels fmsave guessed at.
+**Partial history.** A missing score can mean the result was not retained, is not yet decoded,
+or could not be joined unambiguously. Injury history also has limits. Neither reader promises
+complete career coverage.
 
-**What the save keeps only in part, or not at all.** Scores are recovered from separate result
-records and counted match summaries. Coverage varies across careers; an empty score can mean
-the result was not retained, is not yet decoded, or could not be joined unambiguously.
-Injuries older than about two years are gone. Today's availability, line-ups, staff attribute
-values, card counts, club debt and asking prices are not stored at all.
+**Unsupported fields.** fmsave does not expose today's availability, a full matchday lineup,
+most staff attributes, club debt or asking prices. That does not establish whether the save
+stores them. Season statistics do include yellow and red cards; check each field's status
+before using it.
 
-Anywhere fmsave cannot read a value it gives you `None`, never a guess.
+Unreadable values remain `None`. Empty tables need context: the save may explicitly have no
+records, or the reader may have failed to recover them. Use validation and table coverage to
+check the distinction.
 
 (competition-names)=
 
@@ -99,13 +104,13 @@ with fmsave.open("career.fm", competition_names=competition_names) as career_sav
         print(competition.database_id, competition.name)  # 12345 "Example League"
 ```
 
-The file is UTF-8, two columns, `database_id` then `name`; a leading header row is skipped. Any
+The file is UTF-8, 2 columns, `database_id` then `name`; a leading header row is skipped. Any
 mapping of database id to name works in its place, and `fmsave export --competition-names PATH`
 takes the same file.
 
-Without a map, `name` and every `competition_name` is `None`. About one competition in ten carries
-no database id and can never be named, and one the game created during a career carries an id no
-outside source holds.
+Without a matching map entry, `name` and `competition_name` remain `None`. Competitions without
+a `database_id` cannot use this map; competitions created during a career may have no entry in
+an outside name source.
 
 ## Which reader has the field you want
 

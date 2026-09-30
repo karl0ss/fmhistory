@@ -145,7 +145,7 @@ class Tactic:
             when the team resolves to no club (unconfirmed).
         index: The copy's place among the team's own tactics, counting from zero in stored
             order. Nothing stored says which of them is selected (unconfirmed).
-        name: The tactic's name as the manager typed it (unconfirmed).
+        name: Stored tactic name (unconfirmed).
         style_name: The tactical style shown with the tactic, as stored text. No screen has
             confirmed that this label is the style (unconfirmed).
         mentality: The mentality the tactic is set to; the seven codes the game offers each
@@ -176,7 +176,7 @@ class Tactic:
 
 @dataclass(frozen=True, slots=True)
 class SetPieceRoutine:
-    """One set-piece routine slot of one team, named or empty.
+    """One set-piece routine slot of one team, named or unnamed.
 
     Attributes:
         club_uid: Uid of the club the team plays for, None for a team no club lists
@@ -188,8 +188,8 @@ class SetPieceRoutine:
         slot: The routine's place in the team's stored routines, counting from zero in stored
             order. Which set-piece situation a slot is for is not stored as text, so the slot
             number is all there is to go on (unconfirmed).
-        name: The routine's name as the manager typed it, None for an empty routine.
-            A team may store more than twenty routines.
+        name: Stored routine name, or None when unnamed. A team may store more than 20
+            routines.
     """
 
     club_uid: int | None

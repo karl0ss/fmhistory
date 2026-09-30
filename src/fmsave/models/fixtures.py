@@ -1,8 +1,7 @@
-"""The fixture calendar: every match a save has scheduled, played or left unplayed.
+"""Matches recovered from the save's fixture calendar.
 
 A fixture joins to its competition through its **stage**, so `competition_id` here belongs to
-the stage id space, like every other competition id fmsave reports, and not to the id space a
-suspension's competition id belongs to. A stage the stage table does not hold leaves the
+the stage id space shared by `Suspension.competition_id` and the league tables. A stage the stage table does not hold leaves the
 competition fields empty rather than guessing them.
 
 The save stores no competition name, so `competition_name` is None unless a name map was
@@ -38,8 +37,8 @@ class Fixture:
     Attributes:
         stage_id: The stage this match belongs to, which is the only route to its
             competition; None when the record stores no stage.
-        competition_id: Id of the competition, in the **stage** id space (not the id space a
-            suspension's competition id belongs to), reached through the stage; None when the
+        competition_id: Id of the competition, in the **stage** id space, reached through the stage;
+            None when the
             record has no stage, the stage is not in the stage table, or the stage names no
             competition.
         competition_name: Denormalised name of competition_id, which is None unless a name
@@ -73,9 +72,8 @@ class Fixture:
         away_team_slot: The away team's slot in its club's team list, 0 for the first entry,
             or None when the team does not resolve.
         home_goals: Goals the home side scored, or None when no unambiguous score was
-            decoded. Empty goals on a played match do not mean it finished goalless. The
-            core calendar record stores no score: framed adjoining packets, separate result
-            records and counted match summaries supply scores for part of a career.
+            decoded. Empty goals on a played match do not mean it finished goalless.
+            Score coverage varies between saves.
         away_goals: Goals the away side scored, or None when no unambiguous score was
             decoded, as for home_goals.
         played: Whether the save marks the match as played.

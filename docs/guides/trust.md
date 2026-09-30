@@ -1,13 +1,12 @@
 # Trusting a number
 
-fmsave reads a binary file that nobody documented. Most of it is settled; some of it is not. This
-page is how you tell which is which before you build anything on a number.
+Check a field's status, coverage and reader checks before relying on it. These answer different
+questions: what a value means, how often it is present, and whether the reader passed its checks.
 
 ## Verified or unconfirmed
 
-Every field carries one of two statuses. **Verified** means the value was checked against what the
-game itself shows. **Unconfirmed** means it decodes consistently and looks right, but no screen
-has confirmed what it means.
+Verified means the value was checked against what the game shows. Unconfirmed means its
+meaning has not been confirmed on a game screen.
 
 ```python
 import fmsave
@@ -16,12 +15,10 @@ fmsave.field_status(fmsave.Player, "attributes.finishing")  # "verified"
 fmsave.field_status(fmsave.Player, "contract.wage")  # "unconfirmed"
 ```
 
-Dots reach into groups. A field with no registered status raises `KeyError` rather than guessing.
+Dots reach into groups. A field with no registered status raises `KeyError`.
+An unconfirmed field needs independent evidence before you treat its meaning as established.
 
-Unconfirmed is not a warning to stay away. It is a statement about evidence, and most unconfirmed
-fields are fine. It does tell you where to look first when a number surprises you.
-
-## How much of a column is there at all
+## Coverage measures presence
 
 `coverage` gives the share of records whose value is not `None`, per flat column.
 
@@ -29,37 +26,35 @@ fields are fine. It does tell you where to look first when a number surprises yo
 with fmsave.open("career.fm") as career_save:
     squad = career_save.players().where(club_uid=career_save.managed_clubs()[0].club_uid)
 
-squad.coverage["contract_wage"]  # 1.0
+squad.coverage["contract_wage"]
 squad.coverage["loan_parent_club_name"]
 ```
 
-A low number is usually the save, not a bug: see
-[What a save holds](what-a-save-holds.md) for the things a save only keeps in part. A value fmsave
-cannot read is `None`, never a guess.
+Missing values can mean the save omitted data, a join could not resolve, or fmsave could not decode
+it. Coverage alone cannot distinguish these. See [What a save holds](what-a-save-holds.md).
+A missing match score does not mean a 0-0 result.
 
-## Reader checks warn, they do not block
+## Reader checks
 
-Each of the twenty-seven readers measures what it decoded against loose bounds drawn from a couple
-of reference careers: how many records it found, how many names resolved, how the ratios sit. A
-save unlike those careers can miss a bound and still be read perfectly well, so a missed bound is
-a `ReaderCheckWarning` and you get the table anyway.
+Checks test completeness, joins and expected ranges. A failed check produces a
+`ReaderCheckWarning` and returns the table. Some range checks may fail on a valid save unlike the
+reference careers; investigate the failed check before using its output.
 
-This is deliberate. Your save is not required to look like someone else's to be readable.
-
-When you would rather not work with a table that missed a bound, ask for that:
+Use strict mode when your pipeline should stop on a failed check:
 
 ```python
 with fmsave.open("career.fm", strict=True) as career_save:
-    squad = career_save.players()  # raises ReaderCheckError instead of warning
+    squad = career_save.players()  # raises ReaderCheckError on a failed check
 ```
 
-`strict=True` is worth it in a pipeline, where a silently odd table is worse than a stop. One
-thing it does not change: a structural failure, where the decode produced no table at all, raises
-`ReaderCheckError` either way.
+A structural failure that prevents a table from being decoded raises `ReaderCheckError` in either
+mode. Empty output can be valid: `player_match_stats()` accepts it when every player explicitly
+has no stored history. Missing or incomplete histories still fail checks.
 
-## Ask the save how it did
+## Validation reports
 
-`validate_save` runs every reader and reports. It neither raises nor warns.
+`validate_save` runs every reader and collects its outcome without emitting reader warnings or
+raising reader errors.
 
 ```python
 with fmsave.open("career.fm") as career_save:
@@ -70,11 +65,12 @@ for reader in report.readers:
     # "players" "ok" 124310
 ```
 
-A reader's status is `ok`, `failed` (a check of its own did not pass) or `error` (it raised). Each
-`ReaderValidation` also carries its `gates`, its `coverage` and its `anomalies`, counts of the
-odd things it saw while decoding.
+A reader's status is `ok`, `failed` (a check did not pass) or `error` (it raised).
+Each `ReaderValidation` also carries `gates`, `coverage` and `anomalies`.
+Passing checks is useful evidence, but does not confirm every field's meaning or guarantee full
+historical coverage.
 
-The same thing from the command line:
+The same report is available from the command line:
 
 ```console
 fmsave validate career.fm
@@ -88,17 +84,14 @@ injuries: failed (630 records)
 game FM26, build 26.1.0+1234567
 ```
 
-The report holds structural facts, counts and rates. **No names, no uids, no text from your
-save.** That is what makes it the right thing to paste into a
-[GitHub issue](https://github.com/rhiever/fmsave/issues) when a reader misbehaves. Never attach
-the save file itself.
+The report contains checks, counts and rates, without names, uids or text from your save. Paste it
+into a [GitHub issue](https://github.com/rhiever/fmsave/issues) when a reader misbehaves. Never
+attach the save file itself.
 
-## Two things that are not errors
+## Money and game builds
 
-**Money is in the save's own unit.** Wages, values and balances come back exactly as stored, which
-is not the currency the game displays and not a figure fmsave converts. A wage that looks wrong by
-a factor is almost certainly this.
+Money uses the save's stored unit. Wages, values and balances are not converted to the currency
+the game displays. Check that unit before interpreting a difference.
 
-**A new game build warns.** `UnknownBuildWarning` means the save comes from an FM26 build fmsave
-has no layout tables for. The readers still run, and their checks are what tell you whether the
-layout moved under them.
+`UnknownBuildWarning` means fmsave does not recognize that FM26 build. Readers still run; inspect
+their checks before relying on the output.

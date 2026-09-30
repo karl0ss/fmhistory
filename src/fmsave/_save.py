@@ -499,16 +499,15 @@ class Save:
         return context.cached(COMPETITIONS_TABLE_CACHE_KEY, self._read_competitions)
 
     def fixtures(self) -> Table[Fixture]:
-        """Every match the save has scheduled or played, in date and kick-off order.
+        """Matches recovered from the fixture calendar, in date and kick-off order.
 
         The save holds several copies of the calendar; only the largest is returned, so the
         block of template matches every save carries is left out. Each row joins to its
         competition through its stage, and to a club through each team id; an id the save does
         not resolve leaves its fields empty rather than being guessed.
 
-        `home_goals` and `away_goals` carry scores decoded from separate stage results and
-        counted owned match summaries and physically owned calendar packets; coverage
-        varies between saves. A played match with empty goals has no unambiguous decoded
+        `home_goals` and `away_goals` carry unambiguous decoded scores; coverage varies
+        between saves. A played match with empty goals has no unambiguous decoded
         result. This does not establish whether the save retained its score, and does not mean
         the match finished goalless.
 

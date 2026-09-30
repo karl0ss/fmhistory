@@ -1,7 +1,7 @@
 # Getting data out
 
-Every reader returns a `Table`, and every `Table` offers the same four ways out. Pick the one that
-suits where the data is going.
+Every reader returns a `Table`. Export nested records for another program or flat columns for
+a spreadsheet.
 
 ```python
 import fmsave
@@ -24,7 +24,7 @@ closed, so exporting outside the `with` block is fine.
 ## Nested or flat
 
 A record is nested. A player carries an `ability` group, an `attributes` group, a `contract`, and
-so on. Two of the four forms keep that shape and two flatten it.
+so on. Exports either keep that shape or flatten it.
 
 - Nested: `to_dicts()`, `write_json()`, `write_jsonl()`.
 - Flat: `to_columns()`, `to_pandas()`, `to_polars()`, `write_csv()`.
@@ -33,12 +33,12 @@ The flattening rules are short:
 
 - A nested group becomes `<field>_<subfield>`: `ability_current`, `contract_wage`,
   `attributes_finishing`. These are the names `pandas.json_normalize(sep="_")` would give.
-- A coded value becomes two columns: a label column and a `<field>_code` column holding the raw
+- A coded value becomes 2 columns: a label column and a `<field>_code` column holding the raw
   number, so `contract_squad_status` and `contract_squad_status_code`.
-- A tuple stays one value: a JSON array in JSON, a `;`-joined string in CSV, or compact JSON text
+- A tuple stays a single value: a JSON array in JSON, a `;`-joined string in CSV, or compact JSON text
   in CSV when its items are groups.
 
-A player flattens to 217 columns. To see the names for any record type without opening a save:
+To see the column names for any record type without opening a save:
 
 ```python
 import fmsave.export
@@ -46,10 +46,10 @@ import fmsave.export
 fmsave.export.column_names(fmsave.Player)  # ("uid", "unique_id", "name", ...)
 ```
 
-Nested JSON carries the label **and** the code, so **JSON is the lossless format**. Reach for it
-when you are handing the data to another program. CSV is for reading and for spreadsheets.
+Nested JSON carries the label and raw code for coded values. Dates become ISO strings, and
+tuples become arrays. CSV is convenient for spreadsheets; use JSON when nested structure matters.
 
-`to_dicts(json_ready=True)` gives the same nesting write_json uses: dates as ISO strings, tuples
+`to_dicts(json_ready=True)` gives the same nesting `write_json()` uses: dates as ISO strings, tuples
 as lists, everything JSON-serialisable.
 
 ## From the command line
@@ -64,7 +64,7 @@ fmsave export career.fm fixtures --managed-club --format jsonl -o fixtures.jsonl
 fmsave export career.fm player-season-stats --managed-club -o season.csv
 ```
 
-The scope is required, and exactly one of:
+Supply exactly 1 scope supported by the table:
 
 - `--managed-club`: the club you run.
 - `--club VALUE`: one club by uid, name or short name, in any case. A name that matches more than
@@ -84,8 +84,29 @@ The rest:
 - `--strict`: stop rather than write when a reader's checks fail. See
   [Trusting a number](trust.md).
 
-Table names on the command line use hyphens where the Python method uses underscores:
+Table names on the command line use `-` where the Python method uses `_`:
 `managed-clubs`, `league-tables`, `player-match-stats`, `player-season-stats`, `set-pieces`.
 
-Four tables (`training`, `mentoring`, `tactics` and `set-pieces`) only exist for the club you
-manage. Any other scope returns no rows.
+Not every table accepts every scope. An unsupported scope returns an error listing the accepted
+alternatives. For example, `transfer-windows` and `injury-types` require `--all`; `competition-rules` accepts
+`--competition` or `--all`.
+
+For `player-season-stats`, a club or nation scope selects current players and includes their
+rows for other teams this season. It does not select a single named competition. To export
+league rows for your club in Python:
+
+```python
+with fmsave.open("career.fm") as career_save:
+    league = career_save.player_season_stats().where(
+        club_uid=career_save.managed_clubs()[0].club_uid,
+        kind=fmsave.SeasonStatsKind.LEAGUE,
+    )
+league.write_csv("league.csv")
+```
+
+Keep counts such as `minutes` alongside rates such as `expected_goals_per_90` and
+`pass_completion_percent`. Rates are included automatically and become `None` when the
+count does not apply or the denominator is zero.
+
+`training`, `mentoring`, `tactics` and `set-pieces` return data for the club you manage.
+Selecting another club returns no rows.

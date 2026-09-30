@@ -364,8 +364,8 @@ class Player:
             unreadable start from costing the player his loan; no save read so far holds
             such a loan.
         loan_end: Date the loan ends when on_loan is True, else None.
-        contract: The player's assembled contract, or None when no chain record and no
-            fallback dates were found.
+        contract: The player's current contract, or None when a current contract cannot be
+            established.
         suspensions: The player's unserved suspensions, in the order the save stores them,
             including bans the game no longer displays; () when the player has none.
     """

@@ -67,6 +67,7 @@ their own pages: see {doc}`table` and {doc}`enums`.
 
 ```{eval-rst}
 .. autoclass:: fmsave.PlayerSeasonStats
+   :members:
 ```
 
 ## Injuries
