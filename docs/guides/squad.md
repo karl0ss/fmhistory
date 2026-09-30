@@ -77,10 +77,12 @@ whether it is verified. See [Trusting a number](trust.md).
 ```python
 squad.where(on_loan=True)
 squad.filter(
-    lambda player: player.age is not None
-    and player.age <= 21
-    and player.ability.potential is not None
-    and player.ability.potential >= 150
+    lambda player: (
+        player.age is not None
+        and player.age <= 21
+        and player.ability.potential is not None
+        and player.ability.potential >= 150
+    )
 )
 squad.find(name="Alex Example")
 ```
