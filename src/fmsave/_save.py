@@ -643,8 +643,8 @@ class Save:
         one such ground as owned by the council, so an empty `owner_club_uid` is what the game
         displays that way rather than an owner fmsave failed to read.
 
-        The last row of the table is a template the save carries rather than a ground anyone
-        plays at, and it is returned like any other row the walk found.
+        The table's closing header marks the end of its ground records and is not returned
+        as a ground.
 
         The table is read on the first call; later calls return the same table.
 

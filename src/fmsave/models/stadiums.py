@@ -10,10 +10,8 @@ Most grounds have no name here. The game takes a ground's name from its installe
 and only a couple of hundred rows of a save's table carry one inline, so `name` is empty on
 nearly every row.
 
-The last row of the table is a template the save carries rather than a ground anyone plays at:
-its all-seater capacity is 16,777,216 and its pitch limits are the widest the format allows.
-It is returned, because the walk found it and dropping a row a save holds would be a guess,
-and it is counted in the reader's own checks so a report says it is there.
+The table's closing object header marks the end of its ground records and is not returned as
+a ground.
 
 Derived views the table carries no field for:
 
