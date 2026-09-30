@@ -25,6 +25,7 @@ from fmsave._layouts import (
     LayoutEntry,
     LeagueTableLayout,
     MatchRecordLayout,
+    MatchSummaryLayout,
     NamePoolLayout,
     PersonBlockLayout,
     PlayerRecordLayout,
@@ -676,6 +677,35 @@ MATCH_RECORDS = MatchRecordLayout(
     list_count_offset=6,
 )
 
+MATCH_SUMMARIES = MatchSummaryLayout(
+    header_bytes=37,
+    uid_offset=4,
+    uid_copy_offset=8,
+    kind_offset=12,
+    kind_value=4,
+    header_word_offset=17,
+    header_word_values=(0, 0xFFFFFFFF),
+    ability_offsets=(21, 23),
+    ability_range=(0, 200),
+    attributes_offset=27,
+    attributes_count=7,
+    attributes_range=(1, 20),
+    flag_offsets=(34, 35),
+    count_offset=36,
+    record_bytes=24,
+    lead_byte_offset=0,
+    lead_byte_value=1,
+    date_offset=4,
+    competition_id_offset=10,
+    home_goals_offset=14,
+    away_goals_offset=15,
+    home_team_id_offset=16,
+    away_team_id_offset=20,
+    goals_maximum=40,
+    trailing_array_count=2,
+    null_date_bytes=b"\x01\x00\x6c\x07",
+)
+
 # The fixture calendar record is 68 bytes from the home team id, with the locator byte, the
 # stage id and the stadium ordinal in the 12 bytes before it.
 FIXTURE_CALENDAR = FixtureCalendarLayout(
@@ -813,6 +843,8 @@ RULES_PREAMBLES = RulesPreambleLayout(
     round_no_number_value=255,
     round_match_count_offset=9,
     round_match_count_max=64,
+    round_ordinal_offset=13,
+    round_indexed_kind_value=0,
     moved_match_bytes=10,
     moved_match_sentinel_offset=4,
     moved_match_sentinel_value=0xFF,
@@ -1624,6 +1656,7 @@ LAYOUTS: tuple[LayoutEntry, ...] = (
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=FACILITY_BYTE),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=SUSPENSIONS),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=MATCH_RECORDS),
+    LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=MATCH_SUMMARIES),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=STADIUM_TABLE),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=STAGE_TABLE),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=COMPETITION_ID_PAIRS),

@@ -625,6 +625,44 @@ class MatchRecordLayout:
     list_count_offset: int
 
 
+@dataclass(frozen=True, slots=True)
+class MatchSummaryLayout:
+    """Complete counted match summaries inside a distinct person-object kind.
+
+    Header offsets start at the object's index word. Row offsets start at its lead byte.
+    The object kind and the remaining header fields' meanings are unconfirmed. Two counted
+    word arrays and a null or valid packed date close the summary collection. Goal sanity
+    never determines its framing; invalid scores block enrichment of their fixture key.
+    """
+
+    header_bytes: int
+    uid_offset: int
+    uid_copy_offset: int
+    kind_offset: int
+    kind_value: int
+    header_word_offset: int
+    header_word_values: tuple[int, ...]
+    ability_offsets: tuple[int, ...]
+    ability_range: tuple[int, int]
+    attributes_offset: int
+    attributes_count: int
+    attributes_range: tuple[int, int]
+    flag_offsets: tuple[int, ...]
+    count_offset: int
+    record_bytes: int
+    lead_byte_offset: int
+    lead_byte_value: int
+    date_offset: int
+    competition_id_offset: int
+    home_goals_offset: int
+    away_goals_offset: int
+    home_team_id_offset: int
+    away_team_id_offset: int
+    goals_maximum: int
+    trailing_array_count: int
+    null_date_bytes: bytes
+
+
 # Count and distribution checks on the unnamed span apply only to a span at least this
 # large; a smaller span comes from a fragment that cannot meet full-save counts.
 FULL_SAVE_MINIMUM_SPAN_BYTES = 16 * 1024 * 1024
@@ -771,8 +809,11 @@ class RulesPreambleLayout:
     Inside a round record the unidentified `kind` byte sits at `round_kind_offset`, the date
     at `round_date_offset`, a second unidentified byte at `round_b5_offset`, the round
     number minus one (or `round_no_number_value` for a round the save does not number) at
-    `round_number_offset`, and the u32 match count, at most `round_match_count_max`, at
-    `round_match_count_offset`.
+    `round_number_offset`, and an unidentified u32 at `round_match_count_offset`. The
+    legacy walk limits that word to `round_match_count_max`. A complete indexed calendar
+    instead requires `round_indexed_kind_value` at `round_kind_offset` and the zero-based
+    parent-list ordinal at `round_ordinal_offset` on every record; it retains the word
+    unchanged without interpreting it as a count.
 
     Between round records the save writes moved or reserved matches as blocks of
     `moved_match_bytes` bytes, recognised by `moved_match_sentinel_value` at
@@ -782,7 +823,8 @@ class RulesPreambleLayout:
     correctly and this stride about 96%. A second interstitial shape carries
     `round_interstitial_tag_value` at `round_interstitial_tag_offset` and the same tail.
     Its contents are unidentified; this shape is accepted only when the bounded walk
-    completes the entire declared calendar, without changing date or match-count limits.
+    completes the entire declared calendar. Date, calendar-size and interstitial bounds
+    apply to every walk.
     """
 
     marker: bytes
@@ -801,6 +843,8 @@ class RulesPreambleLayout:
     round_no_number_value: int
     round_match_count_offset: int
     round_match_count_max: int
+    round_ordinal_offset: int
+    round_indexed_kind_value: int
     moved_match_bytes: int
     moved_match_sentinel_offset: int
     moved_match_sentinel_value: int
@@ -2085,6 +2129,7 @@ type Layout = (
     | FacilityByteLayout
     | SuspensionLayout
     | MatchRecordLayout
+    | MatchSummaryLayout
     | StadiumTableLayout
     | StageTableLayout
     | CompetitionIdPairLayout

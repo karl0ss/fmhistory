@@ -70,8 +70,9 @@ where it cannot.
 **Meanings for numbers the game never displayed.** Staff job titles, the settings inside a tactic.
 These come back as raw numbers rather than as labels fmsave guessed at.
 
-**What the save keeps only in part, or not at all.** Of the matches a long career has played,
-only about a quarter still carry a score; the rest are played fixtures with the result dropped.
+**What the save keeps only in part, or not at all.** Scores are recovered from separate result
+records and counted match summaries. Coverage varies across careers; an empty score can mean
+the result was not retained, is not yet decoded, or could not be joined unambiguously.
 Injuries older than about two years are gone. Today's availability, line-ups, staff attribute
 values, card counts, club debt and asking prices are not stored at all.
 

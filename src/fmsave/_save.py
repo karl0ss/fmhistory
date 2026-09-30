@@ -84,6 +84,11 @@ from fmsave.readers.managed import (
     first_human_selector,
     resolve_managed_clubs,
 )
+from fmsave.readers.match_summaries import (
+    MatchSummaryScores,
+    find_match_summary_layout,
+    locate_match_summary_scores,
+)
 from fmsave.readers.matches import (
     build_player_match_stats,
     find_match_record_layout,
@@ -501,10 +506,11 @@ class Save:
         competition through its stage, and to a club through each team id; an id the save does
         not resolve leaves its fields empty rather than being guessed.
 
-        `home_goals` and `away_goals` carry the score of a played match the save still holds
-        one for, which is about a quarter of them: the calendar itself stores no score, and the
-        separate records that do are kept for only part of a career. A played match with empty
-        goals means the save no longer holds that result, not that it finished goalless.
+        `home_goals` and `away_goals` carry scores decoded from separate stage results and
+        counted owned match summaries; the calendar itself stores no score, and coverage
+        varies between saves. A played match with empty goals has no unambiguous decoded
+        result. This does not establish whether the save retained its score, and does not mean
+        the match finished goalless.
 
         `stadium_uid` names the ground each match is played at, which comes from the stadium
         table: this reader therefore needs that table and raises when the game database holds
@@ -540,7 +546,7 @@ class Save:
         # One game_db borrow covers all three indexes the joins go through, so a cold call
         # decompresses that section once rather than once per index. The span is streamed after
         # the borrow ends, so the two large regions are never held in memory together.
-        with context.section(GAME_DB_SECTION):
+        with context.section(GAME_DB_SECTION) as game_db:
             club_index = context.club_index()
             # With a name map the competitions are read first, checks and all. Every
             # competition name a fixture row carries comes out of the competition index, so
@@ -557,12 +563,23 @@ class Save:
             # The stadium table is read inside this same borrow, and its own checks run here,
             # so no ground uid reaches a fixture row from a table whose shape did not pass.
             stadium_index = self._checked_stadium_index()
+            summaries = locate_match_summary_scores(
+                game_db,
+                find_match_summary_layout(
+                    save_info.section_schemas.get(GAME_DB_SECTION), save_info.build
+                ),
+            )
+        del game_db
         span_records = context.span_records()
         fixtures, fixture_stats = build_fixtures(
             span_records, stage_index, competition_index, club_index, stadium_index, layout
         )
         fixtures, result_stats = self._scored_fixtures(
-            fixtures, span_records, stage_index, find_result_layout(save_info.build)
+            fixtures,
+            span_records,
+            stage_index,
+            find_result_layout(save_info.build),
+            summaries=summaries,
         )
         fixture_check = _checks.check_fixtures(
             fixture_stats, result_stats, gate_bounds, span_records.span_bytes
@@ -577,8 +594,10 @@ class Save:
         span_records: SpanRecords,
         stage_index: StageIndex,
         layout: StageResultLayout,
+        *,
+        summaries: MatchSummaryScores | None = None,
     ) -> tuple[tuple[Fixture, ...], ResultStats]:
-        """Join the stage-keyed results onto the calendar and fill the scores they carry.
+        """Join stage results and fill remaining scores from owned match summaries.
 
         The records come from the span pass, which collected them on what each one settles by
         itself, and from the sections the layout names, read one at a time. Both routes are
@@ -592,6 +611,10 @@ class Save:
 
         A section the save does not list is skipped rather than raising, since a save need not
         carry every one of them.
+
+        Summaries use a separate exact date/competition/team key and cannot replace a known
+        score or revive a contradiction between stage results. Their counts remain separate
+        from the stage locator's checks.
         """
         context = self._context
         # The stage table is a rejection filter here and nothing else: this join asks only
@@ -606,7 +629,9 @@ class Save:
         stage_by_id = stage_index.stage_by_id
         covered_dates = calendar_dates(fixtures)
         if covered_dates is None:
-            return apply_results(fixtures, (), candidates=span_records.result_candidates)
+            return apply_results(
+                fixtures, (), candidates=span_records.result_candidates, summaries=summaries
+            )
         earliest_date, latest_date = covered_dates
         candidates = span_records.result_candidates
         collected = [
@@ -624,7 +649,7 @@ class Save:
                 )
             candidates += located.candidates
             collected.extend(located.results)
-        return apply_results(fixtures, collected, candidates=candidates)
+        return apply_results(fixtures, collected, candidates=candidates, summaries=summaries)
 
     def stadiums(self) -> Table[Stadium]:
         """Every ground the save's database holds, in the order the save stores them.

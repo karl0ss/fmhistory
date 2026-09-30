@@ -141,6 +141,9 @@ class RawRulesRound:
     layout's `round_no_number_value` of 255, so it reads here as 256 rather than as a guess.
     The rules reader is what maps that value, which is why the layout registers it although
     nothing in this pass reads it: a later reader must not mistake 256 for a real round.
+
+    `match_count` retains an unidentified u32 under its legacy name, not a reliable match
+    count: the same dated row can change from 2 to 10 as a career advances.
     """
 
     number: int
@@ -333,6 +336,8 @@ class _RulesSearch:
     round_number_offset: int
     round_match_count_offset: int
     round_match_count_max: int
+    round_ordinal_offset: int
+    round_indexed_kind_value: int
     moved_match_bytes: int
     moved_match_sentinel_offset: int
     moved_match_sentinel_value: int
@@ -529,6 +534,8 @@ def _rules_search(layout: RulesPreambleLayout) -> _RulesSearch:
         round_number_offset=layout.round_number_offset,
         round_match_count_offset=layout.round_match_count_offset,
         round_match_count_max=layout.round_match_count_max,
+        round_ordinal_offset=layout.round_ordinal_offset,
+        round_indexed_kind_value=layout.round_indexed_kind_value,
         moved_match_bytes=layout.moved_match_bytes,
         moved_match_sentinel_offset=layout.moved_match_sentinel_offset,
         moved_match_sentinel_value=layout.moved_match_sentinel_value,
@@ -792,7 +799,7 @@ def _rules_block(
 
 
 def _parse_rules_block(
-    window: bytes, span_offset: int, mark: int, search: _RulesSearch
+    window: bytes, span_offset: int, mark: int, search: _RulesSearch, *, final_window: bool = False
 ) -> RawRulesBlock | None:
     """The block at `mark`, or None when this window does not hold enough of it to judge.
 
@@ -843,7 +850,9 @@ def _parse_rules_block(
         return _rules_block(
             span_offset, quad, tie_breaks, prize_money, no_rounds, fully_parsed=False
         )
-    rounds = _parse_rules_rounds(window, cursor + _UINT32.size, round_count, search)
+    rounds = _parse_rules_rounds(
+        window, cursor + _UINT32.size, round_count, search, final_window=final_window
+    )
     if rounds is None:
         return None
     return _rules_block(
@@ -863,6 +872,8 @@ def _parse_rules_rounds(
     search: _RulesSearch,
     *,
     allow_tagged_interstitials: bool = False,
+    require_indexed_calendar: bool = False,
+    final_window: bool = False,
 ) -> tuple[RawRulesRound, ...] | None:
     """The block's round records, or None when the window does not hold them all.
 
@@ -871,7 +882,11 @@ def _parse_rules_rounds(
     byte which for the first record is the round count's own high byte. Between records the
     save writes interstitial entries, which are stepped over. The tagged variant has
     unidentified contents and is accepted only when every declared round can be read.
-    An unsuccessful variant walk preserves the original partial result.
+    A second complete walk requires the kind byte and parent ordinal on every row,
+    allowing the unidentified u32 word to remain raw regardless of its magnitude.
+    Structurally rejected variants preserve the original partial result; missing bytes
+    defer judgment until another frame arrives. At EOF a final retry keeps the original
+    prefix when a variant remains truncated.
     """
     window_length = len(window)
     record_bytes = search.round_record_bytes
@@ -922,7 +937,15 @@ def _parse_rules_rounds(
             return None
         round_date = decode_date(window, position + date_offset)
         match_count: int = _UINT32.unpack_from(window, position + match_count_offset)[0]
-        if round_date is None or match_count > match_count_max:
+        if round_date is None:
+            break
+        if require_indexed_calendar:
+            if (
+                window[position + kind_offset] != search.round_indexed_kind_value
+                or window[position + search.round_ordinal_offset] != round_number
+            ):
+                break
+        elif match_count > match_count_max:
             break
         rounds.append(
             RawRulesRound(
@@ -936,10 +959,30 @@ def _parse_rules_rounds(
         position += record_bytes
     if not allow_tagged_interstitials and len(rounds) < round_count:
         complete = _parse_rules_rounds(
-            window, body_cursor, round_count, search, allow_tagged_interstitials=True
+            window,
+            body_cursor,
+            round_count,
+            search,
+            allow_tagged_interstitials=True,
+            final_window=final_window,
         )
+        if complete is None and not final_window:
+            return None
         if complete is not None and len(complete) == round_count:
             return complete
+        indexed = _parse_rules_rounds(
+            window,
+            body_cursor,
+            round_count,
+            search,
+            allow_tagged_interstitials=True,
+            require_indexed_calendar=True,
+            final_window=final_window,
+        )
+        if indexed is None and not final_window:
+            return None
+        if indexed is not None and len(indexed) == round_count:
+            return indexed
     return tuple(rounds)
 
 
@@ -950,6 +993,8 @@ def _collect_rules_blocks(
     search: _RulesSearch,
     considered_to: int,
     rules_blocks: list[RawRulesBlock],
+    *,
+    final_window: bool = False,
 ) -> tuple[int, int]:
     """Append one block per rules marker judged here; return (considered to, markers)."""
     find_marker = window.find
@@ -965,7 +1010,9 @@ def _collect_rules_blocks(
         # A marker whose quad lies before the region starts can never be read, so it is
         # passed over rather than deferred, which would stop the scan here for good.
         if absolute > considered_to and position + promotion_quad_offset >= 0:
-            block = _parse_rules_block(window, absolute, position, search)
+            block = _parse_rules_block(
+                window, absolute, position, search, final_window=final_window
+            )
             if block is None:
                 # Deferred, so the scan of this window stops here rather than moving on, for
                 # the reason the league-table scan stops: a block is variable length, and a
@@ -1063,6 +1110,22 @@ def scan_span(
         window_end = window_origin + len(window)
         carry = window[-carry_over_bytes:] if len(window) > carry_over_bytes else window
         window_origin = window_end - len(carry)
+    # A complete-calendar retry may have needed bytes beyond the last frame. Judge only
+    # deferred rules markers once more at EOF, retaining their original partial prefix.
+    # The existing carry exceeds the longest bounded rules block; no extra buffer is kept.
+    try:
+        _, final_markers = _collect_rules_blocks(
+            carry,
+            window_origin,
+            0,
+            rules_search,
+            rules_considered_to,
+            rules_blocks,
+            final_window=True,
+        )
+    except (struct.error, IndexError, CorruptSaveError) as error:
+        raise _span_decode_error(file_name, error) from error
+    rules_markers += final_markers
     return SpanRecords(
         fixtures=tuple(fixtures),
         table_blocks=tuple(table_blocks),

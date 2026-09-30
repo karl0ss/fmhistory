@@ -1008,7 +1008,8 @@ def check_fixtures(
     `ambiguous_results` counts those naming more than one fixture at once, which fill none of
     them. `score_disagreements` counts matches two records gave two different scores, which no
     save measured has held, and `scored_fixtures` the played matches that ended up carrying a
-    score, about a quarter of them.
+    score. The `summary_` counts report the separate owned-summary source and its rejected
+    keys; they do not contribute to the stage-result gates.
     """
     cluster_records = stats.cluster_records
     return ReaderCheck(
@@ -1035,6 +1036,17 @@ def check_fixtures(
                 "ambiguous_results": result_stats.ambiguous,
                 "score_disagreements": result_stats.score_disagreements,
                 "scored_fixtures": result_stats.scored_fixtures,
+                "summary_lists_found": result_stats.summary_lists_found,
+                "summary_lists_decoded": result_stats.summary_lists_decoded,
+                "summary_records": result_stats.summary_records,
+                "summary_invalid_scores": result_stats.summary_invalid_scores,
+                "summary_unjoined": result_stats.summary_unjoined,
+                "summary_ambiguous": result_stats.summary_ambiguous,
+                "summary_for_unplayed": result_stats.summary_for_unplayed,
+                "summary_unsafe_keys": result_stats.summary_unsafe_keys,
+                "summary_existing_disagreements": result_stats.summary_existing_disagreements,
+                "summary_stage_conflicts": result_stats.summary_stage_conflicts,
+                "summary_scored_fixtures": result_stats.summary_scored_fixtures,
             }
         ),
     )

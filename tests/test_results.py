@@ -9,10 +9,12 @@ import pytest
 
 import fmsave
 from fmsave._checks import GateResult, enforce, evaluate_results
+from fmsave._frozen import FrozenMapping
 from fmsave._layouts import GateBounds, find_layout
 from fmsave._reader_stats import ResultStats
 from fmsave.models.fixtures import Fixture
 from fmsave.readers._common import GAME_DB_SECTION
+from fmsave.readers.match_summaries import MatchSummaryScores
 from fmsave.readers.results import (
     RawStageResult,
     apply_results,
@@ -33,6 +35,7 @@ from tests.fixtures.career import (
     ExampleResult,
     career_fragment,
 )
+from tests.test_match_summaries import summary_bytes
 
 FILE_NAME = "career example.fm"
 MEBIBYTE = 1024 * 1024
@@ -555,3 +558,165 @@ def test_the_anomalies_report_what_the_join_left_behind(tmp_path: Path) -> None:
     assert anomalies["ambiguous_results"] == 0
     assert anomalies["score_disagreements"] == 0
     assert anomalies["scored_fixtures"] == 1
+
+
+def summary_scores(
+    fixture: Fixture,
+    score: tuple[int, int] | None = (2, 1),
+    *,
+    record_count: int = 1,
+    invalid_score_records: int = 0,
+) -> MatchSummaryScores:
+    assert fixture.date is not None and fixture.competition_id is not None
+    return MatchSummaryScores(
+        scores=FrozenMapping(
+            {
+                (
+                    fixture.date,
+                    fixture.competition_id,
+                    fixture.home_team_id,
+                    fixture.away_team_id,
+                ): score
+            }
+        ),
+        lists_found=1,
+        lists_decoded=1,
+        record_count=record_count,
+        invalid_score_records=invalid_score_records,
+    )
+
+
+def test_owned_summaries_fill_missing_scores_and_report_their_source(
+    career_save_path: Path,
+) -> None:
+    fixture = fixtures_of(career_save_path)[FIRST_LEAGUE_MATCH]
+    scored, stats = apply_results(
+        (fixture,), (), candidates=0, summaries=summary_scores(fixture, record_count=3)
+    )
+    assert (scored[0].home_goals, scored[0].away_goals) == (2, 1)
+    assert scored[0].unknown.get("result_r22") is None
+    assert stats.summary_lists_found == stats.summary_lists_decoded == 1
+    assert stats.summary_records == 3
+    assert stats.summary_scored_fixtures == stats.scored_fixtures == 1
+    assert (stats.accepted, stats.joined, stats.score_for_unplayed) == (0, 0, 0)
+
+
+@pytest.mark.parametrize("wrong_part", ["date", "competition_id", "home_team_id", "away_team_id"])
+def test_summary_scores_require_the_whole_exact_fixture_key(
+    career_save_path: Path, wrong_part: str
+) -> None:
+    fixture = fixtures_of(career_save_path)[FIRST_LEAGUE_MATCH]
+    wrong_value = (
+        fixture.date + timedelta(days=1)
+        if wrong_part == "date" and fixture.date is not None
+        else getattr(fixture, wrong_part) + 1
+    )
+    another_fixture = dataclasses.replace(fixture, **{wrong_part: wrong_value})
+    scored, stats = apply_results(
+        (fixture,), (), candidates=0, summaries=summary_scores(another_fixture)
+    )
+    assert scored == (fixture,)
+    assert stats.summary_unjoined == 1
+    assert stats.scored_fixtures == 0
+
+
+@pytest.mark.parametrize(
+    ("changes", "disagreements", "unplayed"),
+    [
+        ({"played": False}, 0, 1),
+        ({"home_goals": 2}, 0, 0),
+        ({"away_goals": 0}, 1, 0),
+        ({"home_goals": 4, "away_goals": 3}, 1, 0),
+    ],
+)
+def test_summaries_preserve_unplayed_existing_and_partial_scores(
+    career_save_path: Path, changes: dict[str, object], disagreements: int, unplayed: int
+) -> None:
+    fixture = dataclasses.replace(fixtures_of(career_save_path)[FIRST_LEAGUE_MATCH], **changes)
+    scored, stats = apply_results((fixture,), (), candidates=0, summaries=summary_scores(fixture))
+    assert scored == (fixture,)
+    assert stats.summary_existing_disagreements == disagreements
+    assert stats.summary_for_unplayed == unplayed
+    assert stats.summary_scored_fixtures == 0
+    assert stats.scored_fixtures == int(
+        fixture.home_goals is not None and fixture.away_goals is not None
+    )
+
+
+def test_summaries_never_revive_a_conflicting_stage_result(career_save_path: Path) -> None:
+    fixture = fixtures_of(career_save_path)[FIRST_LEAGUE_MATCH]
+    first = raw_result(LEAGUE_MATCH_DAY, NORTHBRIDGE_TEAM_A, SOUTHPORT_TEAM, 2, 1)
+    second = dataclasses.replace(first, home_goals=3)
+    scored, stats = apply_results(
+        (fixture,), (first, second), candidates=2, summaries=summary_scores(fixture)
+    )
+    assert scored == (fixture,)
+    assert stats.score_disagreements == stats.summary_stage_conflicts == 1
+    assert stats.scored_fixtures == stats.summary_scored_fixtures == 0
+    assert (stats.accepted, stats.joined) == (2, 2)
+
+
+def test_summaries_preserve_stage_scores_and_their_unknown_byte(career_save_path: Path) -> None:
+    fixture = fixtures_of(career_save_path)[FIRST_LEAGUE_MATCH]
+    result = raw_result(LEAGUE_MATCH_DAY, NORTHBRIDGE_TEAM_A, SOUTHPORT_TEAM, 2, 1)
+    scored, stats = apply_results(
+        (fixture,), (result,), candidates=1, summaries=summary_scores(fixture, (3, 1))
+    )
+    assert (scored[0].home_goals, scored[0].away_goals) == (2, 1)
+    assert scored[0].unknown["result_r22"] == result.r22
+    assert stats.summary_existing_disagreements == 1
+    assert stats.summary_scored_fixtures == 0
+    assert stats.scored_fixtures == stats.accepted == stats.joined == 1
+
+
+def test_summaries_do_not_choose_between_two_fixtures_with_the_same_key(
+    career_save_path: Path,
+) -> None:
+    fixture = fixtures_of(career_save_path)[FIRST_LEAGUE_MATCH]
+    assert fixture.stage_id is not None
+    another_stage = dataclasses.replace(fixture, stage_id=fixture.stage_id + 1)
+    scored, stats = apply_results(
+        (fixture, another_stage), (), candidates=0, summaries=summary_scores(fixture)
+    )
+    assert scored == (fixture, another_stage)
+    assert stats.summary_ambiguous == 1
+    assert stats.scored_fixtures == 0
+
+
+def test_poisoned_summary_keys_remain_unscored_and_visible(career_save_path: Path) -> None:
+    fixture = fixtures_of(career_save_path)[FIRST_LEAGUE_MATCH]
+    scored, stats = apply_results(
+        (fixture,),
+        (),
+        candidates=0,
+        summaries=summary_scores(fixture, None, record_count=2, invalid_score_records=1),
+    )
+    assert scored == (fixture,)
+    assert stats.summary_records == 2
+    assert stats.summary_invalid_scores == stats.summary_unsafe_keys == 1
+    assert stats.scored_fixtures == 0
+
+
+def test_save_reports_fixture_scores_recovered_from_owned_summaries(
+    tmp_path: Path, career_save_path: Path
+) -> None:
+    fixture = fixtures_of(career_save_path)[FIRST_LEAGUE_MATCH]
+    assert fixture.date is not None and fixture.competition_id is not None
+    summary = summary_bytes(
+        fixture_key=(
+            fixture.date,
+            fixture.competition_id,
+            fixture.home_team_id,
+            fixture.away_team_id,
+        )
+    )
+    career_path = write_career(tmp_path, extra_staff=summary)
+    recovered = fixtures_of(career_path)[FIRST_LEAGUE_MATCH]
+    assert (recovered.home_goals, recovered.away_goals) == (2, 1)
+    assert recovered.unknown.get("result_r22") is None
+    anomalies = anomalies_of(career_path)
+    assert anomalies["summary_lists_found"] == anomalies["summary_lists_decoded"] == 1
+    assert anomalies["summary_records"] == anomalies["summary_scored_fixtures"] == 1
+    assert anomalies["scored_fixtures"] == 1
+    assert anomalies["summary_existing_disagreements"] == 0
+    assert anomalies["score_disagreements"] == 0

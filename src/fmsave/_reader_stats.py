@@ -213,8 +213,16 @@ class ResultStats:
     such a fixture keeps no score at all. No save measured has held one.
 
     `played_fixtures` counts the played matches in the calendar and `scored_fixtures` those that
-    came out of this pass carrying a score, which is the share of a career's results the save
-    still holds: about a quarter.
+    came out of both score passes carrying a complete score.
+
+    The `summary_` counters describe the separate owned match summaries, without changing the
+    stage-result counts above. `summary_records` and `summary_invalid_scores` count raw rows.
+    `summary_lists_found` counts qualified header candidates and `summary_lists_decoded` the
+    complete objects whose rows and closing collections decoded.
+    The rejected join counters count distinct date/competition/team keys. `summary_unsafe_keys`
+    counts keys with conflicting or invalid score pairs, and `summary_stage_conflicts` those
+    blocked because stage results already contradicted each other. `summary_scored_fixtures`
+    counts newly filled fixtures; existing scores are never overwritten.
     """
 
     candidates: int
@@ -226,6 +234,17 @@ class ResultStats:
     score_disagreements: int
     played_fixtures: int
     scored_fixtures: int
+    summary_lists_found: int = 0
+    summary_lists_decoded: int = 0
+    summary_records: int = 0
+    summary_invalid_scores: int = 0
+    summary_unjoined: int = 0
+    summary_ambiguous: int = 0
+    summary_for_unplayed: int = 0
+    summary_unsafe_keys: int = 0
+    summary_existing_disagreements: int = 0
+    summary_stage_conflicts: int = 0
+    summary_scored_fixtures: int = 0
 
 
 @dataclass(frozen=True, slots=True)

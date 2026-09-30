@@ -1,4 +1,4 @@
-"""Stage-keyed results: the match scores a save still holds, joined onto the calendar.
+"""Stage results and owned match summaries, joined onto the fixture calendar.
 
 A fixture record carries no score, so the goals of a finished match come from a separate
 27-byte record that names the match by its date and its two team ids. Those records sit in the
@@ -24,9 +24,11 @@ range the calendar covers can never join a fixture, whatever is done with it: a 
 several seasons of history these records describe and no fixture survives to carry it, so those
 records are dropped for want of somewhere to put them, not because they are wrong.
 
-Retention is partial by design. The same match is stored about 1.8 times over, but only about a
-quarter of a career's played matches still carry a score at all; `played` with empty goals means
-the save no longer holds the result, not that the match finished goalless.
+Stage-result retention is partial. Counted owned summaries provide another score source,
+joined by exact date, competition and both teams after stage results are applied. They fill
+only missing complete scores for uniquely matched played fixtures; existing scores and
+stage-result contradictions remain authoritative. A played fixture with empty goals is an
+unresolved result, not a goalless match.
 """
 
 from __future__ import annotations
@@ -44,6 +46,7 @@ from fmsave._reader_stats import ResultStats
 from fmsave._scan import decode_date
 from fmsave.models.fixtures import Fixture
 from fmsave.readers._common import SPAN_REGION, build_gap_padded_struct
+from fmsave.readers.match_summaries import MatchSummaryScores
 
 _UINT16 = struct.Struct("<H")
 
@@ -327,6 +330,7 @@ def apply_results(
     results: Iterable[RawStageResult],
     *,
     candidates: int,
+    summaries: MatchSummaryScores | None = None,
 ) -> tuple[tuple[Fixture, ...], ResultStats]:
     """Join the results onto the calendar and return new fixtures carrying their scores.
 
@@ -346,6 +350,10 @@ def apply_results(
     differing in `r22` are not treated as disagreeing: the first copy's `r22` is kept, which
     arrival order decides, and nothing counts it. Calling that a disagreement would be claiming
     to know what a byte whose meaning is unidentified ought to hold.
+
+    Owned summaries can fill remaining played fixtures using their date, competition and
+    both team ids. Their lookup already blocks conflicting or invalid score pairs. They never
+    overwrite a score, fill a partial score, or revive a stage-result contradiction.
     """
     positions_by_key: dict[tuple[datetime.date, int, int], list[int]] = {}
     played_fixtures = 0
@@ -411,6 +419,55 @@ def apply_results(
                 unknown=FrozenMapping({**fixture.unknown, RESULT_UNKNOWN_KEY: r22}),
             )
         )
+    summary_unjoined = 0
+    summary_ambiguous = 0
+    summary_for_unplayed = 0
+    summary_unsafe_keys = 0
+    summary_existing_disagreements = 0
+    summary_stage_conflicts = 0
+    summary_scored_fixtures = 0
+    if summaries is not None:
+        summary_positions: dict[tuple[datetime.date, int, int, int], list[int]] = {}
+        for position, fixture in enumerate(scored_fixtures):
+            if fixture.date is not None and fixture.competition_id is not None:
+                key = (
+                    fixture.date,
+                    fixture.competition_id,
+                    fixture.home_team_id,
+                    fixture.away_team_id,
+                )
+                summary_positions.setdefault(key, []).append(position)
+        for key, summary_score in summaries.scores.items():
+            if summary_score is None:
+                summary_unsafe_keys += 1
+                continue
+            positions = summary_positions.get(key)
+            if positions is None:
+                summary_unjoined += 1
+                continue
+            if len(positions) != 1:
+                summary_ambiguous += 1
+                continue
+            position = positions[0]
+            fixture = scored_fixtures[position]
+            if not fixture.played:
+                summary_for_unplayed += 1
+                continue
+            if position in contradicted_positions:
+                summary_stage_conflicts += 1
+                continue
+            known_score = (fixture.home_goals, fixture.away_goals)
+            if any(goal is not None for goal in known_score):
+                if any(
+                    goal is not None and goal != summary_score[side]
+                    for side, goal in enumerate(known_score)
+                ):
+                    summary_existing_disagreements += 1
+                continue
+            scored_fixtures[position] = replace(
+                fixture, home_goals=summary_score[0], away_goals=summary_score[1]
+            )
+            summary_scored_fixtures += 1
     stats = ResultStats(
         candidates=candidates,
         accepted=accepted,
@@ -420,6 +477,20 @@ def apply_results(
         score_for_unplayed=score_for_unplayed,
         score_disagreements=score_disagreements,
         played_fixtures=played_fixtures,
-        scored_fixtures=len(scores_by_position),
+        scored_fixtures=sum(
+            fixture.home_goals is not None and fixture.away_goals is not None
+            for fixture in scored_fixtures
+        ),
+        summary_lists_found=summaries.lists_found if summaries is not None else 0,
+        summary_lists_decoded=summaries.lists_decoded if summaries is not None else 0,
+        summary_records=summaries.record_count if summaries is not None else 0,
+        summary_invalid_scores=summaries.invalid_score_records if summaries is not None else 0,
+        summary_unjoined=summary_unjoined,
+        summary_ambiguous=summary_ambiguous,
+        summary_for_unplayed=summary_for_unplayed,
+        summary_unsafe_keys=summary_unsafe_keys,
+        summary_existing_disagreements=summary_existing_disagreements,
+        summary_stage_conflicts=summary_stage_conflicts,
+        summary_scored_fixtures=summary_scored_fixtures,
     )
     return tuple(scored_fixtures), stats

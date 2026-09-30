@@ -72,8 +72,8 @@ you get the table anyway. Pass `strict=True` to `fmsave.open` to have one raise 
   ground a club plays at. Worked out from the fixture calendar where possible, left empty where not.
 - **Meanings for numbers the game never displayed**, such as staff job titles or the settings
   inside a tactic. These come back as raw numbers rather than as labels fmsave guessed at.
-- **What the save keeps only in part or not at all**: scores for about three quarters of a
-  career's matches, injuries older than about two years, and today's availability, line-ups, staff
+- **What the save keeps only in part or not at all**: scores for part of a career's matches,
+  injuries older than about two years, and today's availability, line-ups, staff
   attribute values, card counts, club debt and asking prices.
 
 ## Competition names

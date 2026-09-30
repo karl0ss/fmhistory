@@ -490,9 +490,11 @@ def test_tagged_interstitials_require_a_complete_calendar_without_raising_count_
     data = bytearray(
         tagged_interstitial_block(interstitial=b"\x01\x55\x66\x77\x88\x99" + b"\xff" * 4)
     )
-    # A third round with an invalid date or flag-like count remains unsupported. The walk may
-    # reach round two but cannot add it unless it also decodes the whole declared list.
+    # The indexed retry also needs every ordinal. An invalid date or an oversized raw word
+    # accompanied by a corrupt ordinal must preserve the original one-round prefix.
     struct.pack_into("<I", data, len(data) - 15 + offset, value)
+    if offset == 9:
+        data[-2] = 0xFF
     block = scan([bytes(data)]).rules_blocks[0]
     assert len(block.rounds) == 1
     assert not block.fully_parsed
@@ -505,6 +507,94 @@ def test_tagged_interstitials_keep_the_per_round_bound() -> None:
     block = scan([data]).rules_blocks[0]
     assert len(block.rounds) == 1
     assert not block.fully_parsed
+
+
+def indexed_rules_block(*, word: int = 256, tagged_interstitial: bool = False) -> bytes:
+    data = bytearray(example_rules_block())
+    struct.pack_into("<I", data, len(data) - 30 + 9, word)
+    if tagged_interstitial:
+        start = len(data) - 30
+        data[start:start] = b"\x01\x55\x66\x77\x88\x99" + b"\xff" * 4
+    return bytes(data)
+
+
+@pytest.mark.parametrize("word", [72, 128, 136, 256, 264, 8192, 65536, 0xFFFFFFFF])
+@pytest.mark.parametrize("tagged_interstitial", [False, True])
+def test_complete_indexed_calendars_preserve_large_raw_words(
+    word: int, tagged_interstitial: bool
+) -> None:
+    block = scan(
+        [indexed_rules_block(word=word, tagged_interstitial=tagged_interstitial)]
+    ).rules_blocks[0]
+    assert block.fully_parsed
+    assert [row.match_count for row in block.rounds] == [10, word, 10]
+    assert [row.date for row in block.rounds] == [
+        date(2030, 8, 8),
+        date(2030, 8, 9),
+        date(2030, 8, 10),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("row_index", "offset", "value"),
+    [(0, 13, 1), (1, 13, 0xFF), (2, 13, 1), (1, 0, 1), (2, 0, 1)],
+)
+def test_indexed_calendar_requires_every_parent_ordinal_and_kind(
+    row_index: int, offset: int, value: int
+) -> None:
+    data = bytearray(indexed_rules_block())
+    data[len(data) - 45 + 15 * row_index + offset] = value
+    block = scan([bytes(data)]).rules_blocks[0]
+    assert not block.fully_parsed
+    assert [row.match_count for row in block.rounds] == [10]
+    assert block.rounds[0].date == date(2030, 8, 8)
+
+
+def test_indexed_calendar_invalid_later_date_keeps_the_original_prefix() -> None:
+    data = bytearray(indexed_rules_block())
+    data[-14:-10] = bytes(4)
+    block = scan([bytes(data)]).rules_blocks[0]
+    assert not block.fully_parsed
+    assert [row.match_count for row in block.rounds] == [10]
+
+
+@pytest.mark.parametrize("missing_bytes", [1, 2, 6, 14, 15])
+def test_incomplete_indexed_calendar_keeps_the_original_prefix(missing_bytes: int) -> None:
+    block = scan([indexed_rules_block()[:-missing_bytes]]).rules_blocks[0]
+    assert not block.fully_parsed
+    assert [row.match_count for row in block.rounds] == [10]
+
+
+def test_legacy_calendar_keeps_rows_without_parent_ordinals() -> None:
+    data = bytearray(example_rules_block())
+    data[-2] = 0xFF
+    block = scan([bytes(data)]).rules_blocks[0]
+    assert block.fully_parsed
+    assert [row.match_count for row in block.rounds] == [10, 10, 10]
+
+
+@pytest.mark.parametrize("indexed", [False, True])
+@pytest.mark.parametrize("missing_from_first_frame", [1, 7, 14, 20, 31])
+def test_complete_calendar_retries_wait_for_the_following_frame(
+    indexed: bool, missing_from_first_frame: int
+) -> None:
+    data = (
+        indexed_rules_block(tagged_interstitial=True)
+        if indexed
+        else tagged_interstitial_block(interstitial=b"\x01\x55\x66\x77\x88\x99" + b"\xff" * 4)
+    )
+    unsplit = scan([data])
+    split = scan([data[:-missing_from_first_frame], data[-missing_from_first_frame:]])
+    assert split.rules_blocks == unsplit.rules_blocks
+    assert split.rules_markers == unsplit.rules_markers == 1
+    assert split.rules_blocks[0].fully_parsed
+
+
+def test_truncated_tagged_retry_at_eof_keeps_the_original_prefix() -> None:
+    data = tagged_interstitial_block(interstitial=b"\x01\x55\x66\x77\x88\x99" + b"\xff" * 4)
+    block = scan([data[:-1]]).rules_blocks[0]
+    assert not block.fully_parsed
+    assert [row.match_count for row in block.rounds] == [10]
 
 
 # Stage-keyed results

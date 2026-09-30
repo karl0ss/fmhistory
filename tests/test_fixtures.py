@@ -3,15 +3,19 @@ from __future__ import annotations
 import copy
 import dataclasses
 import pickle
-from collections.abc import Sequence
+import weakref
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from datetime import date, time
 from pathlib import Path
+from typing import cast
 
 import pytest
 
 import fmsave
 from fmsave import Table
 from fmsave._checks import GateResult, check_fixtures, enforce, evaluate_fixtures
+from fmsave._context import SaveContext
 from fmsave._layouts import (
     FULL_SAVE_MINIMUM_SPAN_BYTES,
     FixtureCalendarLayout,
@@ -26,7 +30,7 @@ from fmsave.models.competitions import CompetitionRound
 from fmsave.models.fixtures import Fixture
 from fmsave.readers._common import GAME_DB_SECTION, SPAN_REGION
 from fmsave.readers.fixtures import kick_off_time_of, largest_cluster
-from fmsave.readers.span import RawFixture
+from fmsave.readers.span import RawFixture, SpanRecords
 from tests.fixtures.career import (
     ATHLETIC_UID,
     CUP_FIXTURE_STAGE_ID,
@@ -728,6 +732,17 @@ def test_the_build_counts_exactly_what_the_checks_read(career_save_path: Path) -
         "ambiguous_results": 0,
         "score_disagreements": 0,
         "scored_fixtures": 0,
+        "summary_lists_found": 0,
+        "summary_lists_decoded": 0,
+        "summary_records": 0,
+        "summary_invalid_scores": 0,
+        "summary_unjoined": 0,
+        "summary_ambiguous": 0,
+        "summary_for_unplayed": 0,
+        "summary_unsafe_keys": 0,
+        "summary_existing_disagreements": 0,
+        "summary_stage_conflicts": 0,
+        "summary_scored_fixtures": 0,
     }
 
 
@@ -747,3 +762,33 @@ def test_stub_references_do_not_mask_missing_club_joins() -> None:
         evaluate_fixtures(broken_join, BOUNDS, FULL_SIZE_SPAN_BYTES)
     )
     assert BOUNDS.fixture_teams_resolved == (0.87, None)
+
+
+def test_fixture_reader_releases_game_database_before_streaming_span(
+    career_save_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class LoanBuffer(bytearray):
+        pass
+
+    original_section = SaveContext.section
+    original_span = SaveContext.span_records
+    borrowed: list[weakref.ReferenceType[LoanBuffer]] = []
+
+    @contextmanager
+    def tracked_section(context: SaveContext, name: str) -> Iterator[bytes]:
+        with original_section(context, name) as payload:
+            if name == GAME_DB_SECTION:
+                loan = LoanBuffer(payload)
+                borrowed.append(weakref.ref(loan))
+                yield cast(bytes, loan)
+            else:
+                yield payload
+
+    def checked_span(context: SaveContext) -> SpanRecords:
+        assert borrowed and all(reference() is None for reference in borrowed)
+        return original_span(context)
+
+    monkeypatch.setattr(SaveContext, "section", tracked_section)
+    monkeypatch.setattr(SaveContext, "span_records", checked_span)
+    with fmsave.open(career_save_path) as career_save:
+        assert len(career_save.fixtures()) == CALENDAR_FIXTURE_COUNT

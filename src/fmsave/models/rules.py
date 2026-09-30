@@ -122,7 +122,10 @@ class RulesRound:
             stores a value that reads here as 256 rather than as a guess (unconfirmed).
         date: The date the round is played on, or None when the stored date does not decode
             (unconfirmed).
-        match_count: How many matches the round holds (unconfirmed).
+        match_count: Unidentified u32 retained unchanged under its legacy field name. It is
+            not a dependable fixture count: the same dated row can change from 2 to 10 as
+            a career advances, and larger values such as 256 and 8192 occur in complete
+            calendars. No bit masks or flag meanings are inferred (unconfirmed).
         unknown: Numeric fields with no known meaning. "kind" and "b5" are the two
             unidentified bytes the round record carries (unconfirmed).
     """

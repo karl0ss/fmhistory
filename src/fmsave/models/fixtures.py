@@ -72,13 +72,12 @@ class Fixture:
             does not resolve.
         away_team_slot: The away team's slot in its club's team list, 0 for the first entry,
             or None when the team does not resolve.
-        home_goals: Goals the home side scored, or None when the save no longer holds the
-            score. A played match with no goals means the score was not retained, not that
-            the match finished goalless. The calendar itself stores no score: it is read from
-            separate records the save keeps for only part of a career, so about a quarter of
-            played matches carry one.
-        away_goals: Goals the away side scored, or None when the save no longer holds the
-            score, as for home_goals.
+        home_goals: Goals the home side scored, or None when no unambiguous score was
+            decoded. Empty goals on a played match do not mean it finished goalless. The
+            calendar itself stores no score: separate result records and counted match
+            summaries supply scores for part of a career.
+        away_goals: Goals the away side scored, or None when no unambiguous score was
+            decoded, as for home_goals.
         played: Whether the save marks the match as played.
         is_neutral_venue: Whether the match was played away from the home club's usual
             ground: True when its ground differs from the one that club used most in this
@@ -104,8 +103,8 @@ class Fixture:
             match uses. It is a template many competitions share and is **never** a
             competition id (unconfirmed).
         unknown: Numeric fields with no known meaning. "result_r22" is the byte stored beside
-            the score, so only a match whose score the save still holds carries one
-            (unconfirmed).
+            a stage-keyed result. A score recovered only from a match summary carries no
+            such byte (unconfirmed).
     """
 
     stage_id: int | None
