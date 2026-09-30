@@ -4,8 +4,8 @@ Both structures sit inside the club record the club scan already found, so this 
 span by span rather than searching all of `game_db`. In each record it looks for the chain of
 monthly snapshots first: a tagged row count followed by that many fixed-size rows, all of whose
 balances and weekly wage figures are inside the bounds the layout carries. The sponsor
-contracts follow the chain, as a counted run of their own, and the **first** such run is the
-club's list: a few clubs keep a second, dead run behind it.
+contracts follow a counted prefix after the finance chain. That prefix identifies the club's
+primary sponsor list, including an explicit empty list; later runs belong to other data.
 
 Only the clubs of the one or two league nations a save tracks keep a series at all, so most
 clubs yield no row, which is ordinary rather than a fault.
@@ -22,7 +22,7 @@ from datetime import date, timedelta
 from fmsave._frozen import FrozenMapping
 from fmsave._layouts import FinanceChainLayout, SponsorChainLayout, find_layout
 from fmsave._reader_stats import FinanceStats
-from fmsave._scan import decode_date, read_u16
+from fmsave._scan import decode_date
 from fmsave.models.common import CodedValue
 from fmsave.models.finances import FinanceMonth, Sponsorship, SponsorType
 from fmsave.readers._common import GAME_DB_SECTION, build_gap_padded_struct
@@ -272,65 +272,70 @@ def locate_finance_chain(
 def locate_sponsor_chain(
     game_db: bytes, search_start: int, record_end: int, layout: SponsorChainLayout
 ) -> tuple[int, int] | None:
-    """(first row offset, row count) of the first sponsor run after `search_start`, or None.
+    """The structurally owned primary sponsor list, including an explicit empty list.
 
-    A run is accepted when its count byte is at least one, the whole run fits before
-    `record_end`, and every row carries the tag, a flag no larger than the layout's maximum, a
-    start and an end date inside the layout's year range with the end after the start, and an
-    annual value no greater than a total value inside the layout's ceiling.
+    The counted prefix determines one list position. Missing, truncated or invalid prefix
+    data yields None; later sponsor-shaped bytes are never a fallback. A positive count
+    requires every row to pass tag, flag, calendar-date and monetary checks. Once ownership
+    is established, historical contract dates use the ordinary game date format; an
+    empirical search-year window is unnecessary.
     """
-    row_struct, index_by_name = _sponsor_row_struct(layout)
-    unpack_row = row_struct.unpack_from
-    row_bytes = layout.row_bytes
-    tag = layout.tag
-    tag_byte = bytes((tag,))
-    tag_index = index_by_name["tag"]
-    flag10_index = index_by_name["flag10"]
-    total_index = index_by_name["total"]
-    annual_index = index_by_name["annual"]
-    flag10_maximum = layout.flag10_maximum
-    value_maximum = layout.value_maximum
-    start_offset = layout.start_offset
-    end_offset = layout.end_offset
-    earliest_year, latest_year = layout.year_range
-    find_tag = game_db.find
-    # The count byte sits in front of the first row, so the earliest run starts one byte past
-    # the offset the search begins at.
-    first_row = find_tag(tag_byte, search_start - min(layout.count_offset, 0), record_end)
-    while first_row >= 0:
-        row_count = game_db[first_row + layout.count_offset]
-        run_end = first_row + row_bytes * row_count
-        if row_count >= 1 and run_end <= record_end:
-            accepted = True
-            for row_offset in range(first_row, run_end, row_bytes):
-                row = unpack_row(game_db, row_offset)
-                total_value: int = row[total_index]
-                if (
-                    row[tag_index] != tag
-                    or row[flag10_index] > flag10_maximum
-                    or total_value > value_maximum
-                    or row[annual_index] > total_value
-                ):
-                    accepted = False
-                    break
-                start = _sponsor_date(
-                    game_db, row_offset + start_offset, earliest_year, latest_year
-                )
-                end = _sponsor_date(game_db, row_offset + end_offset, earliest_year, latest_year)
-                if start is None or end is None or end <= start:
-                    accepted = False
-                    break
-            if accepted:
-                return first_row, row_count
-        first_row = find_tag(tag_byte, first_row + 1, record_end)
-    return None
-
-
-def _sponsor_date(game_db: bytes, offset: int, earliest_year: int, latest_year: int) -> date | None:
-    """A sponsor row's date, or None when it does not decode inside the layout's year range."""
-    if not earliest_year <= read_u16(game_db, offset + 2) <= latest_year:
+    if search_start < 0 or record_end > len(game_db) or search_start >= record_end:
         return None
-    return decode_date(game_db, offset)
+    count_at = search_start + layout.prefix_count_offset
+    if count_at >= record_end:
+        return None
+    if game_db[search_start : search_start + len(layout.prefix_marker)] != layout.prefix_marker:
+        return None
+
+    def valid_prefix_date(at: int) -> bool:
+        return game_db[at : at + 4] == layout.prefix_marker or decode_date(game_db, at) is not None
+
+    if any(not valid_prefix_date(search_start + offset) for offset in layout.prefix_date_offsets):
+        return None
+    entries_start = count_at + 1
+    entries_end = entries_start + game_db[count_at] * layout.prefix_entry_bytes
+    primary_count_at = entries_end + layout.prefix_suffix_bytes - 1
+    if primary_count_at >= record_end:
+        return None
+    for entry_at in range(entries_start, entries_end, layout.prefix_entry_bytes):
+        reserved_at = entry_at + layout.prefix_entry_reserved_offset
+        if (
+            game_db[reserved_at : reserved_at + len(layout.prefix_entry_reserved)]
+            != layout.prefix_entry_reserved
+        ):
+            return None
+    if any(
+        game_db[entries_end + offset : entries_end + offset + len(expected)] != expected
+        for offset, expected in layout.prefix_suffix_fixed
+    ) or any(
+        not valid_prefix_date(entries_end + offset) for offset in layout.prefix_suffix_date_offsets
+    ):
+        return None
+    first_row = primary_count_at - layout.count_offset
+    row_count = game_db[primary_count_at]
+    run_end = first_row + layout.row_bytes * row_count
+    if run_end > record_end:
+        return None
+    if row_count == 0:
+        return first_row, 0
+
+    row_struct, index_by_name = _sponsor_row_struct(layout)
+    for row_offset in range(first_row, run_end, layout.row_bytes):
+        row = row_struct.unpack_from(game_db, row_offset)
+        total_value: int = row[index_by_name["total"]]
+        if (
+            row[index_by_name["tag"]] != layout.tag
+            or row[index_by_name["flag10"]] > layout.flag10_maximum
+            or total_value > layout.value_maximum
+            or row[index_by_name["annual"]] > total_value
+        ):
+            return None
+        start = decode_date(game_db, row_offset + layout.start_offset)
+        end = decode_date(game_db, row_offset + layout.end_offset)
+        if start is None or end is None or end <= start:
+            return None
+    return first_row, row_count
 
 
 def month_labels(clock: date, row_count: int, month_lag: int) -> tuple[date, ...]:
@@ -385,6 +390,7 @@ def read_club_finances(
     balance_continuous_steps = 0
     expenditure_split_rows = 0
     clubs_with_sponsors = 0
+    clubs_with_empty_sponsor_lists = 0
     for club in club_index.clubs:
         span = span_by_club_uid.get(club.uid)
         if span is None or not searched_record(span, chain_layout):
@@ -451,6 +457,9 @@ def read_club_finances(
         )
         if located_run is None:
             continue
+        if located_run[1] == 0:
+            clubs_with_empty_sponsor_lists += 1
+            continue
         clubs_with_sponsors += 1
         sponsorships.extend(
             _club_sponsorships(game_db, club.uid, club.name, located_run, sponsor_layout)
@@ -469,6 +478,7 @@ def read_club_finances(
             expenditure_split_rows=expenditure_split_rows,
             clubs_with_sponsors=clubs_with_sponsors,
             sponsor_rows=len(sponsorships),
+            clubs_with_empty_sponsor_lists=clubs_with_empty_sponsor_lists,
             managed_club_exists=managed_club_exists,
         ),
     )

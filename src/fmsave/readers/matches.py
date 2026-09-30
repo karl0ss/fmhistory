@@ -1,22 +1,9 @@
-"""Locating a player's per-match records in `game_db` and joining them to players and clubs.
+"""Read complete counted per-match histories within player objects.
 
-The records sit inside the owning player's own object, so the search runs over the player
-region exactly as the suspension search does: from just before the first player record to the
-end of `game_db`, with a compiled pattern that resumes one byte after every match start so
-records that overlap a false lead byte are all considered. Each record is given to its owning
-player by bisecting the sorted record offsets, and a record lying before the first player's
-window belongs to none.
-
-**The trap this reader exists to avoid.** A record whose body flag is zero is fifteen bytes
-long, not forty-three, and every field past the position mask then belongs to the *next* match.
-Reading a body off a record that has none does not give a wrong number, it gives another
-match's number, which looks perfectly ordinary. Every body field is therefore gated on that one
-byte, and the derived layout checks that no body field starts inside the header, so a layout
-that moved one into it fails at derivation rather than quietly reporting another match.
-
-The pattern, the two field structs, the offsets and the bounds are derived from the layout and
-the save's clock once per pair, and checked for consistency at that point, so the search loop
-reads no layout field.
+A ten-byte list header carries an observed marker, a team word and the number of records.
+Records without performance data are fifteen bytes; records with a body are fifty-four.
+The full declared list is walked before any rows are emitted. Year and identity bounds
+filter output, while implausible statistics remain visible for validation.
 """
 
 from __future__ import annotations
@@ -37,7 +24,7 @@ from fmsave.models.clubs import Club
 from fmsave.models.common import CodedValue
 from fmsave.models.matches import MatchPosition, PlayerMatchStats
 from fmsave.models.players import Player
-from fmsave.readers._common import GAME_DB_SECTION, build_gap_padded_struct, year_bytes_pattern
+from fmsave.readers._common import GAME_DB_SECTION, build_gap_padded_struct
 from fmsave.readers.clubs import ClubIndex
 from fmsave.readers.player_scan import PlayerRecords
 from fmsave.readers.stages import StageIndex
@@ -54,8 +41,6 @@ from fmsave.table import Table
 # silence. It is not dead code; do not remove it because the count never moves.
 UNOWNED_POSITION = -1
 
-# How far into a stored date its year sits.
-_YEAR_OFFSET_IN_DATE = 2
 _DATE_BYTES = 4
 # How wide the position mask is, which bounds the bits a layout may name.
 _POSITION_MASK_BITS = 16
@@ -115,13 +100,15 @@ class RawMatchRecord:
 class _MatchSearch:
     """Everything `locate_match_records` needs from a layout and a clock year, derived once.
 
-    `pattern` matches from a record's lead byte, which is the record start. `header_struct`
+    `list_pattern` finds the counted-list header. `header_struct`
     unpacks the fields every record carries and `body_struct` those only a record with a body
     carries; both unpack from the record start, and the `*_index` fields give each value's
     position in its result.
     """
 
-    pattern: re.Pattern[bytes]
+    list_pattern: re.Pattern[bytes]
+    list_header_struct: struct.Struct
+    list_header_bytes: int
     header_struct: struct.Struct
     opponent_team_id_index: int
     competition_id_index: int
@@ -138,6 +125,7 @@ class _MatchSearch:
     passes_attempted_index: int
     passes_completed_index: int
     date_offset: int
+    lead_byte_value: int
     header_bytes: int
     record_bytes: int
     owner_back_offset: int
@@ -179,14 +167,8 @@ def _match_search(layout: MatchRecordLayout, clock_year: int) -> _MatchSearch:
             f"the date at offset {layout.date_offset} ends past the {layout.header_bytes}-byte "
             "header, which every record carries whole"
         )
-    year_low_offset = layout.date_offset + _YEAR_OFFSET_IN_DATE
-    years = range(clock_year - layout.years_before_clock, clock_year + layout.years_after_clock + 1)
-    pattern = re.compile(
-        re.escape(bytes((layout.lead_byte_value,)))
-        + b".{%d}" % (year_low_offset - layout.lead_byte_offset - 1)
-        + year_bytes_pattern(years),
-        re.DOTALL,
-    )
+    if layout.years_before_clock + layout.years_after_clock + 1 <= 0:
+        raise ValueError("the match search holds no year")
 
     header_specs = [
         (layout.opponent_team_id_offset, "I", "opponent_team_id"),
@@ -236,8 +218,31 @@ def _match_search(layout: MatchRecordLayout, clock_year: int) -> _MatchSearch:
         raise ValueError(
             f"competition_id_range {layout.competition_id_range} leaves no competition id"
         )
+    if not layout.list_markers or any(len(marker) != 2 for marker in layout.list_markers):
+        raise ValueError("match lists need explicit two-byte markers")
+    list_header_struct, _, list_indexes = build_gap_padded_struct(
+        [(layout.list_team_id_offset, "I", "team"), (layout.list_count_offset, "I", "count")],
+        start_offset=0,
+    )
+    if list_header_struct.size != layout.list_header_bytes or list_indexes != {
+        "team": 0,
+        "count": 1,
+    }:
+        raise ValueError("match list fields must fill the list header after its marker")
+    if layout.list_team_id_offset != 2:
+        raise ValueError("match list team field must follow the two-byte marker")
+    list_pattern = re.compile(
+        b"(?:"
+        + b"|".join(re.escape(marker) for marker in layout.list_markers)
+        + b")"
+        + b".{%d}" % (layout.list_header_bytes - 2)
+        + re.escape(bytes((layout.lead_byte_value,))),
+        re.DOTALL,
+    )
     return _MatchSearch(
-        pattern=pattern,
+        list_pattern=list_pattern,
+        list_header_struct=list_header_struct,
+        list_header_bytes=layout.list_header_bytes,
         header_struct=header_struct,
         opponent_team_id_index=header_indexes["opponent_team_id"],
         competition_id_index=header_indexes["competition_id"],
@@ -254,6 +259,7 @@ def _match_search(layout: MatchRecordLayout, clock_year: int) -> _MatchSearch:
         passes_attempted_index=body_indexes["passes_attempted"],
         passes_completed_index=body_indexes["passes_completed"],
         date_offset=layout.date_offset,
+        lead_byte_value=layout.lead_byte_value,
         header_bytes=layout.header_bytes,
         record_bytes=layout.record_bytes,
         owner_back_offset=layout.owner_back_offset,
@@ -264,130 +270,133 @@ def _match_search(layout: MatchRecordLayout, clock_year: int) -> _MatchSearch:
     )
 
 
+class LocatedMatchRecords(dict[int, tuple[RawMatchRecord, ...]]):
+    """Owned match lists and their structural completeness, before joins."""
+
+    def __init__(
+        self,
+        records: Mapping[int, tuple[RawMatchRecord, ...]],
+        *,
+        lists_found: int,
+        lists_decoded: int,
+    ) -> None:
+        super().__init__(records)
+        self.lists_found = lists_found
+        self.lists_decoded = lists_decoded
+
+
+def _read_match_record(
+    game_db: bytes, at: int, search: _MatchSearch, end: int
+) -> tuple[RawMatchRecord, int] | None:
+    """Read framing separately from output ID/year bounds and statistic sanity checks."""
+    if at + search.header_bytes > end or game_db[at] != search.lead_byte_value:
+        return None
+    played_on = decode_date(game_db, at + search.date_offset)
+    if played_on is None:
+        return None
+    h = search.header_struct.unpack_from(game_db, at)
+    flag = h[search.body_flag_index]
+    if flag not in (_NO_BODY_FLAG, _BODY_FLAG):
+        return None
+    size = search.record_bytes if flag else search.header_bytes
+    if at + size > end:
+        return None
+    b = search.body_struct.unpack_from(game_db, at) if flag else None
+    return RawMatchRecord(
+        date=played_on,
+        opponent_team_id=h[search.opponent_team_id_index],
+        competition_id=h[search.competition_id_index],
+        tag=h[search.tag_index],
+        has_stats=bool(flag),
+        position_mask=None if b is None else b[search.position_mask_index],
+        role_code=None if b is None else b[search.role_code_index],
+        goals=None if b is None else b[search.goals_index],
+        assists=None if b is None else b[search.assists_index],
+        left_at_minute=None if b is None else b[search.left_at_index],
+        minutes=None if b is None else b[search.minutes_index],
+        rating_raw=None if b is None else b[search.rating_index],
+        passes_attempted=None if b is None else b[search.passes_attempted_index],
+        passes_completed=None if b is None else b[search.passes_completed_index],
+    ), size
+
+
 def locate_match_records(
-    game_db: bytes,
-    player_records: PlayerRecords,
-    layout: MatchRecordLayout,
-    clock: datetime.date,
-) -> Mapping[int, tuple[RawMatchRecord, ...]]:
-    """Every accepted per-match record, keyed by the position of its owning player record.
+    game_db: bytes, player_records: PlayerRecords, layout: MatchRecordLayout, clock: datetime.date
+) -> LocatedMatchRecords:
+    """Read complete counted match lists within each player's ownership window.
 
-    Positions index `player_records.record_offsets` and come in ascending order; each player's
-    records keep the order of their offsets, which is the order the save stores them. A player
-    with no record has no key. Records lying before the first player's window are filed under
-    `UNOWNED_POSITION`, where the counts can see them and nothing is built from them.
-
-    The scan starts `owner_back_offset` bytes before the first record (or at 0) and resumes one
-    byte after every match start, kept or not, so a false lead byte cannot hide a real record
-    that overlaps it. A record is kept when its date decodes (so day 366 of a year that has 365
-    is rejected), its opponent team id and competition id are inside the layout's ranges, its
-    body flag is 0 or 1, and the whole of it lies inside the section: a record whose body would
-    run past the end of `game_db` cannot be read and is not kept.
-
-    Raises:
-        ValueError: The layout is inconsistent (see `_match_search`).
+    The two observed list markers precede a team word and a record count. Every declared
+    record must frame correctly, including records outside the output year/ID window.
+    Those output bounds do not determine where a list ends. Statistic values never decide
+    framing: a genuine record with a bad rating remains visible to the validation checks.
+    Empty history has no confirmed outer framing yet, so a random zero count is not accepted
+    as proof of a player's empty match collection.
     """
     search = _match_search(layout, clock.year)
-    record_offsets = player_records.record_offsets
-    if not record_offsets:
-        return {}
-    find_lead_byte = search.pattern.search
-    unpack_header = search.header_struct.unpack_from
-    unpack_body = search.body_struct.unpack_from
-    opponent_team_id_index = search.opponent_team_id_index
-    competition_id_index = search.competition_id_index
-    tag_index = search.tag_index
-    body_flag_index = search.body_flag_index
-    position_mask_index = search.position_mask_index
-    role_code_index = search.role_code_index
-    goals_index = search.goals_index
-    assists_index = search.assists_index
-    left_at_index = search.left_at_index
-    minutes_index = search.minutes_index
-    rating_index = search.rating_index
-    passes_attempted_index = search.passes_attempted_index
-    passes_completed_index = search.passes_completed_index
-    date_offset = search.date_offset
-    header_bytes = search.header_bytes
-    record_bytes = search.record_bytes
-    owner_back_offset = search.owner_back_offset
-    lowest_team_id = search.lowest_team_id
-    highest_team_id = search.highest_team_id
-    lowest_competition_id = search.lowest_competition_id
-    highest_competition_id = search.highest_competition_id
-    game_db_length = len(game_db)
-
-    region_start = max(0, record_offsets[0] - owner_back_offset)
+    offsets = player_records.record_offsets
+    if not offsets:
+        return LocatedMatchRecords({}, lists_found=0, lists_decoded=0)
+    start = max(0, offsets[0] - search.owner_back_offset)
     records_by_position: dict[int, list[RawMatchRecord]] = {}
-    match = find_lead_byte(game_db, region_start, game_db_length)
-    while match is not None:
-        record_start = match.start()
-        match = find_lead_byte(game_db, record_start + 1, game_db_length)
-        if record_start + header_bytes > game_db_length:
+    lists_found = lists_decoded = 0
+    while (hit := search.list_pattern.search(game_db, start)) is not None:
+        list_at = hit.start()
+        start = list_at + 1
+        first_at = list_at + search.list_header_bytes
+        team, count = search.list_header_struct.unpack_from(game_db, list_at)
+        if not search.lowest_team_id <= team <= search.highest_team_id or count == 0:
             continue
-        played_on = decode_date(game_db, record_start + date_offset)
-        if played_on is None:
+        position = bisect_right(offsets, first_at + search.owner_back_offset) - 1
+        end = (
+            offsets[position + 1] - search.owner_back_offset
+            if position + 1 < len(offsets)
+            else len(game_db)
+        )
+        owned_start = max(0, offsets[position] - search.owner_back_offset)
+        if list_at < owned_start or first_at + search.header_bytes > end:
             continue
-        header_values = unpack_header(game_db, record_start)
-        opponent_team_id: int = header_values[opponent_team_id_index]
-        if not lowest_team_id <= opponent_team_id <= highest_team_id:
+        if decode_date(game_db, first_at + search.date_offset) is None:
             continue
-        competition_id: int = header_values[competition_id_index]
-        if not lowest_competition_id <= competition_id <= highest_competition_id:
+        first_header = search.header_struct.unpack_from(game_db, first_at)
+        first_opponent = first_header[search.opponent_team_id_index]
+        first_competition = first_header[search.competition_id_index]
+        if not search.lowest_team_id <= first_opponent <= search.highest_team_id:
             continue
-        body_flag: int = header_values[body_flag_index]
-        if body_flag not in (_NO_BODY_FLAG, _BODY_FLAG):
+        # Zero competition words occur in otherwise complete histories. They remain outside
+        # the output ID window, but cannot prevent walking that history's later records.
+        if not 0 <= first_competition <= search.highest_competition_id:
             continue
-        has_stats = body_flag == _BODY_FLAG
-        if has_stats and record_start + record_bytes > game_db_length:
+        lists_found += 1
+        if count > (end - first_at) // search.header_bytes:
             continue
-        if has_stats:
-            body_values = unpack_body(game_db, record_start)
-            record = RawMatchRecord(
-                date=played_on,
-                opponent_team_id=opponent_team_id,
-                competition_id=competition_id,
-                tag=header_values[tag_index],
-                has_stats=True,
-                position_mask=body_values[position_mask_index],
-                role_code=body_values[role_code_index],
-                goals=body_values[goals_index],
-                assists=body_values[assists_index],
-                left_at_minute=body_values[left_at_index],
-                minutes=body_values[minutes_index],
-                rating_raw=body_values[rating_index],
-                passes_attempted=body_values[passes_attempted_index],
-                passes_completed=body_values[passes_completed_index],
-            )
+        at = first_at
+        records: list[RawMatchRecord] = []
+        for _ in range(count):
+            decoded = _read_match_record(game_db, at, search, end)
+            if decoded is None:
+                break
+            record, size = decoded
+            at += size
+            if (
+                clock.year - layout.years_before_clock
+                <= record.date.year
+                <= clock.year + layout.years_after_clock
+                and search.lowest_team_id <= record.opponent_team_id <= search.highest_team_id
+                and search.lowest_competition_id
+                <= record.competition_id
+                <= search.highest_competition_id
+            ):
+                records.append(record)
         else:
-            # Nothing at or past the position mask is read: those bytes are the next match's.
-            record = RawMatchRecord(
-                date=played_on,
-                opponent_team_id=opponent_team_id,
-                competition_id=competition_id,
-                tag=header_values[tag_index],
-                has_stats=False,
-                position_mask=None,
-                role_code=None,
-                goals=None,
-                assists=None,
-                left_at_minute=None,
-                minutes=None,
-                rating_raw=None,
-                passes_attempted=None,
-                passes_completed=None,
-            )
-        position = bisect_right(record_offsets, record_start + owner_back_offset) - 1
-        if position < 0:
-            # Out of reach while the search starts at the first window, and kept all the same:
-            # see UNOWNED_POSITION for what a negative position would otherwise do.
-            position = UNOWNED_POSITION
-        position_records = records_by_position.get(position)
-        if position_records is None:
-            records_by_position[position] = [record]
-        else:
-            position_records.append(record)
-    return {position: tuple(records) for position, records in records_by_position.items()}
+            lists_decoded += 1
+            start = at
+            if records:
+                records_by_position.setdefault(position, []).extend(records)
+    return LocatedMatchRecords(
+        {position: tuple(records) for position, records in records_by_position.items()},
+        lists_found=lists_found,
+        lists_decoded=lists_decoded,
+    )
 
 
 @functools.cache
@@ -572,5 +581,11 @@ def build_player_match_stats(
         stats_in_range=stats_in_range_count,
         opponent_resolved=opponent_resolved,
         unowned=unowned,
+        lists_found=records_by_position.lists_found
+        if isinstance(records_by_position, LocatedMatchRecords)
+        else None,
+        lists_decoded=records_by_position.lists_decoded
+        if isinstance(records_by_position, LocatedMatchRecords)
+        else None,
     )
     return tuple(rows), stats

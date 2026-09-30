@@ -1219,6 +1219,7 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
             "competitions_outside_the_stage_table": 0,
             "statistics_outside_their_ranges": 0,
             "records_without_an_owner": 0,
+            "incomplete_match_lists": 0,
         },
         "player_season_stats": {
             "records_without_a_player": 3,
@@ -1233,7 +1234,11 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
             "clubs_with_home_ground": 0,
         },
         "finances": {"clubs_with_series": 0, "balance_breaks": 0},
-        "sponsorships": {"clubs_without_sponsors": 0},
+        "sponsorships": {
+            "clubs_without_sponsors": 0,
+            "clubs_with_empty_sponsor_lists": 0,
+            "clubs_without_sponsor_lists": 0,
+        },
         "affiliates": {"unresolved_members": 2},
         "job_vacancies": {
             "unresolved_teams": 1,
@@ -1674,7 +1679,7 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
         "competition_rules": ["rules_markers_minimum", "rules_fully_parsed"],
         # An empty per-match search fails its competition check, while statistics checks
         # stand aside because there are no statistics to judge.
-        "player_match_stats": ["per_match_competition_in_stage_space"],
+        "player_match_stats": ["per_match_competition_in_stage_space", "per_match_lists_complete"],
         # Three of the five season records are keyed to pindexes this fragment's players do not
         # have, far below the share every save measured keeps.
         "player_season_stats": ["season_stats_records_keyed_to_players"],

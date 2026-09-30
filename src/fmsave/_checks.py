@@ -1211,18 +1211,12 @@ def check_season_stats(
 def evaluate_player_match_stats(
     stats: MatchStats, bounds: GateBounds, game_db_bytes: int
 ) -> tuple[GateResult, ...]:
-    """The per-match player stats reader's checks, in a fixed order.
+    """Check match identities, statistics and complete declared list walks.
 
-    There is deliberately no count check. The search is held to a window of years around the
-    save's own clock, so how many records it finds moves with that window and with how long the
-    career has run; no bound on it could tell a record layout that has moved from a career that
-    has simply played fewer matches. Each record's shape is checked instead, which does tell
-    them apart: a record read from the wrong offset carries a competition id the stage table
-    never names, and minutes and a rating that can land anywhere at all.
-
-    The competition check still fails when the search finds nothing. Minutes and ratings only
-    apply to records containing statistics: fresh saves can hold historical match records
-    without any statistics, while their competition ids still validate the record layout.
+    No population floor is imposed because historical output varies with the career.
+    Every recognized nonempty list must decode completely, independently of output year
+    and ID bounds. An empty search still fails the competition check and, when structural
+    metadata is available, completeness too: empty outer collection framing is unconfirmed.
     """
     applied = _applies(bounds, game_db_bytes)
     with_stats = stats.with_stats
@@ -1246,6 +1240,12 @@ def evaluate_player_match_stats(
             with_stats,
             bounds.per_match_rating_in_range,
             applied,
+        ),
+        _gate(
+            "per_match_lists_complete",
+            _rate(stats.lists_decoded or 0, stats.lists_found or 0),
+            bounds.per_match_lists_complete,
+            applied and stats.lists_found is not None,
         ),
     )
 
@@ -1275,6 +1275,7 @@ def check_player_match_stats(
                 ),
                 "statistics_outside_their_ranges": stats.with_stats - stats.stats_in_range,
                 "records_without_an_owner": stats.unowned,
+                "incomplete_match_lists": (stats.lists_found or 0) - (stats.lists_decoded or 0),
             }
         ),
     )
@@ -1608,32 +1609,24 @@ def evaluate_finances(
 def evaluate_sponsorships(
     stats: FinanceStats, bounds: GateBounds, game_db_bytes: int
 ) -> tuple[GateResult, ...]:
-    """The sponsorship reader's checks, in a fixed order.
+    """Judge coverage of the structurally located primary sponsor lists.
 
-    The share judges the clubs that have a series, so it applies only where there is one of
-    those to judge: a save whose clubs keep no series has no sponsor run to miss. Where clubs do
-    have a series, every one of them had a sponsor run on each save measured, so a sponsor
-    search that has moved fails here.
-
-    The floor is that same numerator judged without a denominator, and it is why this reader can
-    no longer report an empty table as sound. The sponsor run is looked for behind a club's
-    finance chain, so a finance locator that has stopped finding chains leaves no club to search
-    at all: the share goes not applied, every row is gone, and nothing here failed. The floor
-    fails on exactly that, and it applies where the save lists a managed club, whose own club
-    held a sponsor run on every save measured. It can never fire alone on a sound decode, since
-    a save with a series and no sponsor run misses the share first.
+    A nonempty list with valid rows and an explicitly counted empty list both establish
+    coverage. Missing prefixes and invalid positive lists remain uncovered. The existing
+    share and count bounds apply to that coverage, including when every list is empty.
     """
     applied = _applies(bounds, game_db_bytes)
+    decoded_lists = stats.clubs_with_sponsors + stats.clubs_with_empty_sponsor_lists
     return (
         _gate(
             "finance_clubs_with_sponsors",
-            _rate(stats.clubs_with_sponsors, stats.clubs_with_series),
+            _rate(decoded_lists, stats.clubs_with_series),
             bounds.finance_clubs_with_sponsors,
             applied and stats.clubs_with_series > 0,
         ),
         _gate(
             "sponsor_clubs_minimum",
-            stats.clubs_with_sponsors,
+            decoded_lists,
             bounds.sponsor_clubs_minimum,
             applied and stats.managed_club_exists,
         ),
@@ -1980,13 +1973,24 @@ def check_facilities(stats: FacilityStats, bounds: GateBounds, game_db_bytes: in
 
 
 def check_sponsorships(stats: FinanceStats, bounds: GateBounds, game_db_bytes: int) -> ReaderCheck:
-    """The sponsorship reader's check, record count and anomaly count."""
+    """Primary sponsor-list coverage, row count and empty/missing diagnostics.
+
+    The existing `clubs_without_sponsors` counts clubs returning no sponsor rows. The
+    separate empty-list count identifies confirmed absence; `clubs_without_sponsor_lists`
+    counts unresolved or invalid lists rather than treating those as empty.
+    """
     return ReaderCheck(
         SPONSORSHIPS_READER,
         stats.sponsor_rows,
         evaluate_sponsorships(stats, bounds, game_db_bytes),
         FrozenMapping(
-            {"clubs_without_sponsors": stats.clubs_with_series - stats.clubs_with_sponsors}
+            {
+                "clubs_without_sponsors": stats.clubs_with_series - stats.clubs_with_sponsors,
+                "clubs_with_empty_sponsor_lists": stats.clubs_with_empty_sponsor_lists,
+                "clubs_without_sponsor_lists": stats.clubs_with_series
+                - stats.clubs_with_sponsors
+                - stats.clubs_with_empty_sponsor_lists,
+            }
         ),
     )
 

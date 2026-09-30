@@ -377,6 +377,10 @@ class MatchStats:
     stored rating are at most the layout's maximum, and `stats_in_range` those whose statistics
     are inside every one of those bounds. `opponent_resolved` counts records whose opponent a club
     lists.
+    `lists_found` counts recognized nonempty counted histories, and `lists_decoded`
+    counts histories whose declared records were walked completely. These counts include
+    records outside the output year/identity window. None means structural metadata was
+    not supplied by a caller; actual save reads always supply both counts.
     """
 
     records: int
@@ -388,6 +392,8 @@ class MatchStats:
     stats_in_range: int
     opponent_resolved: int
     unowned: int
+    lists_found: int | None = None
+    lists_decoded: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -407,7 +413,8 @@ class FinanceStats:
     earlier one plus the later month's net.
 
     `clubs_with_sponsors` counts the clubs with a series that also hold a sponsor run, and
-    `sponsor_rows` the rows those runs hold. `managed_club_exists` says whether the save lists a
+    `sponsor_rows` the rows those runs hold. `clubs_with_empty_sponsor_lists` counts primary
+    lists whose prefix decoded correctly and whose stored count explicitly says zero. `managed_club_exists` says whether the save lists a
     managed club, which is what decides whether the series floor applies at all.
     """
 
@@ -422,6 +429,7 @@ class FinanceStats:
     clubs_with_sponsors: int
     sponsor_rows: int
     managed_club_exists: bool
+    clubs_with_empty_sponsor_lists: int = 0
 
 
 @dataclass(frozen=True, slots=True)

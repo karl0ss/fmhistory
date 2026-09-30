@@ -59,7 +59,7 @@ from tests.fixtures.career import (
     career_stage_rows,
     clubs_region_bytes,
 )
-from tests.fixtures.game_db import match_record_bytes, stage_table_bytes
+from tests.fixtures.game_db import match_list_bytes, match_record_bytes, stage_table_bytes
 from tests.helpers.export_asserts import assert_matches_json_normalize
 
 FILE_NAME = "career example.fm"
@@ -73,6 +73,7 @@ MATCH_GATE_NAMES = (
     "per_match_competition_in_stage_space",
     "per_match_minutes_in_range",
     "per_match_rating_in_range",
+    "per_match_lists_complete",
 )
 # Offsets inside a record, written here rather than read from the layout so a layout that moves
 # one of them has to fail a test built from this module.
@@ -144,6 +145,8 @@ def healthy_stats(records: int = 20_000) -> MatchStats:
         stats_in_range=with_stats,
         opponent_resolved=records - 10,
         unowned=0,
+        lists_found=100,
+        lists_decoded=100,
     )
 
 
@@ -209,7 +212,10 @@ def located(
     player_records = synthetic_player_records(player_offsets)
     return build_player_match_stats(
         locate_match_records(
-            buffer_with_records(record_offset, records), player_records, layout, clock
+            buffer_with_records(record_offset - 10, match_list_bytes(records)),
+            player_records,
+            layout,
+            clock,
         ),
         player_records,
         NO_PLAYERS,
@@ -317,7 +323,7 @@ def test_a_match_with_no_body_carries_nothing_from_past_the_header(
 def test_a_match_with_no_body_does_not_swallow_the_match_stored_after_it(
     match_rows: tuple[PlayerMatchStats, ...],
 ) -> None:
-    """A record with no body is 15 bytes, not 43, so the next one starts right after it."""
+    """A record with no body is 15 bytes, not 54, so the next one starts right after it."""
     after_the_short_record = match_rows[2]
     assert after_the_short_record.date == date(2031, 2, 6)
     assert after_the_short_record.competition_id == UNLISTED_MATCH_COMPETITION_ID
@@ -366,6 +372,7 @@ def test_an_opponent_no_club_lists_leaves_its_four_fields_empty_and_is_counted(
         "competitions_outside_the_stage_table": 1,
         "statistics_outside_their_ranges": 1,
         "records_without_an_owner": 0,
+        "incomplete_match_lists": 0,
     }
 
 
@@ -417,7 +424,7 @@ def test_a_record_is_accepted_only_when_its_body_flag_says_body_or_no_body(
 ) -> None:
     record = bytearray(match_bytes())
     record[BODY_FLAG_OFFSET] = body_flag
-    _rows, stats = located(bytes(record))
+    _rows, stats = located(bytes(record[:15] if body_flag == 0 else record))
     assert stats.records == expected_records
 
 
@@ -481,9 +488,9 @@ def test_a_date_that_does_not_decode_is_not_a_record() -> None:
 def test_the_search_never_reaches_back_before_the_first_player_window() -> None:
     """A search starts where the first player's window does, so nothing before it is read."""
     window_start = PLAYER_RECORD_OFFSET - OWNER_BACK_OFFSET
-    _rows, before_stats = located(match_bytes(), record_offset=window_start - 1)
+    _rows, before_stats = located(match_bytes(), record_offset=window_start + 9)
     assert (before_stats.records, before_stats.unowned) == (0, 0)
-    rows, at_start_stats = located(match_bytes(), record_offset=window_start)
+    rows, at_start_stats = located(match_bytes(), record_offset=window_start + 10)
     assert (at_start_stats.records, at_start_stats.unowned) == (1, 0)
     assert rows[0].player_uid == SYNTHETIC_FIRST_UID
 
@@ -549,9 +556,9 @@ def test_rows_come_in_player_order() -> None:
     player_records = synthetic_player_records((PLAYER_RECORD_OFFSET, 600))
     buffer = bytearray(1000)
     second_players_match = match_bytes(competition_id=901)
-    buffer[700 : 700 + len(second_players_match)] = second_players_match
+    buffer[690 : 700 + len(second_players_match)] = match_list_bytes(second_players_match)
     first_players_match = match_bytes(competition_id=FIRST_COMPETITION_ID)
-    buffer[400 : 400 + len(first_players_match)] = first_players_match
+    buffer[390 : 400 + len(first_players_match)] = match_list_bytes(first_players_match)
     rows, stats = build_player_match_stats(
         locate_match_records(bytes(buffer), player_records, layout, CLOCK),
         player_records,
@@ -582,6 +589,8 @@ def test_the_counts_the_checks_judge_come_from_the_records_themselves() -> None:
         stats_in_range=1,
         opponent_resolved=3,
         unowned=0,
+        lists_found=1,
+        lists_decoded=1,
     )
 
 
@@ -777,7 +786,7 @@ def test_historical_match_records_without_statistics_do_not_fail_statistic_check
     )
     results = evaluate_player_match_stats(stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
     assert results[0].applied and results[0].passed
-    assert all(not result.applied and result.passed for result in results[1:])
+    assert all(not result.applied and result.passed for result in results[1:3])
     assert failed_gate_names(results) == []
 
 
@@ -852,6 +861,7 @@ def test_the_reader_raises_when_its_counts_are_past_its_bounds_and_returns_its_t
         per_match_competition_in_stage_space=(0.95, None),
         per_match_minutes_in_range=(0.99, None),
         per_match_rating_in_range=(0.99, None),
+        per_match_lists_complete=(1.01, None),
     )
     monkeypatch.setattr(fmsave.Save, "_gate_bounds", lambda career_save: unmeetable_bounds)
     with fmsave.open(career_save_path, strict=True) as career_save:
@@ -884,6 +894,7 @@ def test_the_record_count_and_anomalies_reach_the_reader_check() -> None:
         "competitions_outside_the_stage_table": 0,
         "statistics_outside_their_ranges": 0,
         "records_without_an_owner": 0,
+        "incomplete_match_lists": 0,
     }
 
 
@@ -899,12 +910,12 @@ def test_the_record_count_and_anomalies_reach_the_reader_check() -> None:
             id="a-body-field-inside-the-header",
         ),
         pytest.param(
-            {"passes_completed_offset": 43},
-            "ends past the 43-byte record",
+            {"passes_completed_offset": 54},
+            "ends past the 54-byte record",
             id="a-body-field-past-the-record",
         ),
         pytest.param(
-            {"header_bytes": 43}, "must be shorter than", id="a-header-as-long-as-the-record"
+            {"header_bytes": 54}, "must be shorter than", id="a-header-as-long-as-the-record"
         ),
         pytest.param(
             {"date_offset": 12}, "ends past the 15-byte header", id="a-date-past-the-header"
@@ -954,3 +965,162 @@ def test_a_position_bit_must_name_a_member_of_the_position_enum(
             EXAMPLE_STAGE_INDEX,
             broken_layout,
         )
+
+
+@pytest.mark.parametrize("marker", [b"\x14\x01", b"\x3c\x01"])
+def test_complete_counted_lists_keep_bad_statistics_for_validation(marker: bytes) -> None:
+    body = match_bytes(rating_x10=120)
+    framed = match_list_bytes(body + match_bytes(played=False), marker=marker)
+    records = locate_match_records(
+        buffer_with_records(390, framed),
+        synthetic_player_records((200,)),
+        registered_match_layout(),
+        CLOCK,
+    )
+    assert records.lists_found == records.lists_decoded == 1
+    assert [r.rating_raw for r in records[0]] == [120, None]
+
+
+def test_unframed_match_shaped_bytes_cannot_become_a_players_history() -> None:
+    records = locate_match_records(
+        buffer_with_records(400, match_bytes()),
+        synthetic_player_records((200,)),
+        registered_match_layout(),
+        CLOCK,
+    )
+    assert records == {}
+    assert records.lists_found == records.lists_decoded == 0
+
+
+@pytest.mark.parametrize("damage", ["count", "date", "flag", "truncated-tail"])
+def test_incomplete_counted_lists_cannot_publish_a_valid_prefix(damage: str) -> None:
+    framed = bytearray(match_list_bytes(match_bytes() + match_bytes(played=False)))
+    if damage == "count":
+        framed[6:10] = (3).to_bytes(4, "little")
+    elif damage == "date":
+        framed[65:69] = bytes(4)
+    elif damage == "flag":
+        framed[78] = 2
+    else:
+        framed = framed[:-1]
+    buffer = bytes(390) + framed
+    records = locate_match_records(
+        buffer, synthetic_player_records((200,)), registered_match_layout(), CLOCK
+    )
+    assert records == {}
+    assert (records.lists_found, records.lists_decoded) == (1, 0)
+    stats = dataclasses.replace(healthy_stats(), lists_found=1, lists_decoded=0)
+    assert failed_gate_names(
+        evaluate_player_match_stats(stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
+    ) == ["per_match_lists_complete"]
+
+
+def test_semantic_output_bounds_do_not_shift_the_counted_list_walk() -> None:
+    framed = match_list_bytes(
+        match_bytes(year=CLOCK.year - 6)
+        + match_bytes(competition_id=0)
+        + match_bytes(competition_id=901)
+    )
+    records = locate_match_records(
+        buffer_with_records(390, framed),
+        synthetic_player_records((200,)),
+        registered_match_layout(),
+        CLOCK,
+    )
+    assert records.lists_found == records.lists_decoded == 1
+    assert [r.competition_id for r in records[0]] == [901]
+
+
+def test_match_shaped_bytes_in_a_body_cannot_add_an_extra_record() -> None:
+    record = bytearray(match_bytes())
+    record[17:32] = match_bytes(played=False)
+    framed = match_list_bytes(bytes(record))
+    records = locate_match_records(
+        buffer_with_records(390, framed),
+        synthetic_player_records((200,)),
+        registered_match_layout(),
+        CLOCK,
+    )
+    assert records.lists_found == records.lists_decoded == 1
+    assert len(records[0]) == 1
+
+
+def test_a_counted_list_header_cannot_cross_the_next_players_window() -> None:
+    framed = match_list_bytes(match_bytes())
+    records = locate_match_records(
+        buffer_with_records(565, framed),
+        synthetic_player_records((200, 600)),
+        registered_match_layout(),
+        CLOCK,
+    )
+    assert records == {}
+
+
+def test_declared_records_cannot_cross_the_next_players_window() -> None:
+    framed = match_list_bytes(match_bytes() + match_bytes())
+    records = locate_match_records(
+        buffer_with_records(490, framed),
+        synthetic_player_records((200, 600)),
+        registered_match_layout(),
+        CLOCK,
+    )
+    assert records == {}
+    assert (records.lists_found, records.lists_decoded) == (1, 0)
+
+
+def test_zero_count_in_unrelated_fields_is_not_proof_of_empty_history() -> None:
+    framed = b"\x14\x01" + (901).to_bytes(4, "little") + bytes(4) + match_bytes()
+    records = locate_match_records(
+        buffer_with_records(390, framed),
+        synthetic_player_records((200,)),
+        registered_match_layout(),
+        CLOCK,
+    )
+    assert records == {}
+    assert records.lists_found == 0
+
+
+def test_an_impossible_count_with_invalid_header_ids_is_not_a_claimed_list() -> None:
+    framed = bytearray(match_list_bytes(match_bytes()))
+    framed[6:10] = (0xFF003001).to_bytes(4, "little")
+    framed[15:19] = bytes(4)
+    records = locate_match_records(
+        buffer_with_records(390, bytes(framed)),
+        synthetic_player_records((200,)),
+        registered_match_layout(),
+        CLOCK,
+    )
+    assert records == {}
+    assert records.lists_found == 0
+
+
+def test_an_inflated_count_on_a_valid_header_still_fails_beside_a_good_list() -> None:
+    bad = bytearray(match_list_bytes(match_bytes()))
+    bad[6:10] = (0xFF003001).to_bytes(4, "little")
+    good = match_list_bytes(match_bytes())
+    buffer = bytearray(1000)
+    buffer[390 : 390 + len(bad)] = bad
+    buffer[700 : 700 + len(good)] = good
+    records = locate_match_records(
+        bytes(buffer), synthetic_player_records((200, 600)), registered_match_layout(), CLOCK
+    )
+    assert (records.lists_found, records.lists_decoded) == (2, 1)
+    assert len(records[1]) == 1
+    stats = dataclasses.replace(
+        healthy_stats(), lists_found=records.lists_found, lists_decoded=records.lists_decoded
+    )
+    assert failed_gate_names(
+        evaluate_player_match_stats(stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
+    ) == ["per_match_lists_complete"]
+
+
+def test_a_body_missing_only_its_unknown_trailing_bytes_is_still_truncated() -> None:
+    framed = match_list_bytes(match_bytes())[:-11]
+    records = locate_match_records(
+        bytes(390) + framed,
+        synthetic_player_records((200,)),
+        registered_match_layout(),
+        CLOCK,
+    )
+    assert records == {}
+    assert (records.lists_found, records.lists_decoded) == (1, 0)

@@ -545,14 +545,19 @@ def player_record_bytes(
     struct.pack_into("<H", body, 110, condition)
     body[121] = height_cm
 
-    return bytes(header) + bytes(body) + trailing + match_records
+    return (
+        bytes(header)
+        + bytes(body)
+        + trailing
+        + (match_list_bytes(match_records) + bytes(4) if match_records else b"")
+    )
 
 
 # Per-match player records: 15 bytes for a match the save keeps no performance body for and 43
 # bytes for one it does, written directly here (never imported from fmsave) so a wrong offset
 # inside fmsave has to fail a test built from this module.
 MATCH_RECORD_HEADER_BYTES = 15
-MATCH_RECORD_BODY_BYTES = 43
+MATCH_RECORD_BODY_BYTES = 54
 MATCH_RECORD_LEAD_BYTE = 0x01
 # Fills every body byte no field pins, so a reader reading one byte out of place finds this
 # rather than the value it expects. It is neither the lead byte a record starts with nor the
@@ -582,7 +587,7 @@ def match_record_bytes(
 
     The lead byte, the 4-byte match date, the u32 opponent first-team id, the u32 competition
     id, the tag byte and the body flag make the 15-byte header, which is the whole record when
-    `played` is false. When it is true a 43-byte record follows the same header: the u16
+    `played` is false. When it is true a 54-byte record follows the same header: the u16
     position mask at +17, the role code at +23, goals at +24, assists at +28, the minute the
     player left the pitch at +36, minutes at +39, the rating times ten at +40, and passes
     attempted and completed at +41 and +42. Every other body byte is `MATCH_RECORD_FILLER_BYTE`.
@@ -607,6 +612,20 @@ def match_record_bytes(
     record[41] = passes_attempted
     record[42] = passes_completed
     return bytes(record)
+
+
+def match_list_bytes(records: bytes, *, marker: bytes = b"\x14\x01", team_id: int = 901) -> bytes:
+    """Count and frame synthetic 15/54-byte match records independently of the reader."""
+    at = 0
+    count = 0
+    while at < len(records):
+        if at + 15 > len(records):
+            raise ValueError("incomplete synthetic match header")
+        at += 54 if records[at + 14] else 15
+        count += 1
+    if at != len(records):
+        raise ValueError("incomplete synthetic match body")
+    return marker + struct.pack("<II", team_id, count) + records
 
 
 # Contract chain records: fixed byte layout, written directly here (never imported from

@@ -234,18 +234,28 @@ class FinanceChainLayout:
 
 @dataclass(frozen=True, slots=True)
 class SponsorChainLayout:
-    """How to find a club's sponsor contracts, which follow its finance chain in the record.
+    """A club's primary sponsor list after its monthly finance chain.
 
-    A run starts at the first offset `s` after the finance chain where the byte at
-    `s + count_offset` is a row count of at least one, the whole run fits in the record, and
-    every one of its `row_bytes`-long rows carries `tag` at its start, a flag of at most
-    `flag10_maximum`, a start and an end date whose years lie inside `year_range` (inclusive)
-    with the end after the start, and an annual value no greater than a total value of at most
-    `value_maximum`. Every field offset counts from a row's start.
+    The prefix starts at the finance chain's end: a null-date marker, two dates, and a
+    counted collection of fixed-size entries. A fixed-size suffix follows those entries;
+    its dates and reserved bytes establish the primary sponsor count's position. An
+    explicit zero count is a decoded empty list. Later sponsor-shaped data cannot replace
+    an empty or malformed primary list.
 
-    The **first** such run is the club's sponsor list. A few clubs hold a second, dead run
-    behind it, and a rule taking the longest run reads that one instead.
+    Nonempty lists retain the row tag, flag, date and monetary checks. Row field offsets
+    count from each sponsor row; prefix offsets count from the finance chain's end, and
+    suffix offsets count from the end of the preceding counted entries.
     """
+
+    prefix_marker: bytes
+    prefix_date_offsets: tuple[int, ...]
+    prefix_count_offset: int
+    prefix_entry_bytes: int
+    prefix_entry_reserved_offset: int
+    prefix_entry_reserved: bytes
+    prefix_suffix_bytes: int
+    prefix_suffix_fixed: tuple[tuple[int, bytes], ...]
+    prefix_suffix_date_offsets: tuple[int, ...]
 
     row_bytes: int
     tag: int
@@ -261,7 +271,6 @@ class SponsorChainLayout:
     enum18_offset: int
     b19_offset: int
     annual_offset: int
-    year_range: tuple[int, int]
     value_maximum: int
 
 
@@ -558,22 +567,20 @@ class SuspensionLayout:
 class MatchRecordLayout:
     """How to find a player's per-match records in `game_db`, and where their fields sit.
 
-    Every offset counts from a record's start, where `lead_byte_value` sits. Records are found
-    by a pattern built from this layout and the save's in-game date: the lead byte, the bytes up
-    to the low byte of the match year, which must be one of the years from `years_before_clock`
-    before the in-game year to `years_after_clock` after it, and then that year's high byte. A
-    candidate is accepted when its date decodes, the opponent's first-team id and the
-    competition id lie inside the inclusive `team_id_range` and `competition_id_range`, the byte
-    at `body_flag_offset` is 0 or 1, and the whole record lies inside the section.
+    Record offsets count from the lead byte. A list starts with one of the observed
+    `list_markers`, followed by its team word and declared record count inside
+    `list_header_bytes`. The meaning of each marker's first byte remains unconfirmed.
+    Every declared record must be walked within its player's ownership window before
+    output is accepted. `years_before_clock`, `years_after_clock`, `team_id_range` and
+    `competition_id_range` then bound emitted records; they do not change the list's stride.
 
-    **A record whose body flag is 0 is `header_bytes` long, not `record_bytes`.** Every field
-    from `position_mask_offset` on then belongs to the *next* record, so a reader must read none
-    of them: a body read off a record that has none is not a wrong value but another match's.
+    A record whose body flag is zero is `header_bytes` long; one with a body is
+    `record_bytes` long, including trailing bytes whose field meanings remain unknown.
+    Body fields are not read from records without a body. Statistics outside their sanity
+    bounds remain visible for validation rather than being used to select record framing.
 
-    One search runs from `owner_back_offset` bytes before the first player record's start to the
-    end of `game_db`. A record belongs to the player with the greatest record start
-    `record_offset` for which `record_offset - owner_back_offset` is at or before the record's
-    own start; a record before the first player's window belongs to no player.
+    Ownership windows start `owner_back_offset` before each player's record offset and
+    end at the next window. Both the counted-list header and its complete body must fit.
 
     `position_bits` names the bits of the u16 at `position_mask_offset`, as `(bit index, enum
     member name)` pairs. The mask belongs to this structure alone and shares its meanings with
@@ -612,6 +619,10 @@ class MatchRecordLayout:
     maximum_goals: int
     rating_scale: int
     position_bits: tuple[tuple[int, str], ...]
+    list_markers: tuple[bytes, ...]
+    list_header_bytes: int
+    list_team_id_offset: int
+    list_count_offset: int
 
 
 # Count and distribution checks on the unnamed span apply only to a span at least this
@@ -768,7 +779,10 @@ class RulesPreambleLayout:
     `moved_match_sentinel_offset` and `moved_match_tail` at `moved_match_tail_offset`; up to
     `moved_match_max_per_round` of them follow one round. Stepping over them is what keeps
     the round records in step: on the corpus a plain stride reads about 65% of blocks
-    correctly and this stride about 96%.
+    correctly and this stride about 96%. A second interstitial shape carries
+    `round_interstitial_tag_value` at `round_interstitial_tag_offset` and the same tail.
+    Its contents are unidentified; this shape is accepted only when the bounded walk
+    completes the entire declared calendar, without changing date or match-count limits.
     """
 
     marker: bytes
@@ -790,6 +804,8 @@ class RulesPreambleLayout:
     moved_match_bytes: int
     moved_match_sentinel_offset: int
     moved_match_sentinel_value: int
+    round_interstitial_tag_offset: int
+    round_interstitial_tag_value: int
     moved_match_tail_offset: int
     moved_match_tail: bytes
     moved_match_max_per_round: int
@@ -1805,8 +1821,9 @@ class GateBounds:
     `finance_expenditure_split` (rows whose expenditure excluding transfers lies between zero
     and the total, of rows), `finance_clubs_with_two_chains` (clubs holding a second snapshot
     chain), `finance_series_minimum` (clubs with a series) and, in `sponsorships()`,
-    `finance_clubs_with_sponsors` (clubs with a sponsor run, of clubs with a series) and
-    `sponsor_clubs_minimum` (clubs with a sponsor run).
+    `finance_clubs_with_sponsors` (clubs with a decoded primary sponsor list, including an
+    explicitly empty list, of clubs with a series) and
+    `sponsor_clubs_minimum` (clubs with a decoded primary sponsor list).
 
     Only some of a save's clubs keep a finance series at all -- those of the one or two league
     nations the save tracks, which changes during a career -- so `finance_series_minimum` bounds
@@ -1816,12 +1833,12 @@ class GateBounds:
     rather than a broken decode; the series floor is what catches a locator that has stopped
     finding chains, and on a save with no human manager nothing does.
 
-    `sponsor_clubs_minimum` is the sponsor share's own numerator judged without a denominator,
-    and it is what keeps `sponsorships()` from reporting an empty table as sound: the share
-    counts against the clubs the finance locator found, so a break of that locator leaves it
-    with nothing to divide by and reported as not applied. The floor applies where a managed
-    club exists, as the series floor does, and it never fires alone on a sound decode, since a
-    save with a series but no sponsor run fails the share first.
+    `sponsor_clubs_minimum` is the sponsor share's own numerator judged without a denominator.
+    It distinguishes a table that is empty because valid primary lists contain zero rows
+    from a table that is empty because no lists were decoded. The floor applies where a
+    managed club exists, as the series floor does. An invalid or missing positive list still
+    lowers the coverage share even when a later sponsor-shaped run exists.
+
 
     Club facilities: `facility_byte_in_range` (clubs whose rating lies inside the layout's
     range, of clubs with a finance series) and `facility_clubs_minimum` (clubs with a rating).
@@ -1990,6 +2007,7 @@ class GateBounds:
     per_match_competition_in_stage_space: BoundPair
     per_match_minutes_in_range: BoundPair
     per_match_rating_in_range: BoundPair
+    per_match_lists_complete: BoundPair
     injury_type_entries_minimum: BoundPair
     injury_manager_minimum_applies_from_bytes: int
     injury_log_lead_byte: BoundPair

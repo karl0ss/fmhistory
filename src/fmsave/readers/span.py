@@ -336,6 +336,8 @@ class _RulesSearch:
     moved_match_bytes: int
     moved_match_sentinel_offset: int
     moved_match_sentinel_value: int
+    round_interstitial_tag_offset: int
+    round_interstitial_tag_value: int
     moved_match_tail_offset: int
     moved_match_tail: bytes
     moved_match_max_per_round: int
@@ -530,6 +532,8 @@ def _rules_search(layout: RulesPreambleLayout) -> _RulesSearch:
         moved_match_bytes=layout.moved_match_bytes,
         moved_match_sentinel_offset=layout.moved_match_sentinel_offset,
         moved_match_sentinel_value=layout.moved_match_sentinel_value,
+        round_interstitial_tag_offset=layout.round_interstitial_tag_offset,
+        round_interstitial_tag_value=layout.round_interstitial_tag_value,
         moved_match_tail_offset=layout.moved_match_tail_offset,
         moved_match_tail=layout.moved_match_tail,
         moved_match_max_per_round=layout.moved_match_max_per_round,
@@ -853,14 +857,21 @@ def _parse_rules_block(
 
 
 def _parse_rules_rounds(
-    window: bytes, body_cursor: int, round_count: int, search: _RulesSearch
+    window: bytes,
+    body_cursor: int,
+    round_count: int,
+    search: _RulesSearch,
+    *,
+    allow_tagged_interstitials: bool = False,
 ) -> tuple[RawRulesRound, ...] | None:
     """The block's round records, or None when the window does not hold them all.
 
     The list is anchored on the first offset after the round count whose date decodes, and
     the record starts one byte before it, because a round record opens with an unidentified
     byte which for the first record is the round count's own high byte. Between records the
-    save writes moved matches, which are stepped over.
+    save writes interstitial entries, which are stepped over. The tagged variant has
+    unidentified contents and is accepted only when every declared round can be read.
+    An unsuccessful variant walk preserves the original partial result.
     """
     window_length = len(window)
     record_bytes = search.round_record_bytes
@@ -897,9 +908,14 @@ def _parse_rules_rounds(
                     return None
                 if (
                     window[position + moved_match_sentinel_offset] != moved_match_sentinel_value
-                    or window[position + moved_match_tail_offset : position + moved_match_tail_end]
-                    != moved_match_tail
-                ):
+                    and not (
+                        allow_tagged_interstitials
+                        and window[position + search.round_interstitial_tag_offset]
+                        == search.round_interstitial_tag_value
+                    )
+                ) or window[
+                    position + moved_match_tail_offset : position + moved_match_tail_end
+                ] != moved_match_tail:
                     break
                 position += moved_match_bytes
         if position + record_bytes > window_length:
@@ -918,6 +934,12 @@ def _parse_rules_rounds(
             )
         )
         position += record_bytes
+    if not allow_tagged_interstitials and len(rounds) < round_count:
+        complete = _parse_rules_rounds(
+            window, body_cursor, round_count, search, allow_tagged_interstitials=True
+        )
+        if complete is not None and len(complete) == round_count:
+            return complete
     return tuple(rounds)
 
 

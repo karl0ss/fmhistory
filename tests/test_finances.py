@@ -42,6 +42,7 @@ from tests.fixtures.career import (
     career_finance_rows,
 )
 from tests.fixtures.finances import (
+    chain_gap_bytes,
     club_finance_bytes,
     finance_chain_bytes,
     finance_row_bytes,
@@ -315,18 +316,18 @@ def test_a_row_inside_a_chain_never_opens_a_chain_of_its_own() -> None:
 
 
 def sponsor_run_record(rows: Sequence[bytes]) -> bytes:
-    return bytes(8) + sponsor_chain_bytes(rows) + bytes(8)
+    return chain_gap_bytes() + sponsor_chain_bytes(rows) + bytes(8)
 
 
 def test_a_sponsor_run_is_rejected_by_any_row_that_does_not_check_out() -> None:
     sound_row = sponsor_row_bytes(**SPONSOR_A)  # pyright: ignore[reportArgumentType]
     record = sponsor_run_record((sound_row,))
-    assert locate_sponsor_chain(record, 0, len(record), LAYOUTS.sponsors) == (9, 1)
+    assert locate_sponsor_chain(record, 0, len(record), LAYOUTS.sponsors) == (140, 1)
     for broken_values in (
         {"flag10": 2},
         {"end": SPONSOR_A["start"]},
         {"annual": 4_000_000},
-        {"start": struct.pack("<HH", 1, 1990)},
+        {"start": struct.pack("<HH", 1, 1900)},
     ):
         broken = sponsor_run_record(
             (sponsor_row_bytes(**{**SPONSOR_A, **broken_values}),)  # pyright: ignore[reportArgumentType]
@@ -361,6 +362,7 @@ def test_a_club_with_no_sponsor_run_still_yields_its_months() -> None:
     assert sponsors == ()
     assert stats.clubs_with_series == 1
     assert stats.clubs_with_sponsors == 0
+    assert stats.clubs_with_empty_sponsor_lists == 1
 
 
 def test_both_records_export_their_columns() -> None:
@@ -704,7 +706,11 @@ def test_the_sponsorship_check_names_its_own_reader(career_save_path: Path) -> N
     assert sponsorship_check is not None
     assert finance_check.record_count == 6
     assert sponsorship_check.record_count == 3
-    assert dict(sponsorship_check.anomalies) == {"clubs_without_sponsors": 0}
+    assert dict(sponsorship_check.anomalies) == {
+        "clubs_without_sponsors": 0,
+        "clubs_with_empty_sponsor_lists": 0,
+        "clubs_without_sponsor_lists": 0,
+    }
     assert dict(finance_check.anomalies) == {"clubs_with_series": 2, "balance_breaks": 0}
 
 
@@ -730,3 +736,165 @@ def test_a_club_without_finance_bytes_yields_no_rows_and_is_not_an_error() -> No
     # Those counts would not fail a check on a full-size save either: a save whose clubs keep
     # no series is a save with nothing to judge.
     assert failed_gate_names(stats) == []
+
+
+def test_an_empty_primary_sponsor_list_cannot_be_replaced_by_a_later_run() -> None:
+    later_row = sponsor_row_bytes(**SPONSOR_A)  # pyright: ignore[reportArgumentType]
+    prefix = chain_gap_bytes()
+    record = prefix + sponsor_chain_bytes(()) + bytes(30) + sponsor_chain_bytes((later_row,))
+    assert locate_sponsor_chain(record, 0, len(record), LAYOUTS.sponsors) == (140, 0)
+
+
+def test_an_invalid_positive_primary_list_cannot_fall_back_to_later_rows() -> None:
+    sound = sponsor_row_bytes(**SPONSOR_A)  # pyright: ignore[reportArgumentType]
+    bad = sponsor_row_bytes(**{**SPONSOR_A, "annual": 4_000_000})  # pyright: ignore[reportArgumentType]
+    record = sponsor_run_record((bad,)) + sponsor_chain_bytes((sound,))
+    assert locate_sponsor_chain(record, 0, len(record), LAYOUTS.sponsors) is None
+
+
+def test_counted_prefix_entries_determine_the_primary_sponsor_position() -> None:
+    # Fictional unknown entry data: a signed word, three bytes, a byte, seven reserved
+    # zeros, and another word. The locator must count entries without guessing meanings.
+    entry = struct.pack("<i", 125_000) + bytes((9, 234, 7, 85)) + bytes(7) + struct.pack("<I", 812)
+    row = sponsor_row_bytes(**SPONSOR_A)  # pyright: ignore[reportArgumentType]
+    for count in (0, 1, 3, 7):
+        prefix = chain_gap_bytes(prefix_entries=(entry,) * count)
+        record = prefix + sponsor_chain_bytes((row,))
+        assert locate_sponsor_chain(record, 0, len(record), LAYOUTS.sponsors) == (
+            140 + 19 * count,
+            1,
+        )
+
+
+@pytest.mark.parametrize(
+    "offset", (0, 2, 25, 28, 29, 32, 83, 87, 92, 93, 102, 105, 106, 109, 110, 113, 115, 118)
+)
+def test_a_corrupt_sponsor_prefix_is_not_an_empty_list(offset: int) -> None:
+    record = bytearray(chain_gap_bytes() + sponsor_chain_bytes(()))
+    # Date day/year values become invalid; reserved marker bytes no longer match.
+    record[offset] ^= 0xFF
+    assert locate_sponsor_chain(bytes(record), 0, len(record), LAYOUTS.sponsors) is None
+
+
+def test_corrupt_entry_reserved_bytes_and_inflated_prefix_counts_are_rejected() -> None:
+    entry = struct.pack("<i", 125_000) + bytes((9, 234, 7, 85)) + bytes(7) + struct.pack("<I", 812)
+    sound = bytearray(chain_gap_bytes(prefix_entries=(entry,)) + sponsor_chain_bytes(()))
+    for offset in (71, 80, 86):
+        broken = bytearray(sound)
+        broken[offset] = 255
+        assert locate_sponsor_chain(bytes(broken), 0, len(broken), LAYOUTS.sponsors) is None
+
+
+@pytest.mark.parametrize("record_end", (0, 3, 25, 29, 71, 72, 93, 106, 139))
+def test_a_truncated_sponsor_prefix_is_not_an_empty_list(record_end: int) -> None:
+    record = chain_gap_bytes() + sponsor_chain_bytes(())
+    assert locate_sponsor_chain(record, 0, record_end, LAYOUTS.sponsors) is None
+    assert locate_sponsor_chain(record[:record_end], 0, record_end, LAYOUTS.sponsors) is None
+
+
+def test_a_positive_sponsor_count_cannot_cross_its_club_record_end() -> None:
+    row = sponsor_row_bytes(**SPONSOR_A)  # pyright: ignore[reportArgumentType]
+    record = sponsor_run_record((row,))
+    assert locate_sponsor_chain(record, 0, 164, LAYOUTS.sponsors) is None
+    assert locate_sponsor_chain(record, 0, len(record) + 1, LAYOUTS.sponsors) is None
+
+
+def test_valid_prefix_dates_are_allowed_alongside_null_dates() -> None:
+    record = bytearray(chain_gap_bytes() + sponsor_chain_bytes(()))
+    for offset in (25, 29, 102, 106, 110):
+        record[offset : offset + 4] = struct.pack("<HH", 23, 2026)
+    assert locate_sponsor_chain(bytes(record), 0, len(record), LAYOUTS.sponsors) == (140, 0)
+
+
+def test_a_later_sponsor_run_without_a_prefix_is_not_a_primary_list() -> None:
+    row = sponsor_row_bytes(**SPONSOR_A)  # pyright: ignore[reportArgumentType]
+    record = bytes(140) + sponsor_chain_bytes((row,))
+    assert locate_sponsor_chain(record, 0, len(record), LAYOUTS.sponsors) is None
+
+
+def test_confirmed_empty_lists_count_as_coverage_but_missing_lists_do_not() -> None:
+    sound = dataclasses.replace(
+        passing_finance_stats(),
+        clubs_with_sponsors=0,
+        sponsor_rows=0,
+        clubs_with_empty_sponsor_lists=CLUBS_WITH_A_SERIES,
+    )
+    assert failed_gate_names(sound) == []
+    floor = dataclasses.replace(
+        sound, clubs_with_empty_sponsor_lists=clubs_at_share(SPONSOR_SHARE_FLOOR)
+    )
+    assert failed_gate_names(floor) == []
+    missing = dataclasses.replace(
+        floor, clubs_with_empty_sponsor_lists=floor.clubs_with_empty_sponsor_lists - 1
+    )
+    assert failed_gate_names(missing) == ["finance_clubs_with_sponsors"]
+    undecoded = dataclasses.replace(sound, clubs_with_empty_sponsor_lists=0)
+    assert failed_gate_names(undecoded) == ["finance_clubs_with_sponsors", "sponsor_clubs_minimum"]
+
+
+@pytest.mark.parametrize("empty", (True, False), ids=("explicitly-empty", "invalid-positive"))
+def test_empty_and_invalid_primary_lists_have_distinct_coverage_and_anomalies(empty: bool) -> None:
+    from fmsave._checks import check_sponsorships
+
+    sound = sponsor_row_bytes(**SPONSOR_A)  # pyright: ignore[reportArgumentType]
+    bad = sponsor_row_bytes(**{**SPONSOR_A, "annual": 4_000_000})  # pyright: ignore[reportArgumentType]
+    game_db = one_club_game_db(
+        club_finance_bytes(
+            rows=career_finance_rows(),
+            sponsors=() if empty else (bad,),
+            dead_sponsors=(sound,),
+        )
+    )
+    index = read_club_index(game_db, find_club_layouts(GAME_DB_SCHEMA, BUILD_STRING), FILE_NAME)
+    _months, sponsors, stats = read_club_finances(game_db, index, CLOCK, LAYOUTS, True)
+    assert sponsors == ()
+    assert stats.clubs_with_sponsors == 0
+    assert stats.clubs_with_empty_sponsor_lists == int(empty)
+    report = check_sponsorships(stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
+    assert dict(report.anomalies) == {
+        "clubs_without_sponsors": 1,
+        "clubs_with_empty_sponsor_lists": int(empty),
+        "clubs_without_sponsor_lists": int(not empty),
+    }
+    assert all(g.passed for g in report.gates) is empty
+
+
+def test_an_owned_list_decodes_a_historical_ended_sponsorship() -> None:
+    old_row = sponsor_row_bytes(
+        **{
+            **SPONSOR_A,
+            "start": struct.pack("<HH", 182, 1985),
+            "end": struct.pack("<HH", 181, 2021),
+            "total": 0,
+            "annual": 0,
+        }  # pyright: ignore[reportArgumentType]
+    )
+    modern_row = sponsor_row_bytes(**SPONSOR_A)  # pyright: ignore[reportArgumentType]
+    game_db = one_club_game_db(
+        club_finance_bytes(rows=career_finance_rows(), sponsors=(modern_row, old_row, modern_row))
+    )
+    index = read_club_index(game_db, find_club_layouts(GAME_DB_SCHEMA, BUILD_STRING), FILE_NAME)
+    _months, sponsors, stats = read_club_finances(game_db, index, CLOCK, LAYOUTS, True)
+    assert len(sponsors) == 3
+    assert sponsors[1].start == date(1985, 7, 1)
+    assert sponsors[1].end == date(2021, 6, 30)
+    assert sponsors[1].total_value == sponsors[1].annual_value == 0
+    assert stats.clubs_with_sponsors == 1
+    assert stats.clubs_with_empty_sponsor_lists == 0
+
+
+@pytest.mark.parametrize(
+    "packed",
+    (
+        struct.pack("<HH", 1, 0),
+        struct.pack("<HH", 1, 1900),
+        struct.pack("<HH", 1, 2201),
+        struct.pack("<HH", 0, 1985),
+        struct.pack("<HH", 366, 1985),
+        struct.pack("<HH", 367, 1984),
+    ),
+)
+def test_historical_sponsor_dates_still_reject_null_and_malformed_values(packed: bytes) -> None:
+    row = sponsor_row_bytes(**{**SPONSOR_A, "start": packed})  # pyright: ignore[reportArgumentType]
+    record = sponsor_run_record((row,))
+    assert locate_sponsor_chain(record, 0, len(record), LAYOUTS.sponsors) is None

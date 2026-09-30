@@ -564,9 +564,19 @@ FINANCE_CHAINS = FinanceChainLayout(
     month_lag=1,
 )
 
-# A sponsor row is 25 bytes and its run is counted by the single byte in front of it. Years from
-# 1991 are what the corpus holds; the ceiling on a value is far above any contract measured.
+# A counted collection of nineteen-byte entries and its fixed suffix locate the primary
+# sponsor count. All measured prefixes carry the null-date marker and reserved bytes below.
+# A zero sponsor count is an explicit empty list. Positive lists retain all date/value checks.
 SPONSOR_CHAINS = SponsorChainLayout(
+    prefix_marker=bytes.fromhex("01006c07"),
+    prefix_date_offsets=(25, 29),
+    prefix_count_offset=71,
+    prefix_entry_bytes=19,
+    prefix_entry_reserved_offset=8,
+    prefix_entry_reserved=bytes(7),
+    prefix_suffix_bytes=68,
+    prefix_suffix_fixed=((11, bytes(1)), (15, bytes(1)), (20, b"\xff\x00"), (43, bytes(4))),
+    prefix_suffix_date_offsets=(30, 34, 38),
     row_bytes=25,
     tag=0x02,
     count_offset=-1,
@@ -581,7 +591,6 @@ SPONSOR_CHAINS = SponsorChainLayout(
     enum18_offset=18,
     b19_offset=19,
     annual_offset=21,
-    year_range=(1991, 2099),
     value_maximum=2_000_000_000,
 )
 
@@ -611,7 +620,7 @@ SUSPENSIONS = SuspensionLayout(
 )
 
 # A per-match player record is 15 bytes when the save keeps no performance body for the match
-# and 43 bytes when it does. The search is held to matches dated from four years before the
+# and 54 bytes when it does, including eleven trailing bytes whose meanings remain unknown. The search is held to matches dated from four years before the
 # save's clock to one after, which is where the records a save still holds fall; how many that
 # window yields moves with the career, so no check bounds the count.
 MATCH_RECORDS = MatchRecordLayout(
@@ -632,7 +641,7 @@ MATCH_RECORDS = MatchRecordLayout(
     passes_attempted_offset=41,
     passes_completed_offset=42,
     header_bytes=15,
-    record_bytes=43,
+    record_bytes=54,
     owner_back_offset=30,
     team_id_range=(1, 2_999_999),
     competition_id_range=(1, 65_535),
@@ -661,6 +670,10 @@ MATCH_RECORDS = MatchRecordLayout(
     # invisibly wrong; a raw mask is plainly incomplete instead, and groups records just as
     # well. The in-game check that shows one player's last five matches would settle the lot.
     position_bits=((0, "GOALKEEPER"),),
+    list_markers=(b"\x14\x01", b"\x3c\x01"),
+    list_header_bytes=10,
+    list_team_id_offset=2,
+    list_count_offset=6,
 )
 
 # The fixture calendar record is 68 bytes from the home team id, with the locator byte, the
@@ -803,6 +816,8 @@ RULES_PREAMBLES = RulesPreambleLayout(
     moved_match_bytes=10,
     moved_match_sentinel_offset=4,
     moved_match_sentinel_value=0xFF,
+    round_interstitial_tag_offset=0,
+    round_interstitial_tag_value=0x01,
     moved_match_tail_offset=6,
     moved_match_tail=b"\xff\xff\xff\xff",
     moved_match_max_per_round=64,
@@ -1238,6 +1253,7 @@ GATE_BOUNDS = GateBounds(
     per_match_competition_in_stage_space=(0.95, None),
     per_match_minutes_in_range=(0.99, None),
     per_match_rating_in_range=(0.99, None),
+    per_match_lists_complete=(1.0, None),
     # Every save measured decodes 93 records of the name table, in every per-match entry read,
     # so this floor is never near a healthy save. Reading the type id one byte late decodes 4
     # records before the chain breaks and reading the lead byte four bytes late decodes none at
@@ -1303,19 +1319,12 @@ GATE_BOUNDS = GateBounds(
     # no count to bound from below beyond one, and only where a managed club exists, whose club
     # held a series on every save measured.
     finance_series_minimum=(1, None),
-    # Every club with a series has a sponsor run on every save measured. The floor leaves room for a
-    # career where a few clubs hold none while still failing a sponsor search that has moved,
-    # which finds nothing at all.
+    # The prefix locates the primary sponsor list, including a stored zero count. Positive
+    # lists must still pass all row checks. Missing or invalid lists lower this coverage.
     finance_clubs_with_sponsors=(0.95, None),
-    # That share divides by the clubs the finance locator found, so every break of that locator
-    # leaves it with no denominator and reported as not applied, which used to let this reader
-    # call an empty table sound. This floor is the same count judged without a denominator: at
-    # least one club with a sponsor run, and only where a managed club exists, whose own club
-    # held one on every save measured. It stays at one deliberately. Breaking the sponsor run's
-    # own stride, its count byte or its annual field still leaves 13 to 178 clubs with a run,
-    # and three times the worst of those sits above the smallest healthy count measured, so no
-    # floor can be both far enough above those misreads and far enough below a real career; the
-    # share beside it is what fails on all three.
+    # The same decoded-list count without a denominator catches a missing finance locator
+    # where a managed club exists. Explicitly empty lists establish coverage; an empty table
+    # with no decoded lists does not. Keep the existing bounds unchanged.
     sponsor_clubs_minimum=(1, None),
     # Every club with a finance series carries a facilities rating in 1 to 20 fifty bytes past
     # the chain's end. Read one byte early the share is at most 0.02, one byte late at most

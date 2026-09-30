@@ -15,12 +15,10 @@ FINANCE_ROW_BYTES = 49
 FINANCE_ROW_TAG = 0x01
 SPONSOR_ROW_BYTES = 25
 SPONSOR_ROW_TAG = 0x02
-# What the bytes between the two chains hold: the date of day 1 of 1900 where the chain ends, a
-# pair of sevens, and the one byte in that stretch whose values look like a facility rating.
+# The sponsor prefix begins with a null-date sentinel and includes a facilities byte.
 CHAIN_GAP_LEADING_DATE = packed_date(1, 1900)
-CHAIN_GAP_SEVENS_OFFSET = 28
 CHAIN_GAP_FACILITY_OFFSET = 50
-CHAIN_GAP_BYTES = 140
+CHAIN_GAP_BYTES = 139
 # Padding between the second, dead sponsor run and the first one, and after the last chain.
 DEAD_SPONSOR_GAP_BYTES = 30
 CLUB_FINANCE_TRAILING_BYTES = 64
@@ -67,17 +65,23 @@ def finance_chain_bytes(rows: Sequence[bytes]) -> bytes:
     return struct.pack("<I", len(rows)) + b"".join(rows)
 
 
-def chain_gap_bytes(*, facility_byte: int = 17, length: int = CHAIN_GAP_BYTES) -> bytes:
-    """The bytes between a club's snapshot chain and its sponsor chain.
+def chain_gap_bytes(*, facility_byte: int = 17, prefix_entries: Sequence[bytes] = ()) -> bytes:
+    """An independent counted sponsor prefix, excluding the final sponsor count.
 
-    The date of day 1 of 1900 where the chain ends, a pair of sevens, the facility-shaped byte,
-    and zeros everywhere else.
+    A 72-byte header carries a null date, two more dates, the facilities byte and an
+    entry count. Each entry is nineteen bytes; the following 67 bytes hold reserved
+    markers and three dates before the sponsor count itself.
     """
-    output = bytearray(length)
-    output[: len(CHAIN_GAP_LEADING_DATE)] = CHAIN_GAP_LEADING_DATE
-    struct.pack_into("<II", output, CHAIN_GAP_SEVENS_OFFSET, 7, 7)
-    output[CHAIN_GAP_FACILITY_OFFSET] = facility_byte
-    return bytes(output)
+    header = bytearray(72)
+    for at in (0, 25, 29):
+        header[at : at + 4] = CHAIN_GAP_LEADING_DATE
+    header[CHAIN_GAP_FACILITY_OFFSET] = facility_byte
+    header[71] = len(prefix_entries)
+    suffix = bytearray(67)
+    suffix[20:22] = b"\xff\x00"
+    for at in (30, 34, 38):
+        suffix[at : at + 4] = CHAIN_GAP_LEADING_DATE
+    return bytes(header) + b"".join(prefix_entries) + bytes(suffix)
 
 
 def sponsor_row_bytes(
@@ -121,6 +125,7 @@ def club_finance_bytes(
     padding_bytes: int = 1_200,
     facility_byte: int = 17,
     dead_sponsors: Sequence[bytes] = (),
+    prefix_entries: Sequence[bytes] = (),
 ) -> bytes:
     """One club record's finance bytes: padding, the snapshot chain, the gap, the sponsors.
 
@@ -131,7 +136,7 @@ def club_finance_bytes(
     """
     output = bytearray(padding_bytes)
     output.extend(finance_chain_bytes(rows))
-    output.extend(chain_gap_bytes(facility_byte=facility_byte))
+    output.extend(chain_gap_bytes(facility_byte=facility_byte, prefix_entries=prefix_entries))
     output.extend(sponsor_chain_bytes(sponsors))
     if dead_sponsors:
         output.extend(bytes(DEAD_SPONSOR_GAP_BYTES))

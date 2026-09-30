@@ -18,6 +18,18 @@ All notable changes to this project are documented here. The format follows [Kee
 - `tactics()` and `set_pieces()` read additional continued careers. Incomplete tactic lists cannot borrow records from the trailing tactic library; validation now includes `tactic_records_count_matching`.
 - Fresh careers with explicitly empty tactic lists pass validation without excusing missing records in lists that claim tactics.
 
+## [Unreleased]
+
+### Fixed
+
+- `tactics()` reads stored preset and alternate tactics and checks every team's declared list, including empty lists.
+- `stadiums()` stops at the table's closing header, avoiding a spurious ground row.
+- `staff_lists()` keeps valid members when a list contains an empty reference.
+- Player and staff readers recognize complete allocated-person header variants, recovering their contracts and season-stat joins. Staff discovery excludes contract-like bytes inside closed club objects.
+- `competition_rules()` reads an additional interstitial record shape when the complete declared calendar can be decoded, recovering previously missed rounds.
+- `player_match_stats()` walks complete counted histories with the correct performance-record length. Unrelated player fields no longer appear as matches, and incomplete histories fail an independent completeness check.
+- `sponsorships()` reads each club's primary counted list, including explicit empty lists, and retains valid historical contracts predating the old scan's year cutoff. Later sponsor-shaped data cannot replace an empty or invalid primary list.
+
 ## [0.5.3] - 2026-09-29
 
 ### Fixed

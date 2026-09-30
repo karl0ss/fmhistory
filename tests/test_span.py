@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import struct
 from collections.abc import Mapping, Sequence
 from datetime import date
 from pathlib import Path
@@ -12,6 +13,7 @@ from tests.fixtures.container import SectionFrame, build_container_fragment, def
 from tests.fixtures.span import (
     UNPLAYED_KEY,
     fixture_record_bytes,
+    moved_match_bytes,
     rules_preamble_bytes,
     span_frames,
     span_payloads,
@@ -455,6 +457,54 @@ def test_round_records_are_read_across_the_moved_match_blocks_between_them() -> 
         date(2030, 8, 10),
     ]
     assert block.fully_parsed is True
+
+
+def tagged_interstitial_block(*, interstitial: bytes, count: int = 2) -> bytes:
+    return example_rules_block(moved_matches_after_first_round=count).replace(
+        moved_match_bytes(), interstitial
+    )
+
+
+def test_tagged_interstitials_preserve_rounds_without_interpreting_the_payload() -> None:
+    interstitial = b"\x01\x55\x66\x77\x88\x99" + b"\xff" * 4
+    records = scan([tagged_interstitial_block(interstitial=interstitial)])
+    block = records.rules_blocks[0]
+    assert [row.number for row in block.rounds] == [1, 2, 3]
+    assert [row.match_count for row in block.rounds] == [10, 10, 10]
+    assert block.fully_parsed
+
+
+@pytest.mark.parametrize("changed_offset", [0, 6, 7, 8, 9])
+def test_tagged_interstitials_require_the_tag_and_every_tail_byte(changed_offset: int) -> None:
+    interstitial = bytearray(b"\x01\x55\x66\x77\x88\x99" + b"\xff" * 4)
+    interstitial[changed_offset] = 2
+    block = scan([tagged_interstitial_block(interstitial=bytes(interstitial))]).rules_blocks[0]
+    assert len(block.rounds) == 1
+    assert not block.fully_parsed
+
+
+@pytest.mark.parametrize(("offset", "value"), [(9, 256), (1, 0)])
+def test_tagged_interstitials_require_a_complete_calendar_without_raising_count_limits(
+    offset: int, value: int
+) -> None:
+    data = bytearray(
+        tagged_interstitial_block(interstitial=b"\x01\x55\x66\x77\x88\x99" + b"\xff" * 4)
+    )
+    # A third round with an invalid date or flag-like count remains unsupported. The walk may
+    # reach round two but cannot add it unless it also decodes the whole declared list.
+    struct.pack_into("<I", data, len(data) - 15 + offset, value)
+    block = scan([bytes(data)]).rules_blocks[0]
+    assert len(block.rounds) == 1
+    assert not block.fully_parsed
+
+
+def test_tagged_interstitials_keep_the_per_round_bound() -> None:
+    data = tagged_interstitial_block(
+        interstitial=b"\x01\x55\x66\x77\x88\x99" + b"\xff" * 4, count=65
+    )
+    block = scan([data]).rules_blocks[0]
+    assert len(block.rounds) == 1
+    assert not block.fully_parsed
 
 
 # Stage-keyed results

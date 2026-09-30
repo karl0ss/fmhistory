@@ -426,6 +426,39 @@
         'enum18_offset': 18,
         'flag10_maximum': 1,
         'flag10_offset': 10,
+        'prefix_count_offset': 71,
+        'prefix_date_offsets': tuple(
+          25,
+          29,
+        ),
+        'prefix_entry_bytes': 19,
+        'prefix_entry_reserved': b'\x00\x00\x00\x00\x00\x00\x00',
+        'prefix_entry_reserved_offset': 8,
+        'prefix_marker': b'\x01\x00l\x07',
+        'prefix_suffix_bytes': 68,
+        'prefix_suffix_date_offsets': tuple(
+          30,
+          34,
+          38,
+        ),
+        'prefix_suffix_fixed': tuple(
+          tuple(
+            11,
+            b'\x00',
+          ),
+          tuple(
+            15,
+            b'\x00',
+          ),
+          tuple(
+            20,
+            b'\xff\x00',
+          ),
+          tuple(
+            43,
+            b'\x00\x00\x00\x00',
+          ),
+        ),
         'row_bytes': 25,
         'start_offset': 2,
         'tag': 2,
@@ -433,10 +466,6 @@
         'type_offset': 1,
         'u15_offset': 15,
         'value_maximum': 2000000000,
-        'year_range': tuple(
-          1991,
-          2099,
-        ),
       }),
       'region': 'game_db',
       'schema': 4000,
@@ -513,6 +542,13 @@
         'lead_byte_offset': 0,
         'lead_byte_value': 1,
         'left_at_offset': 36,
+        'list_count_offset': 6,
+        'list_header_bytes': 10,
+        'list_markers': tuple(
+          b'\x14\x01',
+          b'<\x01',
+        ),
+        'list_team_id_offset': 2,
         'maximum_goals': 20,
         'maximum_minutes': 130,
         'maximum_rating': 100,
@@ -530,7 +566,7 @@
         'position_mask_offset': 17,
         'rating_offset': 40,
         'rating_scale': 10,
-        'record_bytes': 43,
+        'record_bytes': 54,
         'role_code_offset': 23,
         'tag_offset': 13,
         'team_id_range': tuple(
@@ -1273,6 +1309,8 @@
         'round_b5_offset': 5,
         'round_count_max': 80,
         'round_date_offset': 1,
+        'round_interstitial_tag_offset': 0,
+        'round_interstitial_tag_value': 1,
         'round_kind_offset': 0,
         'round_match_count_max': 64,
         'round_match_count_offset': 9,
@@ -1895,6 +1933,10 @@
         ),
         'per_match_competition_in_stage_space': tuple(
           0.95,
+          None,
+        ),
+        'per_match_lists_complete': tuple(
+          1.0,
           None,
         ),
         'per_match_minutes_in_range': tuple(
