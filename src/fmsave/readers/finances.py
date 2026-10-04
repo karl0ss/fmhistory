@@ -388,6 +388,7 @@ def read_club_finances(
     net_identity_rows = 0
     balance_steps = 0
     balance_continuous_steps = 0
+    opening_balance_steps = 0
     expenditure_split_rows = 0
     clubs_with_sponsors = 0
     clubs_with_empty_sponsor_lists = 0
@@ -404,10 +405,13 @@ def read_club_finances(
         if chains_found > 1:
             clubs_with_two_chains += 1
         previous_balance: int | None = None
-        for month, row_offset in zip(
-            month_labels(clock, row_count, month_lag),
-            range(head, head + row_bytes * row_count, row_bytes),
-            strict=True,
+        previous_net = 0
+        for step_index, (month, row_offset) in enumerate(
+            zip(
+                month_labels(clock, row_count, month_lag),
+                range(head, head + row_bytes * row_count, row_bytes),
+                strict=True,
+            )
         ):
             row = unpack_row(game_db, row_offset)
             (
@@ -451,7 +455,12 @@ def read_club_finances(
                 balance_steps += 1
                 if balance == previous_balance + net:
                     balance_continuous_steps += 1
+                elif step_index == 1 and balance == previous_balance + previous_net + net:
+                    # The oldest row holds an opening balance, before its own month's net.
+                    balance_continuous_steps += 1
+                    opening_balance_steps += 1
             previous_balance = balance
+            previous_net = net
         located_run = locate_sponsor_chain(
             game_db, head + row_bytes * row_count, span.record_end, sponsor_layout
         )
@@ -475,6 +484,7 @@ def read_club_finances(
             net_identity_rows=net_identity_rows,
             balance_steps=balance_steps,
             balance_continuous_steps=balance_continuous_steps,
+            opening_balance_steps=opening_balance_steps,
             expenditure_split_rows=expenditure_split_rows,
             clubs_with_sponsors=clubs_with_sponsors,
             sponsor_rows=len(sponsorships),

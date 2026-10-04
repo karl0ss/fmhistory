@@ -298,6 +298,9 @@ class LeagueTableStats:
     lists. `double_round_robin_divisions` counts the tables shaped like a division whose clubs
     all play each other twice, which is what collapses if the grouping ever starts running one
     table into the next, since a merged table holds its clubs twice over.
+    `started_calendar_divisions` counts the divisions the fixture calendar shows under way, its
+    own form of that shape with every member having played; a division not yet under way keeps
+    no table of that shape, so this is the population the division count can be judged against.
 
     The last three count what the fixture calendar had to say about the slot parity the venues
     are read from. `in_sync_tables` counts the tables with a competition whose every row's
@@ -318,6 +321,7 @@ class LeagueTableStats:
     team_id_in_range: int
     team_resolved: int
     double_round_robin_divisions: int
+    started_calendar_divisions: int
     in_sync_tables: int
     venue_slots_decided: int
     venue_slots_agreeing: int
@@ -458,7 +462,10 @@ class FinanceStats:
     total income less total expenditure, and `expenditure_split_rows` those whose expenditure
     excluding transfers lies between zero and the total. `balance_steps` counts consecutive row
     pairs inside one club, and `balance_continuous_steps` those where the later balance is the
-    earlier one plus the later month's net.
+    earlier one plus the later month's net. A club's first step also counts as continuous when
+    the later balance is the earlier one plus both months' nets: on the saves measured, a series
+    that begins with the career stores in its oldest row the balance before that month's net,
+    and `opening_balance_steps` counts the first steps accepted that way.
 
     `clubs_with_sponsors` counts the clubs with a series that also hold a sponsor run, and
     `sponsor_rows` the rows those runs hold. `clubs_with_empty_sponsor_lists` counts primary
@@ -478,6 +485,7 @@ class FinanceStats:
     sponsor_rows: int
     managed_club_exists: bool
     clubs_with_empty_sponsor_lists: int = 0
+    opening_balance_steps: int = 0
 
 
 @dataclass(frozen=True, slots=True)

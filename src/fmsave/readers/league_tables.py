@@ -532,6 +532,51 @@ def _is_double_round_robin_division(
     return fewest_clubs <= len(rows) <= most_clubs and rows[0].rounds_per_venue == len(rows) - 1
 
 
+def started_calendar_divisions(fixtures: Sequence[Fixture], layout: LeagueTableLayout) -> int:
+    """How many divisions the calendar shows under way, each of which should hold a table.
+
+    A division here is a stage's latest season whose fixtures pair every two member teams
+    exactly once each way, with a club count inside the layout's division range: the
+    calendar's own form of the table shape `_is_double_round_robin_division` counts. It is
+    under way once every member team has played in it. The reader keeps only blocks with a
+    played match, so a division where a member has yet to play cannot keep its table's shape,
+    and before the season starts it has no table at all. Only a stage's latest season counts,
+    so a finished season does not stand in for one not yet begun.
+    """
+    fewest_clubs, most_clubs = layout.division_club_range
+    by_stage_season: dict[tuple[int, int], list[Fixture]] = {}
+    latest_season: dict[int, int] = {}
+    for fixture in fixtures:
+        stage_id = fixture.stage_id
+        season = fixture.season_start_year
+        if stage_id is None or season is None:
+            continue
+        by_stage_season.setdefault((stage_id, season), []).append(fixture)
+        latest_season[stage_id] = max(season, latest_season.get(stage_id, season))
+    started = 0
+    for (stage_id, season), stage_fixtures in by_stage_season.items():
+        if season != latest_season[stage_id]:
+            continue
+        pairs = {(fixture.home_team_id, fixture.away_team_id) for fixture in stage_fixtures}
+        teams = {team_id for pair in pairs for team_id in pair}
+        club_count = len(teams)
+        if (
+            not fewest_clubs <= club_count <= most_clubs
+            or len(stage_fixtures) != club_count * (club_count - 1)
+            or len(pairs) != len(stage_fixtures)
+        ):
+            continue
+        teams_played = {
+            team_id
+            for fixture in stage_fixtures
+            if fixture.played
+            for team_id in (fixture.home_team_id, fixture.away_team_id)
+        }
+        if len(teams_played) == club_count:
+            started += 1
+    return started
+
+
 def build_league_tables(
     span_records: SpanRecords,
     fixtures: Sequence[Fixture],
@@ -588,6 +633,7 @@ def build_league_tables(
         team_id_in_range=team_id_in_range,
         team_resolved=team_resolved,
         double_round_robin_divisions=double_round_robin_divisions,
+        started_calendar_divisions=started_calendar_divisions(fixtures, layout),
         in_sync_tables=venue_agreement.in_sync_tables,
         venue_slots_decided=venue_agreement.slots_decided,
         venue_slots_agreeing=venue_agreement.slots_agreeing,

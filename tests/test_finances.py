@@ -365,6 +365,40 @@ def test_a_club_with_no_sponsor_run_still_yields_its_months() -> None:
     assert stats.clubs_with_empty_sponsor_lists == 1
 
 
+def _series_stats(balances: Sequence[int]) -> FinanceStats:
+    """The stats of one club whose career rows carry `balances` in place of their own."""
+    rows = [
+        finance_row_bytes(**{**values, "balance": balance})  # pyright: ignore[reportArgumentType]
+        for values, balance in zip(FINANCE_MONTH_VALUES, balances, strict=True)
+    ]
+    game_db = one_club_game_db(club_finance_bytes(rows=rows, sponsors=(), facility_byte=17))
+    club_index = read_club_index(
+        game_db, find_club_layouts(GAME_DB_SCHEMA, BUILD_STRING), FILE_NAME
+    )
+    _months, _sponsors, stats = read_club_finances(game_db, club_index, CLOCK, LAYOUTS, True)
+    return stats
+
+
+def test_an_oldest_row_holding_an_opening_balance_keeps_the_series_continuous() -> None:
+    """A series begun with the career stores, in its oldest row, the balance before that
+    month's net, so the second balance is the first plus both months' nets."""
+    first, second, third = (values["balance"] for values in FINANCE_MONTH_VALUES)
+    opening = first - FINANCE_MONTH_VALUES[0]["net"]
+    stats = _series_stats((opening, second, third))
+    assert stats.balance_steps == 2
+    assert stats.balance_continuous_steps == 2
+    assert stats.opening_balance_steps == 1
+
+
+def test_only_the_first_step_may_start_from_an_opening_balance() -> None:
+    first, second, _third = (values["balance"] for values in FINANCE_MONTH_VALUES)
+    both_nets_later = second + FINANCE_MONTH_VALUES[1]["net"] + FINANCE_MONTH_VALUES[2]["net"]
+    stats = _series_stats((first, second, both_nets_later))
+    assert stats.balance_steps == 2
+    assert stats.balance_continuous_steps == 1
+    assert stats.opening_balance_steps == 0
+
+
 def test_both_records_export_their_columns() -> None:
     assert export.column_names(FinanceMonth) == (
         "club_uid",
@@ -711,7 +745,11 @@ def test_the_sponsorship_check_names_its_own_reader(career_save_path: Path) -> N
         "clubs_with_empty_sponsor_lists": 0,
         "clubs_without_sponsor_lists": 0,
     }
-    assert dict(finance_check.anomalies) == {"clubs_with_series": 2, "balance_breaks": 0}
+    assert dict(finance_check.anomalies) == {
+        "clubs_with_series": 2,
+        "balance_breaks": 0,
+        "opening_balance_steps": 0,
+    }
 
 
 def test_athletic_keeps_its_first_sponsor_run_only(career_save_path: Path) -> None:
