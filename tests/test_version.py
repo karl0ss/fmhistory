@@ -258,8 +258,55 @@ def test_a_career_started_on_an_older_build_opens(tmp_path: Path) -> None:
 
 def test_a_last_saved_build_word_that_differs_fails_checks(tmp_path: Path) -> None:
     body = game_info_body(build_numbers=(2329565, 2239191, 2329565))
-    with pytest.raises(ReaderCheckError):
+    with pytest.raises(ReaderCheckError) as error_info:
         read_save_info(build_index(tmp_path, sections_with(game_info=body)))
+    assert "the saved-by build word holds another value" in str(error_info.value)
+
+
+def test_a_26_3_1_save_is_a_known_build(tmp_path: Path) -> None:
+    sections = sections_with(
+        save_game_summary=save_summary_body(version="26.3.1+2314564"),
+        game_info=game_info_body(build_numbers=(2314564, 2314564, 2314564)),
+    )
+    index = build_index(tmp_path, sections)
+    with warnings.catch_warnings(record=True) as caught_warnings:
+        warnings.simplefilter("always")
+        save_info = read_save_info(index)
+    assert unknown_build_warnings(caught_warnings) == []
+    assert save_info.known_build
+    assert save_info.game_date == date(2031, 3, 1)
+
+
+def game_info_26_1_0(late_build_number_offset: int = 195) -> list[SectionFrame]:
+    return sections_with(
+        save_game_summary=save_summary_body(version="26.1.0+2245540", schema=28),
+        game_info=game_info_body(
+            build_numbers=(2245540, 2245540, 2245540),
+            game_date_offset=168,
+            late_build_number_offset=late_build_number_offset,
+        ),
+    )
+
+
+def test_a_26_1_0_save_reads_its_clock_four_bytes_earlier(tmp_path: Path) -> None:
+    index = build_index(tmp_path, game_info_26_1_0())
+    with pytest.warns(UnknownBuildWarning):
+        save_info = read_save_info(index)
+    assert not save_info.known_build
+    assert save_info.game_date == date(2031, 3, 1)
+    assert save_info.time_slot == 66
+
+
+def test_a_26_3_2_save_does_not_read_its_clock_at_the_26_1_0_offset(tmp_path: Path) -> None:
+    body = game_info_body(game_date_offset=168, late_build_number_offset=195)
+    save_info = read_save_info(build_index(tmp_path, sections_with(game_info=body)))
+    assert save_info.game_date is None
+
+
+def test_a_26_1_0_late_build_word_past_its_window_fails_checks(tmp_path: Path) -> None:
+    index = build_index(tmp_path, game_info_26_1_0(late_build_number_offset=240))
+    with pytest.warns(UnknownBuildWarning), pytest.raises(ReaderCheckError):
+        read_save_info(index)
 
 
 def test_late_build_number_three_bytes_earlier_still_matches(tmp_path: Path) -> None:
@@ -272,8 +319,9 @@ def test_late_build_number_three_bytes_earlier_still_matches(tmp_path: Path) -> 
 
 def test_late_build_number_past_its_window_fails_checks(tmp_path: Path) -> None:
     body = game_info_body(late_build_number_offset=244)
-    with pytest.raises(ReaderCheckError):
+    with pytest.raises(ReaderCheckError) as error_info:
         read_save_info(build_index(tmp_path, sections_with(game_info=body)))
+    assert "no late build word sits inside its window" in str(error_info.value)
 
 
 def test_game_info_decode_failure_on_unknown_build_fails_checks(tmp_path: Path) -> None:

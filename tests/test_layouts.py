@@ -36,8 +36,32 @@ def test_layout_registry_snapshot(snapshot: SnapshotAssertion) -> None:
 
 
 def test_known_builds() -> None:
-    assert known_builds() == frozenset({"26.3.2+2329565"})
+    assert known_builds() == frozenset({"26.3.2+2329565", "26.3.1+2314564"})
     assert FALLBACK_BUILD in known_builds()
+
+
+def test_a_build_sharing_every_layout_finds_them_exactly() -> None:
+    for layout_type in (FixtureCalendarLayout, LeagueTableLayout):
+        shared = find_layout(layout_type, SPAN_REGION, None, "26.3.1+2314564")
+        assert shared.exact
+        assert shared.layout == find_layout(layout_type, SPAN_REGION, None, FALLBACK_BUILD).layout
+
+
+def test_a_build_specific_layout_wins_over_one_registered_for_the_same_schema() -> None:
+    older = find_layout(GameInfoLayout, "game_info", 46, "26.1.0+2245540")
+    assert older.exact
+    assert older.layout.game_date_offset_after_db_version == 168
+    for build in (FALLBACK_BUILD, "26.3.1+2314564", SECOND_BUILD, ""):
+        match = find_layout(GameInfoLayout, "game_info", 46, build)
+        assert match.exact
+        assert match.layout.game_date_offset_after_db_version == 172
+
+
+def test_a_build_with_only_some_layouts_of_its_own_is_not_known() -> None:
+    assert "26.1.0+2245540" in {entry.build for entry in registered_layouts()}
+    assert "26.1.0+2245540" not in known_builds()
+    span_match = find_layout(FixtureCalendarLayout, SPAN_REGION, None, "26.1.0+2245540")
+    assert not span_match.exact
 
 
 def test_exact_schema_match() -> None:

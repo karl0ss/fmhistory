@@ -46,8 +46,10 @@ def game_info_body(
     migration_names: tuple[str, ...] = ("EXAMPLE_PATCH_fm26",),
     schema: int = 46,
     late_build_number_offset: int = 202,
+    game_date_offset: int = 172,
 ) -> bytes:
-    """`late_build_number_offset` counts from the end of the database version, like the others."""
+    """`late_build_number_offset` and `game_date_offset` count from the end of the database
+    version, like the others."""
     version_field = length_prefixed(db_version)
     base = 8 + len(version_field)
     names_offset = base + late_build_number_offset + 8
@@ -55,7 +57,9 @@ def game_info_body(
     body.extend(bytes(names_offset - len(body)))
     struct.pack_into("<I", body, base + 34, build_numbers[0])
     struct.pack_into("<I", body, base + 38, build_numbers[1])
-    body[base + 172 : base + 176] = packed_date(game_day_of_year, game_year, time_slot)
+    body[base + game_date_offset : base + game_date_offset + 4] = packed_date(
+        game_day_of_year, game_year, time_slot
+    )
     struct.pack_into("<I", body, base + late_build_number_offset, build_numbers[2])
     struct.pack_into("<I", body, base + late_build_number_offset + 4, len(migration_names))
     del body[names_offset:]

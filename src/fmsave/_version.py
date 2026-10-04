@@ -206,12 +206,18 @@ def decode_game_info_fields(
         version_end + window_start,
         min(version_end + window_end, len(game_info)),
     )
-    if late_build_number_at == -1 or any(
+    mismatches: list[str] = []
+    if any(
         stored_build_number != version.build_number for stored_build_number in stored_build_numbers
     ):
+        mismatches.append("the saved-by build word holds another value")
+    if late_build_number_at == -1:
+        mismatches.append("no late build word sits inside its window")
+    if mismatches:
         raise ReaderCheckError(
-            f"{file_name}: game_info does not match build {version.build}, so the save layout differs "
-            f"from what fmsave expects. Please report it at {ISSUES_URL}"
+            f"{file_name}: game_info does not match build {version.build} "
+            f"({' and '.join(mismatches)}), so the save layout differs from what fmsave expects. "
+            f"Please report it at {ISSUES_URL}"
         )
     date_offset = version_end + layout.game_date_offset_after_db_version
     return GameInfoFacts(
@@ -254,8 +260,8 @@ def read_save_info(container_index: ContainerIndex) -> SaveInfo:
         warnings.warn(
             UnknownBuildWarning(
                 f"{file_name} was saved by FM26 build {version.build}, which fmsave {__version__} has no "
-                f"layouts for. Using the {FALLBACK_BUILD} layouts; readers check their results and raise "
-                "ReaderCheckError if they do not fit."
+                f"full set of layouts for. Using the {FALLBACK_BUILD} layouts where it has none of its "
+                "own; readers check their results and raise ReaderCheckError if they do not fit."
             ),
             skip_file_prefixes=(str(Path(fmsave.__file__).parent) + os.sep,),
         )

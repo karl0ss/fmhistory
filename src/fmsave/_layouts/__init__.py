@@ -1,13 +1,14 @@
 """Private layout tables: where fields sit inside each region.
 
 Layouts are keyed by (region, schema number) with the game build as a fallback,
-because some regions carry no schema number. Modules are organised per game year
-and build.
+because some regions carry no schema number and a build can change a region without
+changing its schema. Modules are organised per game year and build.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Protocol
 
 
 @dataclass(frozen=True, slots=True)
@@ -2268,29 +2269,76 @@ class LayoutMatch[LayoutT]:
 FALLBACK_BUILD = "26.3.2+2329565"
 
 
-def registered_layouts() -> tuple[LayoutEntry, ...]:
-    from fmsave._layouts import fm26_26_3_2
+class _BuildModule(Protocol):
+    """A per-build layout module: its build, the builds all its layouts fit, and its layouts."""
 
-    return fm26_26_3_2.LAYOUTS
+    @property
+    def BUILD(self) -> str: ...
+
+    @property
+    def KNOWN_BUILDS(self) -> tuple[str, ...]: ...
+
+    @property
+    def LAYOUTS(self) -> tuple[LayoutEntry, ...]: ...
+
+
+def _build_modules() -> tuple[_BuildModule, ...]:
+    from fmsave._layouts import fm26_26_1_0, fm26_26_3_2
+
+    return (fm26_26_3_2, fm26_26_1_0)
+
+
+def registered_layouts() -> tuple[LayoutEntry, ...]:
+    return tuple(entry for module in _build_modules() for entry in module.LAYOUTS)
 
 
 def known_builds() -> frozenset[str]:
-    return frozenset(entry.build for entry in registered_layouts())
+    """Builds whose saves every region's layout fits; other builds borrow layouts."""
+    return frozenset(build for module in _build_modules() for build in module.KNOWN_BUILDS)
+
+
+def _layout_build(build: str) -> str:
+    """The build whose layouts a save of `build` is read with: itself, or the one it shares."""
+    for module in _build_modules():
+        if build in module.KNOWN_BUILDS:
+            return module.BUILD
+    return build
 
 
 def find_layout[LayoutT: Layout](
     layout_type: type[LayoutT], region: str, schema: int | None, build: str
 ) -> LayoutMatch[LayoutT]:
+    """The layout for a region, by schema and build, then schema, then build, then fallback.
+
+    A layout registered for the save's own build and schema wins. Failing that, a schema match
+    counts only among builds every region's layout fits, so one build's override of a shared
+    schema is never applied to another build's save.
+    """
+    layout_build = _layout_build(build)
+    full_builds = known_builds()
     candidates = [
         entry
         for entry in registered_layouts()
         if entry.region == region and isinstance(entry.layout, layout_type)
     ]
     for entry in candidates:
-        if schema is not None and entry.schema == schema and isinstance(entry.layout, layout_type):
+        if (
+            schema is not None
+            and entry.schema == schema
+            and entry.build == layout_build
+            and isinstance(entry.layout, layout_type)
+        ):
             return LayoutMatch(entry.layout, exact=True)
     for entry in candidates:
-        if entry.build == build and isinstance(entry.layout, layout_type):
+        if (
+            schema is not None
+            and entry.schema == schema
+            and entry.build in full_builds
+            and isinstance(entry.layout, layout_type)
+        ):
+            return LayoutMatch(entry.layout, exact=True)
+    for entry in candidates:
+        if entry.build == layout_build and isinstance(entry.layout, layout_type):
             return LayoutMatch(entry.layout, exact=entry.schema is None)
     for entry in candidates:
         if entry.build == FALLBACK_BUILD and isinstance(entry.layout, layout_type):

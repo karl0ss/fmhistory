@@ -2487,5 +2487,22 @@
       'region': 'game_db',
       'schema': 4000,
     }),
+    dict({
+      'build': '26.1.0+2245540',
+      'layout': dict({
+        'build_number_offsets_after_db_version': tuple(
+          38,
+        ),
+        'db_version_length_offset': 8,
+        'game_date_offset_after_db_version': 168,
+        'late_build_number_window_after_db_version': tuple(
+          172,
+          236,
+        ),
+        'max_db_version_bytes': 64,
+      }),
+      'region': 'game_info',
+      'schema': 46,
+    }),
   ])
 # ---
