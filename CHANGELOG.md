@@ -18,6 +18,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 - `set_pieces()` reads user routines whose tail flag differs from the usual value instead of merging them into the next routine.
 - `finances()` validation accepts a club's first month when its oldest row holds the opening balance, as series begun with the career do. Early-career saves no longer fail `finance_balance_continuity`. New anomaly `opening_balance_steps`.
 - `league_tables()` validation applies `double_round_robin_divisions` only once the fixture calendar shows enough divisions under way, so preseason saves no longer fail it. New anomaly `started_calendar_divisions`.
+- `facilities()` counts a club that stores no corporate-facilities rating (a zero in an all-zero block) as unset instead of out of range. Saves tracking many nations no longer fail its checks. New check `facility_unset_ratings` and anomaly `unset_ratings`.
 - The "game_info does not match build" error says which build check failed.
 
 ## [0.5.4] - 2026-09-30
