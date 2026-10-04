@@ -538,9 +538,27 @@ def test_rates_are_worked_out_from_the_counts_on_access() -> None:
     assert row.expected_goals_per_shot == 0.2
 
 
+def test_possession_lost_and_non_penalty_xg_decode_with_their_rates() -> None:
+    row = overall_row(
+        minutes=1350,
+        possession_lost=180,
+        possession_won=120,
+        expected_goals=6.4,
+        non_penalty_expected_goals=4.8,
+        penalties_taken=2,
+    )
+    assert (row.possession_lost, row.possession_won) == (180, 120)
+    assert (row.expected_goals, row.non_penalty_expected_goals) == (6.4, 4.8)
+    assert row.possession_lost_per_90 == 12.0
+    assert row.possession_won_per_90 == 8.0
+    assert row.non_penalty_expected_goals_per_90 == pytest.approx(0.32)
+
+
 def test_a_rate_with_nothing_to_divide_by_is_none() -> None:
     row = overall_row(minutes=0, goals=0)
     assert row.goals_per_90 is None
+    assert row.possession_lost_per_90 is None
+    assert row.non_penalty_expected_goals_per_90 is None
     assert row.pass_completion_percent is None
     assert row.save_percent is None
 
@@ -556,6 +574,6 @@ def test_a_goalkeeper_gets_save_rates_and_no_outfield_rates() -> None:
 def test_every_rate_is_exported_and_has_a_status() -> None:
     names = column_names(PlayerSeasonStats)
     assert names[-len(PlayerSeasonStats.COMPUTED_FIELDS) :] == PlayerSeasonStats.COMPUTED_FIELDS
-    assert len(PlayerSeasonStats.COMPUTED_FIELDS) == 44
+    assert len(PlayerSeasonStats.COMPUTED_FIELDS) == 46
     for name in PlayerSeasonStats.COMPUTED_FIELDS:
         assert fmsave.field_status(PlayerSeasonStats, name) in ("verified", "unconfirmed")

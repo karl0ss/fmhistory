@@ -398,3 +398,29 @@ def test_every_manifest_save_reads_strictly(corpus_save_paths: dict[str, Path]) 
                 continue
         mismatches.check(Path(relative_name).name, "rows", len(rows) > 0)
     mismatches.fail_if_any()
+
+
+def test_non_penalty_xg_differs_from_xg_only_by_the_penalties_taken(
+    corpus_save_paths: dict[str, Path],
+) -> None:
+    """Every row's non-penalty xG equals its xG when no penalty was taken, and otherwise falls
+    short of it by no more than a penalty's xG for each one taken."""
+    largest_penalty_xg = 0.81
+    mismatches = CorpusMismatches()
+    for relative_name, save_path in corpus_save_paths.items():
+        with fmsave.open(save_path) as career_save:
+            rows = career_save.player_season_stats()
+        label = Path(relative_name).name
+        mismatches.check(
+            label,
+            "non_penalty_expected_goals",
+            all(
+                row.non_penalty_expected_goals == row.expected_goals
+                if row.penalties_taken == 0
+                else 0
+                <= row.expected_goals - row.non_penalty_expected_goals
+                <= largest_penalty_xg * row.penalties_taken + 1e-9
+                for row in rows
+            ),
+        )
+    mismatches.fail_if_any()
