@@ -48,6 +48,9 @@ from fmsave._layouts import (
 )
 
 BUILD = "26.3.2+2329565"
+# Builds every layout here fits. A 26.3.1 save has the same section schemas and `game_info`
+# offsets as its own career re-saved on 26.3.2, and every reader gives the same results on both.
+KNOWN_BUILDS: tuple[str, ...] = (BUILD, "26.3.1+2314564")
 # The unnamed run of frames between `non_pl_hist_ls` and `humans`, which carries no schema
 # number. `fmsave.readers._common.SPAN_REGION` is the name the readers use.
 SPAN_REGION_NAME = "unlisted_after_non_pl_hist_ls"

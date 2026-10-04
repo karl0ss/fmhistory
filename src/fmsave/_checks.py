@@ -2470,7 +2470,7 @@ class ValidationReport:
         os: The operating system name, for example "Linux".
         game: Game edition, for example "FM26".
         build: Version and build that last wrote the save.
-        known_build: Whether fmsave has layout tables for this build.
+        known_build: Whether fmsave has a full set of layout tables for this build.
         section_schemas: Schema number of every named section.
         readers: Each reader's outcome, in the order they ran.
         field_statuses: Whether each public field's meaning is "verified" or "unconfirmed".
