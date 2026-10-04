@@ -4,6 +4,22 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+## [0.5.5] - 2026-10-04
+
+### Added
+
+- `player_season_stats()` adds `possession_lost` and `non_penalty_expected_goals`, with `possession_lost_per_90` and `non_penalty_expected_goals_per_90`. All four are unconfirmed.
+- Saves from build 26.3.1 are read as a known build with the 26.3.2 layouts.
+- Saves from build 26.1.0 read the in-game date, so players, contracts, staff, injuries, finances and most other tables load. Fixtures, league tables, tactics and set pieces still fail their checks there, and the build is still reported as unknown.
+
+### Fixed
+
+- `job_vacancies()` reads job-centre records that store a list of ids; such saves no longer fail the section size check.
+- `set_pieces()` reads user routines whose tail flag differs from the usual value instead of merging them into the next routine.
+- `finances()` validation accepts a club's first month when its oldest row holds the opening balance, as series begun with the career do. Early-career saves no longer fail `finance_balance_continuity`. New anomaly `opening_balance_steps`.
+- `league_tables()` validation applies `double_round_robin_divisions` only once the fixture calendar shows enough divisions under way, so preseason saves no longer fail it. New anomaly `started_calendar_divisions`.
+- The "game_info does not match build" error says which build check failed.
+
 ## [0.5.4] - 2026-09-30
 
 ### Fixed
