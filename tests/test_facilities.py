@@ -103,7 +103,10 @@ def one_club_game_db(facility_byte: int) -> bytes:
 
 
 def one_club_facilities(facility_byte: int) -> tuple[tuple[ClubFacilities, ...], FacilityStats]:
-    game_db = one_club_game_db(facility_byte)
+    return facilities_of(one_club_game_db(facility_byte))
+
+
+def facilities_of(game_db: bytes) -> tuple[tuple[ClubFacilities, ...], FacilityStats]:
     club_index = read_club_index(
         game_db, find_club_layouts(GAME_DB_SCHEMA, BUILD_STRING), FILE_NAME
     )
@@ -156,11 +159,59 @@ def test_an_unnamed_rating_reads_unknown_and_keeps_its_number(facility_byte: int
 
 
 def test_a_rating_outside_the_range_is_returned_and_counted_out_of_range() -> None:
-    rows, stats = one_club_facilities(0)
+    rows, stats = one_club_facilities(21)
+    (row,) = rows
+    assert row.corporate_facilities.label is CorporateFacilities.UNKNOWN
+    assert row.corporate_facilities.raw == 21
+    assert stats == FacilityStats(clubs_with_series=1, rows=1, in_range=0, managed_club_exists=True)
+
+
+def rating_offset_in(game_db_with_zero: bytes) -> int:
+    """Where the rating sits, found as the one byte a different rating changes."""
+    game_db_with_one = one_club_game_db(1)
+    return next(
+        at
+        for at, (zero, one) in enumerate(zip(game_db_with_zero, game_db_with_one, strict=True))
+        if zero != one
+    )
+
+
+def test_a_zero_rating_in_a_zeroed_block_is_returned_and_counted_unset() -> None:
+    """A club that never filled the block around its rating stores no rating at all."""
+    game_db = one_club_game_db(0)
+    rating_at = rating_offset_in(game_db)
+    margin = FACILITY_LAYOUT.unset_margin
+    assert not any(game_db[rating_at - margin : rating_at + margin + 1])
+
+    rows, stats = facilities_of(game_db)
     (row,) = rows
     assert row.corporate_facilities.label is CorporateFacilities.UNKNOWN
     assert row.corporate_facilities.raw == 0
+    assert stats == FacilityStats(
+        clubs_with_series=1, rows=1, in_range=0, managed_club_exists=True, unset=1
+    )
+
+
+@pytest.mark.parametrize("distance", [-1, 1, FACILITY_LAYOUT.unset_margin])
+def test_a_zero_rating_beside_a_stored_byte_is_counted_out_of_range(distance: int) -> None:
+    """A zero within the margin of a stored byte is what a read a few bytes off looks like."""
+    game_db = bytearray(one_club_game_db(0))
+    rating_at = rating_offset_in(bytes(game_db))
+    game_db[rating_at + distance] = 7
+
+    rows, stats = facilities_of(bytes(game_db))
+    (row,) = rows
+    assert row.corporate_facilities.raw == 0
     assert stats == FacilityStats(clubs_with_series=1, rows=1, in_range=0, managed_club_exists=True)
+
+
+def test_a_stored_byte_past_the_margin_leaves_a_zero_rating_unset() -> None:
+    game_db = bytearray(one_club_game_db(0))
+    rating_at = rating_offset_in(bytes(game_db))
+    game_db[rating_at + FACILITY_LAYOUT.unset_margin + 1] = 7
+
+    _rows, stats = facilities_of(bytes(game_db))
+    assert stats.unset == 1
 
 
 def test_a_club_without_a_finance_chain_has_no_row() -> None:
@@ -233,13 +284,21 @@ CLUBS_WITH_A_SERIES = 1_000
 IN_RANGE_FLOOR = 0.99
 
 
-def facility_stats_at_share(in_range_share: float) -> FacilityStats:
-    """An invented save where `in_range_share` of the clubs with a series read a rating in range."""
+UNSET_CEILING = 0.1
+
+
+def facility_stats_at_share(in_range_share: float, unset_share: float = 0.0) -> FacilityStats:
+    """An invented save where `in_range_share` of the clubs with a series read a rating in range.
+
+    `unset_share` of the clubs store no rating; the in-range share is of the others.
+    """
+    unset = round(unset_share * CLUBS_WITH_A_SERIES)
     return FacilityStats(
         clubs_with_series=CLUBS_WITH_A_SERIES,
         rows=CLUBS_WITH_A_SERIES,
-        in_range=round(in_range_share * CLUBS_WITH_A_SERIES),
+        in_range=round(in_range_share * (CLUBS_WITH_A_SERIES - unset)),
         managed_club_exists=True,
+        unset=unset,
     )
 
 
@@ -288,6 +347,49 @@ def test_the_share_floor_passes_on_it_and_fails_one_club_below_it() -> None:
     assert failed_gate_names(below_the_floor) == ["facility_byte_in_range"]
 
 
+def test_clubs_with_an_unset_rating_are_left_out_of_the_in_range_share() -> None:
+    """A few clubs storing no rating do not fail a save whose every stored rating is in range.
+
+    Counted against the share, three unset clubs in a hundred would put it under the floor.
+    """
+    stats = facility_stats_at_share(1.0, unset_share=0.03)
+    gates = {
+        gate.name: gate for gate in evaluate_facilities(stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)
+    }
+    assert gates["facility_byte_in_range"].observed == 1.0
+    assert failed_gate_names(stats) == []
+
+
+@pytest.mark.parametrize(
+    ("shift", "in_range_share"),
+    MISALIGNED_SHARES,
+    ids=[shift for shift, _share in MISALIGNED_SHARES],
+)
+def test_a_misaligned_read_still_fails_beside_unset_clubs(
+    shift: str, in_range_share: float
+) -> None:
+    stats = facility_stats_at_share(in_range_share, unset_share=0.03)
+    assert failed_gate_names(stats) == ["facility_byte_in_range"]
+
+
+def test_a_read_landing_in_zeros_for_most_clubs_fails_the_unset_ceiling() -> None:
+    """Every club read as unset leaves the in-range share nothing to judge, so it cannot pass."""
+    mostly_unset = facility_stats_at_share(1.0, unset_share=0.9)
+    all_unset = facility_stats_at_share(1.0, unset_share=1.0)
+    assert failed_gate_names(mostly_unset) == ["facility_unset_ratings"]
+    assert failed_gate_names(all_unset) == ["facility_unset_ratings"]
+
+
+def test_the_unset_ceiling_passes_on_it_and_fails_one_club_above_it() -> None:
+    on_the_ceiling = facility_stats_at_share(1.0, unset_share=UNSET_CEILING)
+    above_the_ceiling = dataclasses.replace(
+        on_the_ceiling, unset=on_the_ceiling.unset + 1, in_range=on_the_ceiling.in_range - 1
+    )
+
+    assert failed_gate_names(on_the_ceiling) == []
+    assert failed_gate_names(above_the_ceiling) == ["facility_unset_ratings"]
+
+
 def test_no_club_with_a_series_fails_the_count_floor_on_a_managed_save() -> None:
     stats = FacilityStats(clubs_with_series=0, rows=0, in_range=0, managed_club_exists=True)
     assert failed_gate_names(stats) == ["facility_clubs_minimum"]
@@ -311,4 +413,4 @@ def test_no_club_with_a_series_and_no_managed_club_fails_nothing() -> None:
 def test_the_gates_stand_aside_on_a_fragment() -> None:
     fragment_game_db_bytes = 1024 * 1024
     gates = evaluate_facilities(passing_facility_stats(), BOUNDS, fragment_game_db_bytes)
-    assert [gate.applied for gate in gates] == [False, False]
+    assert [gate.applied for gate in gates] == [False, False, False]

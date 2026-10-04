@@ -42,15 +42,20 @@ def read_club_facilities(
     which the checks see as a rating the offset did not land on. A rating outside the layout's
     range is returned exactly as stored, labelled UNKNOWN like any unnamed code, and counted:
     blanking it would hide the one measurement that says whether the offset still lands on the
-    rating at all.
+    rating at all. A zero whose layout margin either side is all zero too belongs to a club
+    that never filled the block the rating sits in: it is returned the same way, as a zero
+    labelled UNKNOWN, but counted as unset rather than out of range, so the checks judge the
+    offset on the clubs that do store a rating.
     """
     chain_layout = finance_layouts.chains
     offset_after_chain = layout.offset_after_chain
     lowest_value, highest_value = layout.value_range
+    unset_margin = layout.unset_margin
     span_by_club_uid = {span.club_uid: span for span in club_index.record_spans}
     rows: list[ClubFacilities] = []
     clubs_with_series = 0
     in_range = 0
+    unset = 0
     for club in club_index.clubs:
         span = span_by_club_uid.get(club.uid)
         if span is None or not searched_record(span, chain_layout):
@@ -66,6 +71,8 @@ def read_club_facilities(
         value = game_db[rating_offset]
         if lowest_value <= value <= highest_value:
             in_range += 1
+        elif value == 0 and _unset_block(game_db, rating_offset, unset_margin, span.record_end):
+            unset += 1
         rows.append(
             ClubFacilities(
                 club_uid=club.uid,
@@ -80,5 +87,14 @@ def read_club_facilities(
             rows=len(rows),
             in_range=in_range,
             managed_club_exists=managed_club_exists,
+            unset=unset,
         ),
     )
+
+
+def _unset_block(game_db: bytes, rating_offset: int, margin: int, record_end: int) -> bool:
+    """Whether the `margin` bytes either side of a zero rating, inside the record, are zero too."""
+    block_end = rating_offset + margin + 1
+    if block_end > min(record_end, len(game_db)):
+        return False
+    return not any(game_db[rating_offset - margin : block_end])
