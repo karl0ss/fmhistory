@@ -1711,7 +1711,10 @@ def evaluate_facilities(
     a rating, so it applies only where there is one of those: a save whose clubs keep no series
     has no rating to read, exactly as it has no month to read. It is what catches a rating read
     from the wrong offset, since the bytes around it hold a value inside the range on a few
-    clubs in a hundred rather than on all of them.
+    clubs in a hundred rather than on all of them. A club whose rating is unset stores no
+    rating at all, so it is left out of that share rather than counted against it, and the
+    unset share has a ceiling of its own: a read landing in a zeroed stretch for most clubs
+    would otherwise leave the in-range share almost nothing to judge.
 
     The count floor is the finance floor's, for the same population: at least one club with a
     series, applied only where the save lists a managed club, whose own club held a series on
@@ -1723,8 +1726,15 @@ def evaluate_facilities(
         _share_gate(
             "facility_byte_in_range",
             stats.in_range,
-            stats.clubs_with_series,
+            stats.clubs_with_series - stats.unset,
             bounds.facility_byte_in_range,
+            applied,
+        ),
+        _share_gate(
+            "facility_unset_ratings",
+            stats.unset,
+            stats.clubs_with_series,
+            bounds.facility_unset_ratings,
             applied,
         ),
         _gate(
@@ -2028,8 +2038,9 @@ def check_facilities(stats: FacilityStats, bounds: GateBounds, game_db_bytes: in
     """The facilities reader's checks, record count and anomaly counts.
 
     `clubs_without_a_rating` counts the clubs with a finance series whose record ends before
-    the rating would sit, which no save measured holds any of, and `ratings_out_of_range` the
-    ratings outside the range the layout carries, which the share gate bounds.
+    the rating would sit, which no save measured holds any of, `ratings_out_of_range` the
+    ratings outside the range the layout carries that are not unset, which the in-range share
+    bounds, and `unset_ratings` the clubs whose rating is unset, which the unset share bounds.
     """
     return ReaderCheck(
         FACILITIES_READER,
@@ -2038,7 +2049,8 @@ def check_facilities(stats: FacilityStats, bounds: GateBounds, game_db_bytes: in
         FrozenMapping(
             {
                 "clubs_without_a_rating": stats.clubs_with_series - stats.rows,
-                "ratings_out_of_range": stats.rows - stats.in_range,
+                "ratings_out_of_range": stats.rows - stats.in_range - stats.unset,
+                "unset_ratings": stats.unset,
             }
         ),
     )

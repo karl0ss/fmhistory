@@ -606,11 +606,17 @@ SPONSOR_CHAINS = SponsorChainLayout(
 )
 
 # The corporate facilities rating, 50 bytes past the end of a club's snapshot chain. Every club
-# with a chain reads 1 to 20 there on every save measured, and most of the range is in use on
-# each; it is the only byte within 4 KB of the chain end that does.
+# with a chain and a stored rating reads 1 to 20 there on every save measured, and most of the
+# range is in use on each; it is the only byte within 4 KB of the chain end that does. A few
+# small clubs on some saves, up to about three in a hundred on a save tracking many nations,
+# read 0 there instead, inside a run of zeros that covers the whole block around the rating
+# and reaches at least eight bytes either side of it on every one measured, while no club
+# reading 1 to 20 has such a block. The run holds across a season, so it is a club that stores
+# no rating rather than a rating moving.
 FACILITY_BYTE = FacilityByteLayout(
     offset_after_chain=50,
     value_range=(1, 20),
+    unset_margin=8,
 )
 
 # A suspension entry has an 18-byte core and either a two-byte null suffix or a 28-byte
@@ -1456,13 +1462,17 @@ GATE_BOUNDS = GateBounds(
     # where a managed club exists. Explicitly empty lists establish coverage; an empty table
     # with no decoded lists does not. Keep the existing bounds unchanged.
     sponsor_clubs_minimum=(1, None),
-    # Every club with a finance series carries a facilities rating in 1 to 20 fifty bytes past
-    # the chain's end. Read one byte early the share is at most 0.02, one byte late at most
+    # Every club with a finance series and a stored rating carries it in 1 to 20 fifty bytes
+    # past the chain's end. Read one byte early the share is at most 0.02, one byte late at most
     # 0.09 and four bytes late at most 0.63, so the
-    # floor sits above the worst of those with room to spare. The clubs with a rating are the
-    # clubs with a series, so the count floor is the finance floor's: one, and only where a
-    # managed club exists.
+    # floor sits above the worst of those with room to spare. A club whose rating is unset is
+    # left out of that share; such clubs are at most about three in a hundred on the saves
+    # measured, at the right offset and at every misaligned one, so a ceiling of one in ten
+    # leaves room while still failing a read that lands in a zeroed stretch for most clubs.
+    # The clubs with a rating are the clubs with a series, so the count floor is the finance
+    # floor's: one, and only where a managed club exists.
     facility_byte_in_range=(0.99, None),
+    facility_unset_ratings=(None, 0.1),
     facility_clubs_minimum=(1, None),
     # All but about seven group members per save are club indexes a club record claims; those
     # that are not fall in gaps of the index. Reading the index one higher drops the share to

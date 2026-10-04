@@ -1307,7 +1307,11 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
             "unresolved_selectors": 5,
         },
         "set_pieces": {"named_routines": 2},
-        "facilities": {"clubs_without_a_rating": 0, "ratings_out_of_range": 0},
+        "facilities": {
+            "clubs_without_a_rating": 0,
+            "ratings_out_of_range": 0,
+            "unset_ratings": 0,
+        },
     }
 
 
@@ -1587,7 +1591,7 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
             "injury_typed_dates_near_clock",
             "injury_typed_types_resolved",
         ],
-        "facilities": ["facility_byte_in_range"],
+        "facilities": ["facility_byte_in_range", "facility_unset_ratings"],
     }
     # A reader is failed by its own counts alone. The six reported "ok" are the ones whose every
     # applied gate this fragment meets, which it could not show while a reader that read another

@@ -91,7 +91,7 @@ class ClubFacilities:
         club_name: Denormalised full name of club_uid (unconfirmed).
         corporate_facilities: How good the club's corporate facilities are. Seventeen of the
             twenty codes carry a word, and the three no club in the save carries are UNKNOWN
-            with the raw number kept.
+            with the raw number kept. A club that stores no rating reads UNKNOWN with raw 0.
     """
 
     club_uid: int

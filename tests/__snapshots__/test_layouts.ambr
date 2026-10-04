@@ -475,6 +475,7 @@
       'build': '26.3.2+2329565',
       'layout': dict({
         'offset_after_chain': 50,
+        'unset_margin': 8,
         'value_range': tuple(
           1,
           20,
@@ -2038,6 +2039,10 @@
         'facility_clubs_minimum': tuple(
           1,
           None,
+        ),
+        'facility_unset_ratings': tuple(
+          None,
+          0.1,
         ),
         'finance_balance_continuity': tuple(
           0.8,
