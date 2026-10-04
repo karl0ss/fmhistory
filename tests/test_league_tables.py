@@ -19,6 +19,7 @@ from fmsave._reader_stats import LeagueTableStats
 from fmsave._save import LEAGUE_TABLES_TABLE_CACHE_KEY
 from fmsave._status import field_status
 from fmsave.export import column_names, record_to_dict
+from fmsave.models.fixtures import Fixture
 from fmsave.models.league_tables import (
     LeagueTable,
     LeagueTableRow,
@@ -31,6 +32,7 @@ from fmsave.readers.league_tables import (
     build_league_tables,
     group_blocks,
     resolve_group_competitions,
+    started_calendar_divisions,
 )
 from fmsave.readers.span import RawTableBlock, RawTableRow
 from tests.fixtures.career import (
@@ -198,6 +200,7 @@ def healthy_stats() -> LeagueTableStats:
         team_id_in_range=HEALTHY_BLOCKS,
         team_resolved=4 * HEALTHY_BLOCKS // 5,
         double_round_robin_divisions=HEALTHY_GROUPS // 10,
+        started_calendar_divisions=HEALTHY_GROUPS // 10,
         in_sync_tables=HEALTHY_GROUPS // 5,
         venue_slots_decided=HEALTHY_VENUE_SLOTS,
         venue_slots_agreeing=HEALTHY_VENUE_SLOTS,
@@ -789,6 +792,7 @@ def test_the_build_counts_exactly_what_the_checks_read(tmp_path: Path) -> None:
         team_id_in_range=DEFAULT_BLOCK_COUNT,
         team_resolved=DEFAULT_BLOCK_COUNT,
         double_round_robin_divisions=0,
+        started_calendar_divisions=0,
         in_sync_tables=0,
         venue_slots_decided=0,
         venue_slots_agreeing=0,
@@ -806,6 +810,7 @@ def test_the_build_counts_exactly_what_the_checks_read(tmp_path: Path) -> None:
         "unresolved_teams": 0,
         "in_sync_tables": 0,
         "venue_slots_decided": 0,
+        "started_calendar_divisions": 0,
     }
 
 
@@ -841,6 +846,117 @@ def test_each_league_table_gate_passes_exactly_on_its_floor(
     results = evaluate_league_tables(stats, BOUNDS, FULL_SIZE_SPAN_BYTES)
     assert gate_named(results, gate_name).applied
     assert failed_gate_names(results) == []
+
+
+def test_the_division_floor_waits_for_the_calendar_to_show_divisions_under_way() -> None:
+    """Before the leagues start no block has a played match, so no table keeps a division's
+    shape; the floor judges the count only once the calendar shows as many under way."""
+    before_the_season = dataclasses.replace(
+        healthy_stats(),
+        double_round_robin_divisions=0,
+        started_calendar_divisions=DIVISION_FLOOR - 1,
+    )
+    under_way = dataclasses.replace(before_the_season, started_calendar_divisions=DIVISION_FLOOR)
+
+    waiting = gate_named(
+        evaluate_league_tables(before_the_season, BOUNDS, FULL_SIZE_SPAN_BYTES),
+        "double_round_robin_divisions",
+    )
+    judged = gate_named(
+        evaluate_league_tables(under_way, BOUNDS, FULL_SIZE_SPAN_BYTES),
+        "double_round_robin_divisions",
+    )
+
+    assert not waiting.applied
+    assert waiting.passed
+    assert judged.applied
+    assert not judged.passed
+
+
+def calendar_fixture(
+    stage_id: int | None, season: int | None, home: int, away: int, *, played: bool
+) -> Fixture:
+    """A fictional calendar entry carrying only what the division count reads."""
+    return Fixture(
+        stage_id=stage_id,
+        competition_id=None,
+        competition_name=None,
+        round=None,
+        round_index=None,
+        date=None,
+        kick_off_time=None,
+        season_start_year=season,
+        home_team_id=home,
+        home_club_uid=None,
+        home_club_name=None,
+        home_club_short_name=None,
+        home_team_slot=None,
+        away_team_id=away,
+        away_club_uid=None,
+        away_club_name=None,
+        away_club_short_name=None,
+        away_team_slot=None,
+        home_goals=None,
+        away_goals=None,
+        played=played,
+        is_neutral_venue=None,
+        stadium_uid=None,
+        stadium_name=None,
+        match_record_id=None,
+        match_rules_template=(),
+        unknown={},
+    )
+
+
+def division_calendar(
+    stage_id: int,
+    season: int,
+    *,
+    club_count: int = DIVISION_CLUB_COUNT,
+    teams_played: int | None = None,
+) -> list[Fixture]:
+    """Every member meeting every other once each way; the first `teams_played` members
+    (all of them by default) have played their meeting with the member after them."""
+    teams = [stage_id * 100 + number for number in range(club_count)]
+    played_count = club_count if teams_played is None else teams_played
+    played_pairs = {(teams[n], teams[(n + 1) % club_count]) for n in range(played_count)}
+    return [
+        calendar_fixture(stage_id, season, home, away, played=(home, away) in played_pairs)
+        for home in teams
+        for away in teams
+        if home != away
+    ]
+
+
+def test_the_calendar_counts_divisions_every_member_has_started() -> None:
+    fixtures = [
+        *division_calendar(1, 2030),
+        *division_calendar(2, 2030),
+        *division_calendar(3, 2030, teams_played=0),
+        *division_calendar(4, 2030, teams_played=DIVISION_CLUB_COUNT - 3),
+        # Too few clubs for a division, though every member has played.
+        *division_calendar(5, 2030, club_count=6),
+    ]
+    assert started_calendar_divisions(fixtures, TABLE_LAYOUT) == 2
+
+
+def test_a_finished_season_does_not_stand_in_for_the_next_one() -> None:
+    """A stage keeps its last season's calendar beside the new one; only the latest counts."""
+    finished = division_calendar(1, 2030)
+    not_yet_started = division_calendar(1, 2031, teams_played=0)
+    assert started_calendar_divisions(finished, TABLE_LAYOUT) == 1
+    assert started_calendar_divisions(finished + not_yet_started, TABLE_LAYOUT) == 0
+
+
+def test_a_stage_short_of_a_full_double_round_robin_is_not_a_division() -> None:
+    fixtures = division_calendar(1, 2030)
+    seasonless = [
+        dataclasses.replace(fixture, season_start_year=None)
+        for fixture in division_calendar(2, 2030)
+    ]
+    assert started_calendar_divisions(fixtures[:-1], TABLE_LAYOUT) == 0
+    assert started_calendar_divisions([*fixtures, fixtures[0]], TABLE_LAYOUT) == 0
+    assert started_calendar_divisions(seasonless, TABLE_LAYOUT) == 0
 
 
 def test_healthy_stats_pass_every_gate_and_a_small_span_applies_none() -> None:
@@ -904,9 +1020,16 @@ def test_healthy_stats_pass_every_gate_and_a_small_span_applies_none() -> None:
             id="the-slot-parity-is-the-wrong-way-round",
         ),
         pytest.param(
-            LeagueTableStats(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+            LeagueTableStats(0, 0, 0, 0, 0, 0, 0, 0, 0, DIVISION_FLOOR, 0, 0, 0),
             list(GATE_NAMES_AN_EMPTY_DECODE_FAILS),
             id="a-decode-that-found-nothing",
+        ),
+        pytest.param(
+            dataclasses.replace(
+                healthy_stats(), groups=1, groups_resolved=1, double_round_robin_divisions=0
+            ),
+            ["double_round_robin_divisions"],
+            id="a-grouping-that-merged-every-table",
         ),
     ],
 )

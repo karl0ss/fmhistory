@@ -44,7 +44,9 @@ class FinanceMonth:
         month: First day of the month the row covers, worked out from the save's own date: the
             last row of a club is the month before the save's month, and a club's two oldest
             rows landed on the months its own finance screen labelled them with.
-        balance: The club's balance at the end of the month.
+        balance: The club's balance at the end of the month. On most clubs whose series
+            begins with the career, the oldest row instead holds the balance before that
+            month's net: the next row's balance adds both months' nets to it.
         transfer_budget_allocated: A transfer figure with no confirmed meaning
             (unconfirmed). It is **not** the budget the board allocated: a club's own finances
             screen showed a budget well above this figure with almost none of it spent, and

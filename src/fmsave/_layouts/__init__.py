@@ -1808,7 +1808,8 @@ class GateBounds:
     `table_block_duplicates_minimum` (blocks dropped as repeats),
     `table_block_team_in_range` (of the blocks kept), `table_groups_resolved` (of groups),
     `double_round_robin_divisions` (groups shaped like a division whose clubs play each other
-    twice) and `table_venue_calendar_agreement` (slots whose venue the calendar decides and
+    twice; applied only once the fixture calendar shows at least that many divisions under
+    way) and `table_venue_calendar_agreement` (slots whose venue the calendar decides and
     the slot parity names the same way, of the slots the calendar decides). These judge the
     span pass, so they apply from `span_minimum_applies_from_bytes`.
 
@@ -1950,7 +1951,8 @@ class GateBounds:
 
     Club finances: `finance_net_identity` (rows whose net equals total income less total
     expenditure, of rows), `finance_balance_continuity` (consecutive row pairs where the later
-    balance is the earlier one plus the later month's net, of such pairs),
+    balance is the earlier one plus the later month's net, of such pairs; a club's first pair
+    also counts when its oldest row holds an opening balance),
     `finance_expenditure_split` (rows whose expenditure excluding transfers lies between zero
     and the total, of rows), `finance_clubs_with_two_chains` (clubs holding a second snapshot
     chain), `finance_series_minimum` (clubs with a series) and, in `sponsorships()`,

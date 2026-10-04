@@ -735,16 +735,23 @@ def evaluate_transfer_windows(
     )
 
 
+def _calendar_meets_division_floor(stats: LeagueTableStats, bounds: GateBounds) -> bool:
+    """Whether the calendar shows at least as many divisions under way as the floor asks."""
+    floor = bounds.double_round_robin_divisions[0]
+    return floor is None or stats.started_calendar_divisions >= floor
+
+
 def evaluate_league_tables(
     stats: LeagueTableStats, bounds: GateBounds, span_bytes: int
 ) -> tuple[GateResult, ...]:
     """The league-table reader's checks, in a fixed order.
 
     These judge what one pass over the span read, so they apply from the span's own size
-    threshold. The first five apply whenever the span is large enough, including when the pass
-    found no block at all: an empty result scores below the block floor, the duplicate floor
-    and the division floor, and leaves the two shares without a denominator, so a table layout
-    that has moved fails here rather than reporting a career with no tables.
+    threshold. The first four apply whenever the span is large enough, including when the pass
+    found no block at all: an empty result scores below the block floor and the duplicate
+    floor, and leaves the two shares without a denominator, so a table layout that has moved
+    fails here rather than reporting a career with no tables. The division floor applies on
+    the same terms once the fixture calendar shows at least that many divisions under way.
 
     `table_venue_calendar_agreement` is the exception, and is the check that keeps the slot
     parity honest. It compares the venue the slot's parity names against the venue the fixture
@@ -767,7 +774,12 @@ def evaluate_league_tables(
     `double_round_robin_divisions` guards the opposite failure, a grouping that runs tables
     together: a merged group holds clubs twice over and cannot keep a division's shape, so the
     count collapses. `table_groups_resolved` sees neither, since one enormous group scores a
-    perfect 1.0 on it.
+    perfect 1.0 on it. A division keeps that shape only once every member has played, since a
+    block with no match played is never kept, so in the weeks before the leagues a save holds
+    start, the count is legitimately near zero. The floor therefore applies only when the
+    calendar shows at least as many divisions under way (`started_calendar_divisions`) as the
+    floor asks for; a merged grouping still fails it then, because the calendar's own count
+    does not depend on how the blocks were grouped.
 
     `table_groups_resolved` observes near 1.0 on every save measured, which reads stronger than
     it is: 30% to 43% of tables hold a single block, and a one-block table meets the vote's
@@ -801,7 +813,7 @@ def evaluate_league_tables(
             "double_round_robin_divisions",
             stats.double_round_robin_divisions,
             bounds.double_round_robin_divisions,
-            applied,
+            applied and _calendar_meets_division_floor(stats, bounds),
         ),
         _share_gate(
             "table_venue_calendar_agreement",
@@ -1105,6 +1117,8 @@ def check_league_tables(
     leaves unjudged: `in_sync_tables` counts the tables whose rows account for exactly one
     season of the calendar, and `venue_slots_decided` the slots of those tables whose venue the
     calendar settles by itself. Both read zero on a layout that settles no slot parity.
+    `started_calendar_divisions` is the population that decides whether the division floor
+    applies: the divisions the calendar shows under way.
     """
     return ReaderCheck(
         LEAGUE_TABLES_READER,
@@ -1122,6 +1136,7 @@ def check_league_tables(
                 "unresolved_teams": stats.blocks - stats.team_resolved,
                 "in_sync_tables": stats.in_sync_tables,
                 "venue_slots_decided": stats.venue_slots_decided,
+                "started_calendar_divisions": stats.started_calendar_divisions,
             }
         ),
     )
@@ -1824,6 +1839,8 @@ def check_finances(stats: FinanceStats, bounds: GateBounds, game_db_bytes: int) 
     fault: a save tracks one or two league nations, and only their clubs keep a series at all.
     `balance_breaks` counts the consecutive months whose balance step differs from the month's
     net, which every save holds some of, clustered in the transfer-window months.
+    `opening_balance_steps` counts the first steps whose oldest row stores an opening balance,
+    which the continuity check accepts; most clubs whose series begins with the career have one.
     """
     return ReaderCheck(
         FINANCES_READER,
@@ -1833,6 +1850,7 @@ def check_finances(stats: FinanceStats, bounds: GateBounds, game_db_bytes: int) 
             {
                 "clubs_with_series": stats.clubs_with_series,
                 "balance_breaks": stats.balance_steps - stats.balance_continuous_steps,
+                "opening_balance_steps": stats.opening_balance_steps,
             }
         ),
     )

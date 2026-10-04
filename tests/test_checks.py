@@ -1223,6 +1223,7 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
             "unresolved_teams": 0,
             "in_sync_tables": 0,
             "venue_slots_decided": 0,
+            "started_calendar_divisions": 0,
         },
         "competition_rules": {
             "blocks_not_fully_parsed": 0,
@@ -1258,7 +1259,7 @@ def test_reader_passes_collect_the_counts_their_gates_check(counted_fragment_pat
             "unset_capacities": 100,
             "clubs_with_home_ground": 0,
         },
-        "finances": {"clubs_with_series": 0, "balance_breaks": 0},
+        "finances": {"clubs_with_series": 0, "balance_breaks": 0, "opening_balance_steps": 0},
         "sponsorships": {
             "clubs_without_sponsors": 0,
             "clubs_with_empty_sponsor_lists": 0,
@@ -1541,8 +1542,8 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
         readers = reader_by_name(validate_save(career_save))
     # Every reader reaches its own gates, whatever another reader's counts did, so this judges
     # each reader's own counts. The gates standing aside are the shares whose population this
-    # fragment leaves empty: no fixture stores a ground, no table's rows account for a season
-    # of the calendar, no rules block has a run of tables after it, no club keeps a finance
+    # fragment leaves empty: no fixture stores a ground, the calendar shows no division under
+    # way, no table's rows account for a season of the calendar, no rules block has a run of tables after it, no club keeps a finance
     # series or a sponsor, no vacancy and no staff block was decoded, no list holds an id and
     # the injury section holds no row. An empty population is a fact about the fragment rather
     # than a layout that has moved, and a count gate sits beside each of these and fails here.
@@ -1552,7 +1553,7 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
         if any(not gate.applied for gate in reader.gates)
     } == {
         "fixtures": ["fixture_stadiums_resolved"],
-        "league_tables": ["table_venue_calendar_agreement"],
+        "league_tables": ["double_round_robin_divisions", "table_venue_calendar_agreement"],
         "competition_rules": ["rules_linked_blocks_minimum", "rules_link_round_dates"],
         "player_match_stats": ["per_match_minutes_in_range", "per_match_rating_in_range"],
         "stadiums": ["stadium_home_grounds_owned"],
@@ -1690,14 +1691,13 @@ def test_gates_apply_at_full_size_and_fail_on_the_fragment_counts(
         # share to take either: the count fails on its floor and the share fails for want of a
         # rate, which is what a transfer-window decode that has moved looks like.
         "transfer_windows": ["transfer_windows_minimum", "transfer_window_dates"],
-        # An empty span leaves the table decode with no block at all, which fails four counts
+        # An empty span leaves the table decode with no block at all, which fails both counts
         # and both shares rather than passing for want of a rate.
         "league_tables": [
             "table_blocks_minimum",
             "table_block_duplicates_minimum",
             "table_block_team_in_range",
             "table_groups_resolved",
-            "double_round_robin_divisions",
         ],
         # No preamble marker either, so the count fails on its floor and the parsed share for
         # want of a rate.
