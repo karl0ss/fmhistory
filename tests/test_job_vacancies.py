@@ -270,6 +270,45 @@ def test_a_section_whose_size_is_not_the_records_it_claims_names_its_section(
         decode(career_path, job_centre_body(records, stored_count=len(records) + 1))
 
 
+def test_a_record_storing_an_id_list_is_walked_past_its_ids(career_path: Path) -> None:
+    """A record can store a count byte and that many u32 ids in front of its later fields.
+
+    Each record is sized by its own count, so neither the record carrying the ids nor any
+    record after it moves, and the section still ends exactly where the last record does.
+    """
+    ids = (90001, 90002, 90003, 90004, 90005, 90006, 90007, 90008, 90009, 90010)
+    with_ids = altered_records(0, ids=ids, b17=1)
+    first_two_with_ids = [with_ids[0], altered_records(1, ids=ids[:8], b17=1)[1], with_ids[2]]
+
+    plain_rows, plain_stats = decode(career_path, job_centre_body(career_job_records()))
+    for records in (with_ids, first_two_with_ids):
+        rows, stats = decode(career_path, job_centre_body(records))
+
+        assert len(rows) == len(records)
+        assert rows[0].team_id == NORTHBRIDGE_TEAM_A
+        assert rows[0].competition_id == FIRST_COMPETITION_ID
+        assert rows[0].league_position == 3
+        assert rows[0].unknown["u20"] == 57
+        assert rows[2] == plain_rows[2]
+        assert stats.reserved_zero == stats.tagged == stats.records == 3
+    assert plain_stats.reserved_zero == 3
+
+
+def test_an_id_count_the_record_does_not_hold_breaks_the_size_identity(
+    career_path: Path,
+) -> None:
+    records = list(career_job_records())
+    records[0] = altered_records(0, ids=(90001, 90002))[0]
+    claims_three = bytearray(records[0])
+    claims_three[16] = 3
+    records[0] = bytes(claims_three)
+
+    with pytest.raises(ReaderCheckError, match="'job_centre'"):
+        decode(career_path, job_centre_body(records))
+    with pytest.raises(ReaderCheckError, match="'job_centre'"):
+        decode(career_path, job_centre_body(records[:1]))
+
+
 def test_a_section_too_short_to_hold_a_count_names_its_section(career_path: Path) -> None:
     with pytest.raises(ReaderCheckError, match="'job_centre'"):
         decode(career_path, job_centre_body(())[:10])
@@ -277,7 +316,7 @@ def test_a_section_too_short_to_hold_a_count_names_its_section(career_path: Path
 
 def test_a_record_that_fails_a_per_record_check_is_still_returned(career_path: Path) -> None:
     untagged = altered_records(0, tag=b"\x07\x00\x00")
-    reserved = altered_records(0, reserved_u16=1)
+    reserved = altered_records(0, b17=2)
     after_clock = altered_records(
         2, advertised=packed_date(90, 2031), date_12=packed_date(95, 2031)
     )

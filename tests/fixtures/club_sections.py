@@ -51,22 +51,23 @@ def job_record_bytes(
     u20: int,
     league_position: int,
     flag: int,
-    reserved_u16: int = 0,
+    ids: Sequence[int] = (),
+    b17: int = 0,
     reserved_u8: int = 0,
     tag: bytes = JOB_RECORD_TAG,
 ) -> bytes:
-    """One 25-byte job-centre record."""
+    """One job-centre record: 25 bytes, and four more for each of its `ids`."""
     record = bytearray(tag[:3])
     record.extend(struct.pack("<IB", team_id, role))
     record.extend(advertised[:4])
     record.extend(date_12[:4])
+    record.extend(struct.pack(f"<B{len(ids)}I", len(ids), *ids))
     record.extend(
-        struct.pack(
-            "<HHHBBB", reserved_u16, competition_id, u20, league_position, reserved_u8, flag
-        )
+        struct.pack("<BHHBBB", b17, competition_id, u20, league_position, reserved_u8, flag)
     )
-    if len(record) != JOB_RECORD_BYTES:
-        raise ValueError(f"a job record is {JOB_RECORD_BYTES} bytes, not {len(record)}")
+    expected_bytes = JOB_RECORD_BYTES + 4 * len(ids)
+    if len(record) != expected_bytes:
+        raise ValueError(f"this job record is {expected_bytes} bytes, not {len(record)}")
     return bytes(record)
 
 

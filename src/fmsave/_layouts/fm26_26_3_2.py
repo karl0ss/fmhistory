@@ -142,7 +142,9 @@ AFFILIATE_GROUPS = AffiliateGroupLayout(
     group_size_range=(1, 64),
 )
 
-# The open vacancies the `job_centre` section stores, 25 bytes each with no trailer.
+# The open vacancies the `job_centre` section stores, 25 bytes each plus four for each id
+# in a record's own id list, with no trailer. Only records at the manager's own club have
+# been seen storing ids.
 JOB_CENTRE = JobCentreLayout(
     count_offset=8,
     records_offset=12,
@@ -152,7 +154,9 @@ JOB_CENTRE = JobCentreLayout(
     role_offset=7,
     advertised_offset=8,
     date_12_offset=12,
-    reserved_u16_offset=16,
+    id_count_offset=16,
+    id_bytes=4,
+    b17_offset=17,
     competition_offset=18,
     no_competition=0xFFFF,
     u20_offset=20,
@@ -198,7 +202,7 @@ TACTICS = TacticsLayout(
     trail_bytes=4,
     unit_count_range=(0, 64),
     position_bit_count=15,
-    routine_tail_marker=b"\x01",
+    routine_tail_flag_range=(0, 2),
     routine_code_bytes=4,
     routine_code_byte_range=(0x20, 0x7E),
     routine_area_marker=bytes.fromhex("03001a"),

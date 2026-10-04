@@ -170,35 +170,45 @@ def tactic_record_bytes(
     return bytes(payload)
 
 
-def routine_bytes(name: str | None) -> bytes:
-    """One set-piece routine record: filler, its length-prefixed name and its terminator."""
+def routine_bytes(name: str | None, tail_flag: int = ROUTINE_TERMINATOR[0]) -> bytes:
+    """One set-piece routine record: filler, its length-prefixed name and its terminator.
+
+    `tail_flag` replaces the terminator's first byte, the flag in front of the code.
+    """
     payload = bytearray(ROUTINE_FILLER)
     payload.extend(_length_prefixed("" if name is None else name))
-    payload.extend(ROUTINE_TERMINATOR)
+    payload.append(tail_flag)
+    payload.extend(ROUTINE_TERMINATOR[1:])
     payload.append(0)
     return bytes(payload)
 
 
-def set_piece_area_bytes(names: Sequence[str | None]) -> bytes:
+def set_piece_area_bytes(
+    names: Sequence[str | None], tail_flags: Sequence[int] | None = None
+) -> bytes:
     """Default runs and counted groups, with extra names in the final user group.
 
     Fewer than twenty names deliberately leave the last group truncated while its count
-    still claims a routine, for malformed-walk tests.
+    still claims a routine, for malformed-walk tests. `tail_flags`, when given, holds one tail
+    flag per name.
     """
+    flags = [ROUTINE_TERMINATOR[0]] * len(names) if tail_flags is None else list(tail_flags)
+    if len(flags) != len(names):
+        raise ValueError(f"{len(names)} routines need as many tail flags, not {len(flags)}")
     payload = bytearray(SET_PIECE_AREA_MARKER)
     payload.extend(bytes(590 - len(payload)))
     index = 0
     for run_number, group_size in enumerate((3, 2, 3, 2)):
         for _ in range(group_size):
             if index < len(names):
-                payload.extend(routine_bytes(names[index]))
+                payload.extend(routine_bytes(names[index], flags[index]))
             index += 1
         for group in range(group_size):
             count = max(1, len(names) - index) if run_number == 3 and group == 1 else 1
             payload.extend(_UINT32.pack(count))
             for _ in range(count):
                 if index < len(names):
-                    payload.extend(routine_bytes(names[index]))
+                    payload.extend(routine_bytes(names[index], flags[index]))
                 index += 1
     return bytes(payload)
 

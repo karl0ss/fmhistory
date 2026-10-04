@@ -33,6 +33,7 @@ from fmsave.models.tactics import (
 )
 from fmsave.readers._common import GAME_DB_SECTION, TACTICS_SECTION
 from fmsave.readers.tactics import (
+    _routine_tail_pattern,  # pyright: ignore[reportPrivateUsage]
     build_tactic_tables,
     find_tactics_layout,
     read_tactics_header,
@@ -449,6 +450,44 @@ def test_additional_routines_are_kept_in_stored_order(tmp_path: Path) -> None:
     assert failed_gate_names(evaluate_set_pieces(stats, BOUNDS, FULL_SIZE_GAME_DB_BYTES)) == []
 
 
+def test_user_routines_whose_tail_flags_differ_are_each_their_own_routine() -> None:
+    """A user group's routines store different tail flags, and none may merge into the next.
+
+    Read as a constant, a flag of 0 or 2 hides that routine's tail, so its bytes join the
+    following routine's and the last one in the group runs out of block.
+    """
+    names = [*career_routine_names()[:19], "Extra Example A", "Extra Example B", "Example C"]
+    flags = [1] * 19 + [2, 1, 0]
+    selection = selection_part_bytes(
+        team_id=NORTHBRIDGE_TEAM_A,
+        label="",
+        slots=(),
+        list_a=(),
+        list_b=(),
+        single=NO_SELECTOR,
+        tactics_value=HAS_TACTICS_VALUE,
+        tactic_count=0,
+    )
+    body = tactics_man_body(
+        selector=MANAGER_SELECTOR,
+        blocks=(selection + set_piece_area_bytes(names, flags),),
+    )
+
+    blocks, counts = walk_tactic_blocks(body, (NORTHBRIDGE_TEAM_A,), LAYOUT, FILE_NAME)
+
+    assert list(blocks[0].routine_names) == names
+    assert counts.routine_blocks_complete == 1
+
+    out_of_range = tactics_man_body(
+        selector=MANAGER_SELECTOR,
+        blocks=(selection + set_piece_area_bytes(names, [*flags[:-1], 3]),),
+    )
+    _blocks, out_of_range_counts = walk_tactic_blocks(
+        out_of_range, (NORTHBRIDGE_TEAM_A,), LAYOUT, FILE_NAME
+    )
+    assert out_of_range_counts.routine_blocks_complete == 0
+
+
 def test_a_team_id_the_section_stores_twice_gets_no_block(tmp_path: Path) -> None:
     repeated_block = selection_part_bytes(
         team_id=NORTHBRIDGE_TEAM_B,
@@ -750,8 +789,8 @@ def test_a_random_or_truncated_section_raises_only_an_fmsave_error(
         # A walk that returns instead of raising has to have stayed inside what it was given:
         # no more blocks than teams asked for, and no more routines than terminator hits.
         assert counts.blocks_found == len(blocks) <= len(CAREER_TEAM_IDS)
-        assert sum(len(block.routine_names) for block in blocks) <= body.count(
-            layout.routine_tail_marker
+        assert sum(len(block.routine_names) for block in blocks) <= len(
+            _routine_tail_pattern(layout).findall(body)
         )
         assert all(
             len(tactic.slots) <= layout.slot_count for block in blocks for tactic in block.tactics

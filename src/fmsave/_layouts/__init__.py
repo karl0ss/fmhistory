@@ -1382,18 +1382,22 @@ class JobCentreLayout:
     """Where the open vacancies sit in the `job_centre` section, and where a record's fields do.
 
     The u32 at `count_offset` is how many records the section holds, and they follow back to
-    back from `records_offset`, each `record_bytes` long with no trailer after the last.
-    **`len(section) == records_offset + record_bytes * count` is structural**: a start shifted
-    by a whole record satisfies every per-record check below, and only that identity fails.
+    back from `records_offset` with no trailer after the last. A record is `record_bytes` long
+    plus `id_bytes` for each id in its own id list: the byte at `id_count_offset` is how many
+    u32 ids follow it. **That the stored count of records, each sized by its own id count,
+    ends exactly at the section's end is structural**: a start shifted by a whole record
+    satisfies every per-record check below, and only that identity fails.
 
-    Every other offset counts from a record's start, where `tag` sits. The u32 at
-    `team_id_offset` is a team id, in the space `ClubIndex.team_to_club` is keyed on. The dates
-    at `advertised_offset` and `date_12_offset` both carry non-zero time-slot bits, so they are
-    decoded with `fmsave._scan.decode_date` rather than any validator that wants those bits
-    clear. The u16 at `competition_offset` is a competition id in the stage id space, and
-    `no_competition` is the value that means the record names none. The u16 at
-    `reserved_u16_offset` and the byte at `reserved_u8_offset` are zero on every record of
-    every save measured: they are counted for the reader's checks and never shipped.
+    Every other offset counts from a record's start, where `tag` sits, as it stands in a record
+    with no ids; an offset past `id_count_offset` moves on by the bytes of the record's id list.
+    The u32 at `team_id_offset` is a team id, in the space `ClubIndex.team_to_club` is keyed
+    on. The dates at `advertised_offset` and `date_12_offset` both carry non-zero time-slot
+    bits, so they are decoded with `fmsave._scan.decode_date` rather than any validator that
+    wants those bits clear. The u16 at `competition_offset` is a competition id in the stage id
+    space, and `no_competition` is the value that means the record names none. The byte at
+    `b17_offset` is 0 or 1 on every record of every save measured, and the byte at
+    `reserved_u8_offset` is zero: both are counted for the reader's checks and neither, nor the
+    ids, is shipped.
     """
 
     count_offset: int
@@ -1404,7 +1408,9 @@ class JobCentreLayout:
     role_offset: int
     advertised_offset: int
     date_12_offset: int
-    reserved_u16_offset: int
+    id_count_offset: int
+    id_bytes: int
+    b17_offset: int
     competition_offset: int
     no_competition: int
     u20_offset: int
@@ -1544,9 +1550,10 @@ class TacticsLayout:
     `routine_area_header_bytes`, including `routine_area_marker`. Default runs alternate with
     counted user groups; `routine_group_sizes` gives both the default run sizes and the number
     of counted groups following each run. Counts inside `routine_group_count_range` determine
-    how many user records to read. Each record ends with a length-prefixed UTF-8 name, the
-    `routine_tail_marker`, a `routine_code_bytes` code and one trailer byte. The code's bytes
-    fall inside `routine_code_byte_range`; its value can vary between routines. Names decode
+    how many user records to read. Each record ends with a length-prefixed UTF-8 name, a flag
+    byte inside `routine_tail_flag_range`, a `routine_code_bytes` code and one trailer byte.
+    The flag and the code's bytes, which fall inside `routine_code_byte_range`, can each vary
+    between routines; the two ranges do not meet, so a tail never overlaps another. Names decode
     backwards from that tail and an unnamed routine stores a zero length. The bounded search
     for a record tail never exceeds `routine_record_max_bytes`.
     """
@@ -1585,7 +1592,7 @@ class TacticsLayout:
     trail_bytes: int
     unit_count_range: tuple[int, int]
     position_bit_count: int
-    routine_tail_marker: bytes
+    routine_tail_flag_range: tuple[int, int]
     routine_code_bytes: int
     routine_code_byte_range: tuple[int, int]
     routine_area_marker: bytes
@@ -1992,11 +1999,12 @@ class GateBounds:
     (records whose advertised date is on or before the in-game date and whose second date is on
     or after the advertised one), `job_vacancy_advertised_ascending` (steps from one record's
     advertised date to the next that did not go backwards, of those steps),
-    `job_vacancy_reserved_zero` (records whose two reserved fields are both zero), all as shares
-    of the records read. They apply from `job_vacancy_minimum_applies_from_records` records,
-    which is what leaves a legitimately short or empty feed alone: the feed is career state, a
-    manager between jobs may see very little of it, and no floor under its size could tell a
-    quiet job market from a layout that has moved. The structural size identity in
+    `job_vacancy_reserved_zero` (records whose reserved byte is zero and whose unnamed flag
+    byte is 0 or 1), all as shares of the records read. They apply from
+    `job_vacancy_minimum_applies_from_records` records, which is what leaves a legitimately
+    short or empty feed alone: the feed is career state, a manager between jobs may see very
+    little of it, and no floor under its size could tell a quiet job market from a layout that
+    has moved. The structural size identity in
     `JobCentreLayout` is what catches a start shifted by a whole record, which every share here
     passes. There is no gate on how many team ids resolve: ids are about 92% dense over the
     range the feed uses, so that share cannot fail. There is none on how many competition ids

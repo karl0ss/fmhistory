@@ -696,7 +696,8 @@ class JobVacancyStats:
     """What reading the job-centre feed counted.
 
     `records` counts every record the section holds. `tagged` counts those carrying the record
-    tag, and `reserved_zero` those whose two reserved fields are both zero.
+    tag, and `reserved_zero` those whose reserved byte is zero and whose unnamed byte flag at
+    `JobCentreLayout.b17_offset` is 0 or 1.
 
     `dates_ordered` counts records whose advertised date decodes and is on or before the save's
     in-game date **and** whose second date decodes and is on or after the advertised one.
