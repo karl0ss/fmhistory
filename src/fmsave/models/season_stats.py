@@ -80,6 +80,8 @@ class PlayerSeasonStats:
         goals: Goals.
         assists: Assists.
         expected_goals: Expected goals (xG).
+        non_penalty_expected_goals: Expected goals from shots other than penalties (npxG)
+            (unconfirmed).
         expected_assists: Expected assists (xA).
         shots: Shots.
         shots_on_target: Shots on target.
@@ -112,6 +114,7 @@ class PlayerSeasonStats:
         key_tackles: Key tackles (unconfirmed).
         interceptions: Interceptions.
         possession_won: Times the player won possession.
+        possession_lost: Times the player lost possession (unconfirmed).
         pressures_attempted: Pressures attempted.
         pressures_completed: Pressures completed.
         blocks: Blocks; None for a goalkeeper (unconfirmed).
@@ -150,6 +153,7 @@ class PlayerSeasonStats:
     goals: int
     assists: int
     expected_goals: float
+    non_penalty_expected_goals: float
     expected_assists: float
     shots: int
     shots_on_target: int
@@ -180,6 +184,7 @@ class PlayerSeasonStats:
     key_tackles: int
     interceptions: int
     possession_won: int
+    possession_lost: int
     pressures_attempted: int
     pressures_completed: int
     blocks: int | None
@@ -211,6 +216,7 @@ class PlayerSeasonStats:
         "goals_per_90",
         "assists_per_90",
         "expected_goals_per_90",
+        "non_penalty_expected_goals_per_90",
         "expected_assists_per_90",
         "expected_goals_prevented_per_90",
         "shots_per_90",
@@ -237,6 +243,7 @@ class PlayerSeasonStats:
         "key_tackles_per_90",
         "interceptions_per_90",
         "possession_won_per_90",
+        "possession_lost_per_90",
         "pressures_attempted_per_90",
         "pressures_completed_per_90",
         "blocks_per_90",
@@ -309,6 +316,11 @@ class PlayerSeasonStats:
     def expected_goals_per_90(self) -> float | None:
         """Expected goals per 90 minutes."""
         return _per_90(self.expected_goals, self.minutes)
+
+    @property
+    def non_penalty_expected_goals_per_90(self) -> float | None:
+        """Non-penalty expected goals per 90 minutes."""
+        return _per_90(self.non_penalty_expected_goals, self.minutes)
 
     @property
     def expected_assists_per_90(self) -> float | None:
@@ -443,6 +455,11 @@ class PlayerSeasonStats:
         return _per_90(self.possession_won, self.minutes)
 
     @property
+    def possession_lost_per_90(self) -> float | None:
+        """Possession lost per 90 minutes."""
+        return _per_90(self.possession_lost, self.minutes)
+
+    @property
     def pressures_attempted_per_90(self) -> float | None:
         """Pressures attempted per 90 minutes."""
         return _per_90(self.pressures_attempted, self.minutes)
@@ -573,11 +590,15 @@ register_field_statuses(
         "saves_tipped",
         "shots_on_target_faced",
         "expected_goals_prevented",
+        "non_penalty_expected_goals",
+        "possession_lost",
         "open_play_cross_completion_percent",
         "conversion_percent",
         "save_percent",
         "expected_goals_per_shot",
         "expected_goals_prevented_per_90",
+        "non_penalty_expected_goals_per_90",
+        "possession_lost_per_90",
         "open_play_crosses_attempted_per_90",
         "open_play_crosses_completed_per_90",
         "headers_lost_per_90",

@@ -1757,6 +1757,12 @@
             1,
           ),
           tuple(
+            'possession_lost',
+            87,
+            'H',
+            1,
+          ),
+          tuple(
             'possession_won',
             89,
             'H',
@@ -1833,6 +1839,12 @@
             125,
             'H',
             1,
+          ),
+          tuple(
+            'non_penalty_expected_goals',
+            127,
+            'H',
+            100,
           ),
           tuple(
             'crosses_attempted',

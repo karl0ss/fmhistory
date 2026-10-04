@@ -1628,9 +1628,9 @@ GATE_BOUNDS = GateBounds(
 )
 
 # The season-statistics section, the unlisted frame the community calls `player_stats.dat`.
-# Every offset here was matched to a figure the game displayed: 21 players on two squad screens
-# (seasons 2036/37 and 2039/40) and 24 per-competition rows of five players' profiles, over
-# every column FM26's squad stats picker offers. The words that `outfield_fields` and
+# Every offset here but 87 and 127 was matched to a figure the game displayed: 21 players on
+# two squad screens (seasons 2036/37 and 2039/40) and 24 per-competition rows of five players'
+# profiles, over the columns FM26's squad stats picker offers. The words that `outfield_fields` and
 # `goalkeeper_fields` share hold a keeper's saves on a natural goalkeeper's line; nothing in a
 # line says which kind it is (no byte or bit separates 6,663 keeper lines from 62,064 outfield
 # ones), and on every outfield line headers won is at most the aerial challenges attempted.
@@ -1685,6 +1685,8 @@ SEASON_STATS = SeasonStatsLayout(
         ("key_headers", 77, "H", 1),
         ("interceptions", 79, "H", 1),
         ("clear_cut_chances_created", 81, "H", 1),
+        # A community report matched 87 to the game's possession lost per 90 on four players.
+        ("possession_lost", 87, "H", 1),
         ("possession_won", 89, "H", 1),
         ("expected_goals", 91, "H", 100),
         ("expected_assists", 93, "H", 100),
@@ -1698,6 +1700,9 @@ SEASON_STATS = SeasonStatsLayout(
         ("pressures_attempted", 121, "H", 1),
         ("pressures_completed", 123, "H", 1),
         ("open_play_key_passes", 125, "H", 1),
+        # Equal to the xG at 91 on every line of four saves with no penalty taken, and below it
+        # on the others by at most one penalty's xG for each penalty taken.
+        ("non_penalty_expected_goals", 127, "H", 100),
         ("crosses_attempted", 131, "H", 1),
         ("crosses_completed", 133, "H", 1),
         ("shots_blocked", 135, "H", 1),
