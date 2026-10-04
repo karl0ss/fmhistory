@@ -529,15 +529,17 @@ def _read_routine_name(section: bytes, terminator_at: int, layout: TacticsLayout
 
 @functools.cache
 def _routine_tail_pattern(layout: TacticsLayout) -> re.Pattern[bytes]:
-    """A routine's tail flag and four-character code, independent of the chosen code."""
-    low, high = layout.routine_code_byte_range
+    """A routine's tail flag and four-character code, whichever flag and code it stores.
+
+    The flag is not a constant: user routines store other values in it than default ones do.
+    """
+
+    def byte_class(low: int, high: int) -> bytes:
+        return b"[" + re.escape(bytes((low,))) + b"-" + re.escape(bytes((high,))) + b"]"
+
     return re.compile(
-        re.escape(layout.routine_tail_marker)
-        + b"["
-        + bytes((low,))
-        + b"-"
-        + bytes((high,))
-        + b"]"
+        byte_class(*layout.routine_tail_flag_range)
+        + byte_class(*layout.routine_code_byte_range)
         + b"{"
         + str(layout.routine_code_bytes).encode("ascii")
         + b"}"
