@@ -94,6 +94,8 @@ class NamePoolLayout:
     `signature` sits immediately before the first pool's entry count. Its three capacity
     words may scale together up to `max_signature_scale`. Pools have no minimum size,
     since databases differ in size; every entry's id and length are checked instead.
+    `max_name_bytes` bounds each name's byte length independently of section bounds;
+    it is a parser safety ceiling, not a verified limit on names stored by the game.
     """
 
     signature: bytes
@@ -1291,7 +1293,8 @@ class InjuryTypeTableLayout:
     One record is `lead_byte`, then the u16 type id at `id_offset`, the u32 name length at
     `length_offset`, that many text bytes at `text_offset`, and `trailer_bytes` of trailer (the
     flag byte, then the u32 second id). A record is accepted when its lead byte matches, its
-    length is inside `length_range`, its text is printable UTF-8 within `text_byte_range`, and its flag
+    length is inside `length_range`, its text is valid UTF-8 containing only printable
+    characters or Unicode space separators within `text_byte_range`, and its flag
     is one of `flag_values`; a chain of records is accepted while each record's type id is
     higher than the one before it. The table is the longest chain of at least
     `minimum_chain_entries` records, and entries are read until one holds a table: at most
