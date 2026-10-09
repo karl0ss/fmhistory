@@ -2431,7 +2431,7 @@ def enforce_checks(reader_checks: Sequence[ReaderCheck], *, strict: bool) -> boo
 # How one reader fared: the type of `ReaderValidation.status`, named so that a caller can
 # declare it. "ok" is a table read with every applied check passed, "failed" a check that did
 # not pass, and "error" another fmsave error raised while reading.
-type ReaderStatus = Literal["ok", "failed", "error"]
+ReaderStatus = Literal["ok", "failed", "error"]
 
 
 @dataclass(frozen=True, slots=True)

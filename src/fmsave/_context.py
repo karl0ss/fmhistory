@@ -125,7 +125,7 @@ class SaveContext:
         self._require_open()
         return self._section_loan(name)
 
-    def cached[ValueT](self, key: str, build: Callable[[], ValueT]) -> ValueT:
+    def cached(self, key: str, build: Callable[[], Any]) -> Any:
         """Return the value stored under `key`, building and storing it on first use.
 
         A build that raises the library's own error is remembered as having failed, and

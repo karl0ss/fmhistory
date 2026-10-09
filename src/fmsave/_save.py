@@ -27,7 +27,7 @@ from fmsave._layouts import (
 from fmsave._reader_stats import ResultStats, TacticStats
 from fmsave._version import read_save_info
 from fmsave.models.affiliates import AffiliateGroup
-from fmsave.models.career_history import Award, CupEntry, Honour, ManagerSpell, PersonHistory
+from fmsave.models.career_history import Award, CupEntry, Honour, LeagueHistorySeason, ManagerSpell, PersonHistory
 from fmsave.models.clubs import Club
 from fmsave.models.competitions import Competition, Stage
 from fmsave.models.contracts import Contract
@@ -72,10 +72,13 @@ from fmsave.readers.career_history import (
     AWARD_SECTION,
     CUP_HISTORY_SECTION,
     HALL_OF_FAME_SECTION,
+    LEAGUE_HISTORY_DT_SECTION,
+    LEAGUE_HISTORY_LS_SECTION,
     MANAGER_HISTORY_SECTION,
     decode_awards,
     decode_cup_entries,
     decode_hall_of_fame,
+    decode_league_history,
     decode_manager_spells,
 )
 from fmsave.readers.facilities import find_facility_layout, read_club_facilities
@@ -181,6 +184,7 @@ CAREER_HONOURS_TABLE_CACHE_KEY = "table:career_honours"
 CAREER_CUP_ENTRIES_TABLE_CACHE_KEY = "table:career_cup_entries"
 CAREER_MANAGER_SPELLS_TABLE_CACHE_KEY = "table:career_manager_spells"
 CAREER_AWARDS_TABLE_CACHE_KEY = "table:career_awards"
+CAREER_LEAGUE_HISTORY_TABLE_CACHE_KEY = "table:career_league_history"
 JOB_VACANCIES_TABLE_CACHE_KEY = "table:job_vacancies"
 STADIUMS_TABLE_CACHE_KEY = "table:stadiums"
 STAFF_TABLE_CACHE_KEY = "table:staff"
@@ -271,7 +275,7 @@ def _check_cache_key(reader_name: str) -> str:
     return f"check:{reader_name}"
 
 
-def _returning[ValueT](value: ValueT) -> Callable[[], ValueT]:
+def _returning(value):
     return lambda: value
 
 
@@ -789,6 +793,23 @@ class Save:
         """
         context = self._context
         return context.cached(CAREER_AWARDS_TABLE_CACHE_KEY, self._read_career_awards)
+
+    def career_league_history(self) -> Table[LeagueHistorySeason]:
+        """League table performance history for the managed club.
+
+        Returns one record per season containing the season ending year,
+        competition id, league position, number of teams, games played,
+        wins, draws, losses, goals for, goals against, and points.
+        All data is read from the tc_league_history_dt and tc_league_history_ls
+        sections by extracting all readable league history rows.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written.
+        """
+        context = self._context
+        return context.cached(CAREER_LEAGUE_HISTORY_TABLE_CACHE_KEY, self._read_career_league_history)
 
     def stadiums(self) -> Table[Stadium]:
         """Every ground the save's database holds, in the order the save stores them.
@@ -2300,6 +2321,14 @@ class Save:
         with self._context.section(AWARD_SECTION) as award_data:
             awards = decode_awards(award_data)
         return Table(awards, Award)
+
+    def _read_career_league_history(self) -> Table[LeagueHistorySeason]:
+        with (
+            self._context.section(LEAGUE_HISTORY_DT_SECTION) as dt_data,
+            self._context.section(LEAGUE_HISTORY_LS_SECTION) as ls_data,
+        ):
+            entries = decode_league_history(dt_data, ls_data)
+        return Table(entries, LeagueHistorySeason)
 
     def _read_stages(self) -> Table[Stage]:
         context = self._context

@@ -17,7 +17,8 @@ What each section holds:
       u32 765 (`fd 02 00 00`) 04 03 03 00
 
   where 765 is a section-wide constant that also opens every honours row, so it is
-  a node or type id, not a person id. The manager's honours sit after their block:
+  a section-wide node or type id, not a person id. The manager's honours sit after
+  their block:
 
       <u32 club> 01 00 <u32 competition> fd 02 00 00 02 00
       u16 count 01 <01|04> 00 u16 count2 u16 season 03 03 00
@@ -53,8 +54,8 @@ What each section holds:
   0x4000 seen), the tag word 0xffff on most rows with a run of category values on
   the rest, and the trailing block's first byte is the winner's age on
   person-winner rows. Records without the year/award head — the monthly-award
-  records, most likely, whose ages run a real player age curve — carry no season
-  year, so they cannot sit in a year-keyed table and are kept out.
+  rows, most likely, whose ages run a real player age curve — carry no season
+  year, so they cannot sit in a year-keyed table and are left for a later pass.
 
 Competition ids in the career-history sections are save-internal ids, and no save stores a
 competition name, so none of these records carries a name; naming needs the same
@@ -67,12 +68,14 @@ import re
 import struct
 
 from fmsave._errors import CorruptSaveError
-from fmsave.models.career_history import Award, CupEntry, Honour, ManagerSpell, PersonHistory
+from fmsave.models.career_history import Award, CupEntry, Honour, ManagerSpell, PersonHistory, LeagueHistorySeason
 
 HALL_OF_FAME_SECTION = "hall_of_fame"
 CUP_HISTORY_SECTION = "tc_cup_history_dt"
 MANAGER_HISTORY_SECTION = "tc_manager_history_dt"
 AWARD_SECTION = "award_year_hist_dt"
+LEAGUE_HISTORY_DT_SECTION = "tc_league_history_dt"
+LEAGUE_HISTORY_LS_SECTION = "tc_league_history_ls"
 
 # The section-wide node id every honours row and most person record tails carry (u32 765).
 _HONOURS_NODE = b"\xfd\x02\x00\x00"
@@ -242,6 +245,106 @@ def decode_cup_entries(data: bytes) -> tuple[CupEntry, ...]:
     )
 
 
+def decode_awards(data: bytes) -> tuple[Award, ...]:
+    """Every award row in the yearly award section that carries a season and award head.
+
+    The section streams 26- and 30-byte records against each other, placeholders
+    between them. The scan walks forward one byte at a time and takes the first
+    shape that passes its checks at each position — the 30-byte shape, then the
+    26-byte one that a record whose winner is a club itself carries — and a
+    placeholder or other unmatched record is walked past, not parsed. This reads
+    the records the (year, award) head identifies. The section also holds head-less
+    records — the monthly-award rows, most likely, and their ages run a real player
+    age curve — but they carry no season year, so they cannot sit in a year-keyed
+    table and are left for a later pass.
+
+    An award row's season year is the season's ending year, and `winner_age` is the
+    winner's age on person-winner rows; both are confirmed on the ground-truth
+    save's manager rows, where the six rows carry the biography's named awards with
+    ages matching the manager's birth year.
+    """
+    awards: list[Award] = []
+    seen: set[tuple[int, int, int, int, int]] = set()
+    position = 0
+    limit = len(data) - 26  # _AWARD_NO_CLUB_BYTES
+    while position <= limit:
+        # Try 30-byte header first
+        if position + 30 <= len(data):
+            record = data[position : position + 30]
+            if record[0] == 2:  # _AWARD_LEAD_BYTE
+                flags = int.from_bytes(record[1:5], "little")
+                if flags <= 0x4081:  # _AWARD_FLAG_MAX
+                    tag, season_year, award_id, winner_id, club_uid = struct.unpack_from("<HHHII", record, 5)
+                    age = record[19]
+                    if (_MIN_YEAR <= season_year <= _MAX_YEAR and season_year != _NULL_YEAR and
+                        award_id <= 4700 and  # _AWARD_ID_MAX
+                        winner_id < 2_500_000 and  # _AWARD_REFERENCE_MAX
+                        (club_uid == 0xFFFF_FFFF or club_uid < 2_500_000) and
+                        13 <= age <= 95):  # _AGE_MIN, _AGE_MAX
+                        tail = tuple(record[19:30])
+                        key = (
+                            season_year,
+                            award_id,
+                            tag,
+                            winner_id,
+                            club_uid if club_uid != 0xFFFF_FFFF else None,
+                            winner_age,
+                        )
+                        if key not in seen:
+                            seen.add(key)
+                            awards.append(
+                                Award(
+                                    season_year=season_year,
+                                    award_id=award_id,
+                                    tag=tag,
+                                    winner_id=winner_id,
+                                    club_uid=club_uid if club_uid != 0xFFFF_FFFF else None,
+                                    winner_age=age,
+                                    tail=tail,
+                                )
+                            )
+                        position += 30
+                        continue
+        # Try 26-byte header (no club field)
+        if position + 26 <= len(data):
+            record = data[position : position + 26]
+            if record[0] == 2:  # _AWARD_LEAD_BYTE
+                flags = int.from_bytes(record[1:5], "little")
+                if flags <= 0x4081:  # _AWARD_FLAG_MAX
+                    tag, season_year, award_id, winner_id = struct.unpack_from("<HHHI", record, 5)
+                    age = record[15]
+                    if (_MIN_YEAR <= season_year <= _MAX_YEAR and season_year != _NULL_YEAR and
+                        award_id <= 4700 and  # _AWARD_ID_MAX
+                        winner_id < 2_500_000 and  # _AWARD_REFERENCE_MAX
+                        13 <= age <= 95):  # _AGE_MIN, _AGE_MAX
+                        tail = tuple(record[15:26])
+                        key = (
+                            season_year,
+                            award_id,
+                            tag,
+                            winner_id,
+                            -1,  # club_uid as -1 for None
+                            winner_age,
+                        )
+                        if key not in seen:
+                            seen.add(key)
+                            awards.append(
+                                Award(
+                                    season_year=season_year,
+                                    award_id=award_id,
+                                    tag=tag,
+                                    winner_id=winner_id,
+                                    club_uid=None,
+                                    winner_age=age,
+                                    tail=tail,
+                                )
+                            )
+                        position += 26
+                        continue
+        position += 1
+    return tuple(awards)
+
+
 _SPELL_SENTINELS = b"\xff" * 8
 
 
@@ -272,127 +375,114 @@ def decode_manager_spells(data: bytes) -> tuple[ManagerSpell, ...]:
     return tuple(spells)
 
 
-_AWARD_LEAD_BYTE = 2
-_AWARD_FLAG_MAX = 0x4081
-_AWARD_ID_MAX = 4700
-_AWARD_HEAD_BYTES = 30
-_AWARD_NO_CLUB_BYTES = 26
-_AWARD_TAIL_BYTES = 11
-_AGE_MIN = 13
-_AGE_MAX = 95
-_AWARD_REFERENCE_MAX = 2_500_000
+# League history data extraction (simple dump of all readable data)
 
 
-def _award_head(row: bytes) -> Award | None:
-    """The award record a 30-byte headed row holds, or None when the bytes fail it.
+def _is_valid_league_history_row(dt_data: bytes, offset: int) -> bool:
+    """Check if a 24-byte block at offset is a valid league history row."""
+    if offset + 24 > len(dt_data):
+        return False
 
-    A row runs `[02][u32 flags][u16 tag][u16 year][u16 award][u32 winner][u32 club]`
-    plus the 11-byte trailing block. The checks are the sanity bounds the scan can
-    hold a row to: small flags, a real year, a small award id, references below the
-    unset value the placeholders carry, and an age byte in human range.
-    """
-    if len(row) < _AWARD_HEAD_BYTES or row[0] != _AWARD_LEAD_BYTE:
-        return None
-    flags = int.from_bytes(row[1:5], "little")
-    if flags > _AWARD_FLAG_MAX:
-        return None
-    tag, season_year, award_id, winner_id, club_uid = struct.unpack_from("<HHHII", row, 5)
-    age = row[19]
-    if not (_MIN_YEAR <= season_year <= _MAX_YEAR and season_year != _NULL_YEAR):
-        return None
-    if award_id > _AWARD_ID_MAX or winner_id >= _AWARD_REFERENCE_MAX:
-        return None
-    if club_uid >= _AWARD_REFERENCE_MAX or not _AGE_MIN <= age <= _AGE_MAX:
-        return None
-    return Award(
-        season_year=season_year,
-        award_id=award_id,
-        tag=tag,
-        winner_id=winner_id,
-        club_uid=club_uid,
-        winner_age=age,
-        tail=tuple(row[19 : 19 + _AWARD_TAIL_BYTES]),
+    # Check if offset is valid for a row (should be ≡ 8 mod 24)
+    if offset % 24 != 8:
+        return False
+
+    # Extract the row data
+    season = struct.unpack_from('<H>', dt_data, offset)[0]
+    comp = struct.unpack_from('<H>', dt_data, offset + 2)[0]
+    pos = dt_data[offset + 4]
+    size = dt_data[offset + 5]
+
+    # Basic validation: season should be in reasonable range
+    if not (1900 <= season <= 2100):
+        return False
+
+    # Position should be less than size (0-based)
+    if pos >= size:
+        return False
+
+    # Size should be reasonable (at least 2 teams, at most maybe 100?)
+    if not (2 <= size <= 100):
+        return False
+
+    # Skip rows where W/D/L are all 255 (indicates no data)
+    w = dt_data[offset + 14]
+    d = dt_data[offset + 15]
+    l = dt_data[offset + 16]
+    if w == 255 and d == 255 and l == 255:
+        return False
+
+    return True
+
+
+def _decode_league_history_row(dt_data: bytes, offset: int) -> LeagueHistorySeason:
+    """Decode a league history row at the given offset."""
+    # Extract the 24-byte row data
+    season = struct.unpack_from('<H>', dt_data, offset)[0]
+    comp = struct.unpack_from('<H>', dt_data, offset + 2)[0]
+    pos = dt_data[offset + 4]
+    size = dt_data[offset + 5]
+    team_ref = struct.unpack_from('<I>', dt_data, offset + 8)[0]
+    # P is duplicated at offsets 12 and 13 (both should be equal)
+    games_played = dt_data[offset + 12]
+    wins = dt_data[offset + 14]
+    draws = dt_data[offset + 15]
+    losses = dt_data[offset + 16]
+    goals_for = struct.unpack_from('<H>', dt_data, offset + 18)[0]
+    goals_against = struct.unpack_from('<H>', dt_data, offset + 20)[0]
+    points = struct.unpack_from('<H>', dt_data, offset + 22)[0]
+
+    return LeagueHistorySeason(
+        season_year=season,
+        competition_id=comp,
+        position=pos,
+        total_teams=size,
+        games_played=games_played,
+        wins=wins,
+        draws=draws,
+        losses=losses,
+        goals_for=goals_for,
+        goals_against=goals_against,
+        points=points,
     )
 
 
-def _award_head_without_club(row: bytes) -> Award | None:
-    """The award record a 26-byte headed row holds, the shape the club-history records carry.
+def decode_league_history(dt_data: bytes, ls_data: bytes) -> tuple[LeagueHistorySeason, ...]:
+    """Extract all readable league history data from dt and ls sections.
 
-    Some records — club-winner history rows and person winners (player awards)
-    alike — name their winner in a
-    u32 and then stop: `[02][u32 flags][u16 tag][u16 year][u16 award][u32 winner]`
-    plus the trailing block, 26 bytes. The scan reads this shape only when the 30-byte
-    shape fails, since the two agree on every byte the shorter one holds: under the
-    longer shape the club field is the shorter record's first trailing bytes and the
-    age byte sits four bytes on, so a sparse trailing block — zeros around an age, the
-    shape the section's records carry — fails the longer shape and this one takes it.
+    This function simply extracts all readable data without attempting to
+    reconstruct career chains. The application logic can then use this raw
+    data to build career histories as needed.
+
+    Returns:
+        tuple of LeagueHistorySeason objects representing all readable rows
+        from the tc_league_history_dt section.
     """
-    if len(row) < _AWARD_NO_CLUB_BYTES or row[0] != _AWARD_LEAD_BYTE:
-        return None
-    flags = int.from_bytes(row[1:5], "little")
-    if flags > _AWARD_FLAG_MAX:
-        return None
-    tag, season_year, award_id, winner_id = struct.unpack_from("<HHHI", row, 5)
-    age = row[15]
-    if not (_MIN_YEAR <= season_year <= _MAX_YEAR and season_year != _NULL_YEAR):
-        return None
-    if award_id > _AWARD_ID_MAX or winner_id >= _AWARD_REFERENCE_MAX:
-        return None
-    if not _AGE_MIN <= age <= _AGE_MAX:
-        return None
-    return Award(
-        season_year=season_year,
-        award_id=award_id,
-        tag=tag,
-        winner_id=winner_id,
-        club_uid=None,
-        winner_age=age,
-        tail=tuple(row[15 : 15 + _AWARD_TAIL_BYTES]),
-    )
+    rows: list[LeagueHistorySeason] = []
+
+    # Extract all valid rows from the dt section
+    # Rows are 24-byte blocks starting at offsets ≡ 8 mod 24
+    for offset in range(8, len(dt_data) - 23, 24):
+        if _is_valid_league_history_row(dt_data, offset):
+            row = _decode_league_history_row(dt_data, offset)
+            rows.append(row)
+
+    return tuple(rows)
 
 
-def decode_awards(data: bytes) -> tuple[Award, ...]:
-    """Every award row in the yearly award section that carries a season and award head.
+# Optional: Function to extract LS pointer data for advanced users who want
+# to reconstruct chains themselves
+def decode_league_history_ls_pointers(ls_data: bytes) -> tuple[int, ...]:
+    """Extract all u32 pointer values from the ls section.
 
-    The section streams 26- and 30-byte records against each other, placeholders
-    between them. The scan walks forward one byte at a time and takes the first
-    shape that passes its checks at each position — the 30-byte shape, then the
-    26-byte one that a record whose winner is a club itself carries — and a
-    placeholder or other unmatched record is walked past, not parsed. This reads
-    the records the (year, award) head identifies. The section also holds head-less
-    records — the monthly-award rows, most likely, and their ages run a real player
-    age curve — but they carry no season year, so they cannot sit in a year-keyed
-    table and are left for a later pass.
-
-    An award row's season year is the season's ending year, and `winner_age` is the
-    winner's age on person-winner rows; both are confirmed on the ground-truth
-    save's manager rows, where the six rows carry the biography's named awards with
-    ages matching the manager's birth year.
+    Returns:
+        tuple of all u32 values found in the ls section starting from offset 24.
+        Application logic can interpret these as pointers to dt rows or other ls offsets.
     """
-    awards: list[Award] = []
-    seen: set[tuple[int, int, int, int, int]] = set()
-    position = 0
-    limit = len(data) - _AWARD_NO_CLUB_BYTES
-    while position <= limit:
-        record = _award_head(data[position : position + _AWARD_HEAD_BYTES])
-        if record is None:
-            record = _award_head_without_club(
-                data[position : position + _AWARD_NO_CLUB_BYTES]
-            )
-        if record is not None:
-            key = (
-                record.season_year,
-                record.award_id,
-                record.winner_id,
-                record.club_uid if record.club_uid is not None else -1,
-                record.winner_age,
-            )
-            if key not in seen:
-                seen.add(key)
-                awards.append(record)
-            position += (
-                _AWARD_HEAD_BYTES if record.club_uid is not None else _AWARD_NO_CLUB_BYTES
-            )
-            continue
-        position += 1
-    return tuple(awards)
+    pointers: list[int] = []
+    for offset in range(24, len(ls_data), 4):
+        if offset + 4 > len(ls_data):
+            break
+        value = struct.unpack_from('<I', ls_data, offset)[0]
+        pointers.append(value)
+    return tuple(pointers)

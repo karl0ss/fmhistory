@@ -187,3 +187,36 @@ register_field_statuses(
     ManagerSpell,
     unconfirmed=("club_uid", "start_day", "start_year"),
 )
+
+register_field_statuses(
+    LeagueHistorySeason,
+    unconfirmed=(
+        "season_year",
+        "competition_id",
+        "position",
+        "total_teams",
+        "games_played",
+        "wins",
+        "draws",
+        "losses",
+        "goals_for",
+        "goals_against",
+        "points",
+    ),
+)
+
+
+@dataclass(frozen=True, slots=True)
+class LeagueHistorySeason:
+    """One season of league table performance for a club."""
+    season_year: int          # Season ending year (e.g. 2025 for 2024/25)
+    competition_id: int       # Save-internal competition id
+    position: int             # 0-based league position
+    total_teams: int          # Number of teams in league that season
+    games_played: int         # P
+    wins: int                 # W
+    draws: int                # D
+    losses: int               # L
+    goals_for: int            # GF
+    goals_against: int        # GA
+    points: int               # Pts
