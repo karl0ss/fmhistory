@@ -641,6 +641,70 @@ Follow-up scans 70–76 **correct checkpoint 2's "FEE located" claim**:
    proven; P-field semantics unconfirmed — integrate with all-unconfirmed
    statuses like `LeagueHistorySeason`).
 
+### Fee-hunt elimination arc (checkpoint 5, 2026-10-09): value anchoring closed, no per-transfer fee log
+
+Scripts `scan78–98`. Goal: locate the per-transfer fee store using GT anchors
+(Dumas buy £23M 10/8/2036 = 23,000 £k; Y-T sale £32.5M = 32,500; club spend
+Σ£101M = 101,000). **Result: the fee values are not recoverable by value
+anchoring in ANY section — the exact-value collisions everywhere are
+coincidences with per-club record constants (attendance/capacity) and wage
+values.** A structurally-decoded transfer/fee section remains the only viable
+path; candidates left: `person_record_history_dt` (131 MB, unprobed),
+`person_db_changes` (21 MB), `non_pl_hist_dt` item grammar.
+
+1. **`tc_record_man` 23,000/32,500 sites = attendance records** (7 of 9): shape
+   `01 ff 01 | u32 | 01 <u8> | <u8> <u16 year>` with years 0x079b=1947 …
+   0x07f5=2037. These are "record attendance" rows per club-season. Dead.
+2. **Corrections.** The claimed "32,495,604 in non_pl_hist_dt" (checkpoint 4
+   narrative) is WRONG — exact byte-find: 0 hits in every section (scan79/81).
+   The `u32 101,000` sites in non_pl_hist_dt (2) are inside generic u32-soup;
+   unaligned reads over dense u16 pair streams fabricate 0x02/0x08-tagged junk
+   families (scan79b numpy sweep: every section dominated by 0x02000000-band
+   junk) — **pure value anchoring is closed as a method**; only structural
+   decode (find records first, then read their fields) can pin fees.
+3. **`manager_manager` (5.8 MB, `tad.` v23) is NOT a transfer_man copy** (no
+   73B grid, 0 zstd, few 73B markers): u32 id chains 450k–830k (likely manager/
+   staff ids), compact-family-count-like bytes (`11 00`=5,034, `0b 00 01 00`=
+   275, `03 00`=29,730) coincidental. Karl's (182,2023) spell date pair = 0
+   hits. Uniform record motif `34 21 00 00 | 02 | … | u32 V | xx00 | yy00 |
+   <u32 V2> | 02 80 04 00 00 02` with big companions (565k–709k) — semantics
+   unknown. Not a fee store.
+4. **`tc_extended_club_records_history_dt` (30.3 MB, `tmc.` v5) — ruled out as
+   the fee log** (scan96/97/98): dense per-entity TLV id-stream sharing the
+   tc_record_man record family (`4f 02`=591, `b9 05`=1,465 consts). u32 23,000
+   ×14 and 32,500 ×22 both sit at an exact 0x350 (848 B) stride inside two
+   tight blocks — per-season REPEATING constants in adjacent per-club/season
+   records, stamped year words 0x07e7=2023/0x07e8=2024 (not 2036) — capacity/
+   attendance-like per-season values, not the 2036 fee. u32 716 ×242 / 717
+   ×1,526 (u16 716/717 ×1,132/2,196) but club uid 23,292,170 ×0. u32 101,000
+   ×6 sites = recurring key 31,445 + companions 101,124/104,005, no 716/717
+   link. Coincidence family, closed.
+5. **`tc_history_dt` compact money rows (scan95)**: 1,662 rows of
+   `1d 1a <u16 yr> 2c | u32 money | ff ff ff ff | u32 ≤4 | 0000 0000` — years
+   2024: 1,263 / 2029: 215 / 2035: 184; values 8.7k–795k = per-club per-season
+   aggregates (wage/finance scale), not fees (2035 block consecutive at 21 B
+   stride 0x28aa20–0x28b182).
+6. **`person_record_history_dt` / club-record screens note**: the UI's "record
+   signing £23M / record sale £32.5M" may be computed from per-transfer
+   records rather than stored as a separate record; per-transfer records
+   themselves (dates + fees) remain unfound and are plausibly inside
+   `person_record_history_dt` (a 131 MB per-person record store).
+7. Person/club id space map (validated this arc): person save uids NEVER
+   appear as u32 in any history/transfer section (Dumas 2,000,205,315, Y-T
+   2,002,095,850 = 0 hits everywhere) — history sections key persons by their
+   own small id spaces (e.g. hall_of_fame person uid 9,330,425 with plain-text
+   names, 03-family person ids 0x07f1xxxx–0x07f5xxxx which are actually
+   (X-tick,year) date packs). Club uid 23,292,170 appears in: award_year_hist
+   (75), pl_hist (52, often as adjacent pairs), non_pl_hist (47), hall_of_fame
+   (8).
+
+**Revised fee-hunt open items:** person_record_history_dt structural decode
+first (records with (X,year) date words + money fields keyed by person ids);
+then club-finance monthly records (`finance_manager` is tiny (2,954 B) — the
+monthly balances behind GT's -£1.2M→£131M arc live somewhere; "finances" is
+not a section name — check `starting_club_debt_db`/game_db streams). Validate
+against GT only after a reader exists.
+
 ### Remaining plan (owner priority, 2026-10-09: DECODERS FIRST)
 
 Standing direction from the owner: the priority is **finishing the missing
@@ -657,9 +721,10 @@ for league positions, honours, cup runs, awards, manager spells exist):
    fees, dates, player/club ids (127 bought / £101M / £23M Dumas /
    £32.5M Young-Thomas pinned by ground truth). **START HERE.**
    Status: checkpoint 1 done (see section above) — full byte map + 73B row
-   schema + season frames decoded; semantics (fee column, dates, id linkage)
-   still open. Candidate fee anchors found in the parsed rows: Dumas
-   P2=P4=23,972; Young-Thomas P3=P4=32,604 (buyer club P6=3999).
+   schema + season frames decoded; checkpoints 4–5 established the 73B rows
+   are per-player-per-club seasonal rows (wage scale) and **fees are in
+   neither transfer_man nor any value-anchored hit** (fee log unfound —
+   likely `person_record_history_dt`; see checkpoint 5).
 2. ~~Validation backlog~~ **DONE (checkpoint 4)**: anchors verified, reader bugs
    fixed, pytest pinned. Still open inside league history: identifying the
    club's rows for 2026/27 (League Two) and the Premier-era seasons (2034/35+
