@@ -590,6 +590,57 @@ tests in session log). Raw extract:
 `/home/karl/fm26-career/sections/transfer_man.bin` (53,306,010 B, outside
 repo).
 
+### transfer_man checkpoint 4 (2026-10-09): fees are NOT in transfer_man; 73B P4 = wage
+
+Follow-up scans 70–76 **correct checkpoint 2's "FEE located" claim**:
+
+- **money@+8 of 0b records is wage-scale in every kind** (histogram across
+  all 56,808: kinds 3/4/6/7/8/9 all span ~0.4k–41k, p50 ~20–24k; kinds 0/2
+  are junk parses of other layouts with high-bitted values). There is NO
+  fee-scaled population. kind-9 max 40,707 = the league's wage ceiling.
+  Every (ref, kind-8) ladder holds **exactly 11 records at one constant
+  money** (structural; same for kind-9's single record).
+- Per-record kind ladder per ref = negotiation evolution: kind 6 (lowest,
+  ~12.8k p50) → 7 (varied, ~23k, n≈10–25 per ref) → 8 (constant ×11) → 9
+  (constant ×1, +~1k over kind 8). Interpretation (best current): wage
+  demand drafts, agreed offer, settled wage.
+- `+16` handles are NOT "the deal's club": each ref's records carry ~5+
+  DIFFERENT clubs, one or two records each (57 refs touch club 716/717).
+  Also found: **refs duplicated in identical-ladder groups** (38 pairs, one
+  group of 4 — refs 566/575/738/37649) ⇒ a deal is recorded under multiple
+  participant-side negotiation ids.
+- **73B rows P2/P3/P4 = player money in raw £ (weekly-wage scale), NOT
+  fees.** The 23,972/32,604 anchor rows (Dumas (716,7), Y-T (716,172)) are
+  wage snapshots: 23,972/32,604 are COMMON values (155/186 rows across 64/74
+  clubs — league-standard wage levels), and the "127 buys = 23,972 sites"
+  coincidence is dead. Byte map re-verified on the correct region rows
+  (P1=(716,7) at `0x006dc8e8`, P8=104,680 u32 at s+50; s+58..72 = all unset
+  on club-716 rows; earlier "embedded 0b/6c07" bytes at those offsets were
+  an off-by-0x10d0000 misread of zone 1 — scan75 fixed the offset mapping:
+  pickle rows ≤2034 live in `gt_tail/full_stream.bin`, 2035–37 rows at
+  `transfer_man.bin` offset +0x10d0000).
+- Fee cross-check: u32 raw-£ 23,000,000 / 32,500,000 / 101,000,000 = 0 hits;
+  f32 same = 0 hits. 23,000 in transfer_man = only the ref-1479 kind-8
+  ladder (wage offer 23,000 ≈ Dumas's wage 23,972); 32,500 ×24 sites =
+  wage offers (Y-T's ladder ends at 32,500 = his 73B wage 32,604 minus
+  104). **GT's £23M/£32.5M transfer fees do not appear anywhere in
+  transfer_man** — transfer_man is the wage/contract ledger, not the
+  transfer-fee log. Fee hunt should move to the club-history sections
+  (`non_pl_hist_dt` is the next candidate: it holds `6c 07`-tagged item
+  streams with year-pair u16 fields (0x07d5=2005 … 0x07e7=2023) and two
+  u32 101,000 sites — unrefuted £k-scale signatures).
+
+**Open (carried from checkpoint 3, re-ordered):**
+1. Ref→club/player attribution in 0b (kind-6 `06 00`-list handles; deal
+   threading across duplicate refs).
+2. Fee column: decode `non_pl_hist_dt` item grammar / club history sections;
+   validate Σ ≈ 101,000 (£k) over 127 buys.
+3. 73B P6/P7/P8/P9 semantics (P8/P9 = wage × weeks?).
+4. 03-family A/B/C/D; `11 00` V2/V1 ratios.
+5. Date anchors. 6. Integration checklist for the 73B-row reader (layout is
+   proven; P-field semantics unconfirmed — integrate with all-unconfirmed
+   statuses like `LeagueHistorySeason`).
+
 ### Remaining plan (owner priority, 2026-10-09: DECODERS FIRST)
 
 Standing direction from the owner: the priority is **finishing the missing
