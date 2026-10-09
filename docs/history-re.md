@@ -212,12 +212,64 @@ note had it.
   e.g. spells ending 2022 (`f5 00 e0 07 00 00 e6 07` = 272→356 2016, 2022…). This
   section carries the non-league/pre-import manager chains.
 
-### award_year_hist_dt
-- 29 club-716 hits; rows are records containing club uid + season year u16 + award
-  ids (`91 07 04 00` = award id 1937 + u16 4, e.g.). Person-765 (`fd 02 00 00`) hits
-  = 87, same record family — so this section stores per-person/per-club award
-  histories; record boundaries not yet pinned. Recurring u16 constants: 0x8b (139),
-  0xaf (175), 0x8f (143), 0xa7 (167) — award-type/category tags (tbd).
+### award_year_hist_dt — INTEGRATED (`Save.career_awards()`, tag-bearing records)
+- `03 01 'tmc.' 01 00` header then a stream of 26/30-byte records that sit directly
+  against each other, placeholders between them:
+
+  ```
+  30-byte (winner + club):  [02][u32 flags][u16 tag][u16 year][u16 award][u32 winner]
+                            [u32 club][u8 age][u16 a][u16 b][u16 c][u16 d][u8 e]
+  26-byte no-club:         same minus the club u32, e.g. person-winner (player
+                            award) rows — 2,314 of them, (year, award, winner) keys that
+                            never collide with the club-bearing rows, real-age trailing
+                            blocks (36/34/47/21/20...), award ids 4 and 0 the commonest,
+                            tag 0xffff on 1,341 — and the club-winner history rows (the
+                            winner is the club itself), e.g. (1937, 4, 716)
+  26-byte placeholder:      [02][u32 0][u16 tag ff ff|8b][u32 ff*4][u32 ff*4][00*11]
+                            — ~19,744 in the file
+  ```
+
+  Flags seen: 0x1, 0x40, 0x400, 0x4000. The tag u16 is 0xffff on most records; a
+  minority carry a category value (0x8b, 0xaf, 0x9f...). The tail's first byte is the
+  winner's age: all six manager rows carry 39/40/41/43/45/48 for seasons 2024/25→2033/34
+  (manager born 1986). The tail u16s are unconfirmed (manager rows carry ~46-48 in
+  tail[2], 84-129 in tail[3]; year-less player rows carry a different pattern).
+
+- The (year, award) pairs are unique for 22,749 of the 22,894 club-bearing rows and
+  2,269 of the 2,314 no-club rows; award ids are
+  stable instances (0–7 band ×24–37 rows = monthly instances; 1,000–3,400 bands one
+  row per (award, season); 4 and 405 = old honours running ~146–148 rows each since the
+  1880s). The year is the season-ending year: 2031 = 2030/31, 2034 = 2033/34.
+- The six manager records: winner id 328,408 = the manager in this section's space (also
+  used in manager_manager.bin, person_record_manager.bin, transfer_man.bin). Award ids:
+  144 = Vanarama National League Manager of the Year (2025/26), 103 = League Two MoS
+  (2026/27), 101 = League One MoS (2028/29), 99 = Championship MoS in BOTH 2030/31 and
+  2033/34 — "(twice)" per the biography ✓. Each id also appears exactly once in
+  award_man as a definition record.
+- The 2024/25 NLS MoS runner-up = a HEAD-LESS record (tag 0x8b, 26 bytes: winner, club,
+  tail) kept out of the table: head-less records parse in a way the filler also
+  satisfies, so the scan keeps them out. The manager's ~13 monthly awards likewise: 19
+  biography awards total vs 6 season rows here — the missing 13 are monthly and do not
+  sit in this section with the manager id.
+- Pre-2023 = the import-time historical block (~1.47 MB, not year-ordered, no 2023+
+  records), 2006/2023 = a pre-career player-award row; 2023+ = appended chronologically
+  (club 716's rows: 2023:1, 2024:2, 2026:1×2..., all decoded).
+- (2378, 4, 716) = the second club-history row; 2378 is above the reader's year bounds
+  so that row is left out (the twin (1937, 4, 716) row is read). (2023, 1147, 716, 871)
+  is read with tag 0x83 and club 871 — 871's meaning unresolved.
+
+### award_man (tad., 842,938 B) — award definitions, partially read
+- `03 01 'tad.' 0d 00` header; records `[6×00 01][u16 award id][u8 01][u32 count]
+  [(u16 day, u16 year) presentation events...]` with (227, 2037)/(128, 2038) dates and
+  `6c 07` (1900) null-year sentinels; ids up to ~3,400. The ids the award rows carry
+  (99/101/103/144) each appear exactly once here as a record id — this joins the two
+  sections. Award names are NOT stored: like competition names, they need an
+  out-of-save map, here keyed on the award_man record id.
+
+### award_club_hist_dt (23,984 B) — structure seen, not decoded
+- Uniform ~37-byte records `[u16 year][u16 award][00][u16 club][ff-padded tail]`,
+  years 2005→2037, ~640 records, no club-716 rows; ids and the club id space differ
+  from award_year_hist_dt. Left undecoded (field level) for now.
 
 ## Method notes
 - Names live in `game_db`; history sections reference people/clubs by uid (u32 LE),

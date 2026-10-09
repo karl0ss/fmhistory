@@ -39,7 +39,7 @@ from fmsave._errors import (
 from fmsave._package import __version__
 from fmsave.checks import ValidationReport, validate_save
 from fmsave.models.affiliates import AffiliateGroup
-from fmsave.models.career_history import CupEntry, Honour
+from fmsave.models.career_history import Award, CupEntry, Honour
 from fmsave.models.clubs import Club
 from fmsave.models.competitions import Competition, Stage
 from fmsave.models.contracts import Contract
@@ -1219,10 +1219,12 @@ def _run_career_history(arguments: argparse.Namespace) -> int:
         honours = career_save.career_honours()
         cup_entries = career_save.career_cup_entries()
         spells = career_save.career_manager_spells()
+        awards = career_save.career_awards()
     if club_uid is not None:
         honours = tuple(honour for honour in honours if honour.club_uid == club_uid)
         cup_entries = tuple(entry for entry in cup_entries if entry.club_uid == club_uid)
         spells = tuple(spell for spell in spells if spell.club_uid == club_uid)
+        awards = tuple(award for award in awards if award.club_uid == club_uid)
 
     def _season_ending(year: int) -> str:
         # An honour's season ends the year it was won: season 2025 is 2024/25.
@@ -1265,12 +1267,27 @@ def _run_career_history(arguments: argparse.Namespace) -> int:
         for competition, seasons in sorted(by_competition.items()):
             season_text = " ".join(_season_start(season) for season in sorted(seasons))
             lines.append(f"  competition {competition} ({len(seasons)} rows): {season_text}")
+    lines.append(f"award rows: {len(awards)}")
+    awards_by_club: dict[int, list[Award]] = {}
+    for award in awards:
+        awards_by_club.setdefault(award.club_uid or -1, []).append(award)
+    for award_club in sorted(awards_by_club):
+        # A row with club_uid None is a club-winner record; its winner is the club.
+        club_text = f"club {award_club}" if award_club >= 0 else "records with no club field"
+        rows = sorted(awards_by_club[award_club], key=lambda row: (row.season_year, row.award_id))
+        lines.append(f"{club_text}:")
+        lines.extend(
+            f"  {_season_ending(row.season_year)} award {row.award_id} "
+            f"won by {row.winner_id} (age {row.winner_age}, tag {row.tag:#06x})"
+            for row in rows
+        )
     if arguments.json:
         payload = {
             "persons": [dataclasses_asdict(person) for person in persons],
             "honours": [dataclasses_asdict(honour) for honour in honours],
             "cup_entries": [dataclasses_asdict(cup_entry) for cup_entry in cup_entries],
             "manager_spells": [dataclasses_asdict(spell) for spell in spells],
+            "awards": [dataclasses_asdict(award) for award in awards],
         }
         report_text = json.dumps(payload, indent=2, ensure_ascii=False)
     else:

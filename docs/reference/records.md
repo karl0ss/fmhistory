@@ -107,4 +107,5 @@ and the spells table covers open spells only).
 .. autoclass:: fmsave.Honour
 .. autoclass:: fmsave.CupEntry
 .. autoclass:: fmsave.ManagerSpell
+.. autoclass:: fmsave.Award
 ```

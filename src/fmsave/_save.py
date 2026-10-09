@@ -27,7 +27,7 @@ from fmsave._layouts import (
 from fmsave._reader_stats import ResultStats, TacticStats
 from fmsave._version import read_save_info
 from fmsave.models.affiliates import AffiliateGroup
-from fmsave.models.career_history import CupEntry, Honour, ManagerSpell, PersonHistory
+from fmsave.models.career_history import Award, CupEntry, Honour, ManagerSpell, PersonHistory
 from fmsave.models.clubs import Club
 from fmsave.models.competitions import Competition, Stage
 from fmsave.models.contracts import Contract
@@ -69,9 +69,11 @@ from fmsave.readers.affiliates import (
     walk_affiliate_groups,
 )
 from fmsave.readers.career_history import (
+    AWARD_SECTION,
     CUP_HISTORY_SECTION,
     HALL_OF_FAME_SECTION,
     MANAGER_HISTORY_SECTION,
+    decode_awards,
     decode_cup_entries,
     decode_hall_of_fame,
     decode_manager_spells,
@@ -178,6 +180,7 @@ CAREER_PERSONS_TABLE_CACHE_KEY = "table:career_persons"
 CAREER_HONOURS_TABLE_CACHE_KEY = "table:career_honours"
 CAREER_CUP_ENTRIES_TABLE_CACHE_KEY = "table:career_cup_entries"
 CAREER_MANAGER_SPELLS_TABLE_CACHE_KEY = "table:career_manager_spells"
+CAREER_AWARDS_TABLE_CACHE_KEY = "table:career_awards"
 JOB_VACANCIES_TABLE_CACHE_KEY = "table:job_vacancies"
 STADIUMS_TABLE_CACHE_KEY = "table:stadiums"
 STAFF_TABLE_CACHE_KEY = "table:staff"
@@ -767,6 +770,26 @@ class Save:
         return context.cached(
             CAREER_MANAGER_SPELLS_TABLE_CACHE_KEY, self._read_career_manager_spells
         )
+
+    def career_awards(self) -> Table[Award]:
+        """Every award row the yearly award history stores, one per (award, season, winner).
+
+        A row names the season year, the award instance id, the winner and — for a
+        person winner — the club uid the award is recorded against, plus the
+        winner's age and the row's trailing data. Award ids are the ids the game's
+        award-definitions section keys its records on, but no save stores an award
+        name, so an id cannot be named from the save alone. The scan reads records
+        with the season/award head only: the section's head-less records — its
+        monthly-award records, most likely — are kept out, so a season's monthly
+        awards are absent from the table.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written.
+        """
+        context = self._context
+        return context.cached(CAREER_AWARDS_TABLE_CACHE_KEY, self._read_career_awards)
 
     def stadiums(self) -> Table[Stadium]:
         """Every ground the save's database holds, in the order the save stores them.
@@ -2273,6 +2296,11 @@ class Save:
         with self._context.section(MANAGER_HISTORY_SECTION) as manager_data:
             spells = decode_manager_spells(manager_data)
         return Table(spells, ManagerSpell)
+
+    def _read_career_awards(self) -> Table[Award]:
+        with self._context.section(AWARD_SECTION) as award_data:
+            awards = decode_awards(award_data)
+        return Table(awards, Award)
 
     def _read_stages(self) -> Table[Stage]:
         context = self._context

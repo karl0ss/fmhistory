@@ -1,7 +1,8 @@
 """Career history records read from the save's history sections.
 
-These come from the `hall_of_fame`, `tc_cup_history_dt` and `tc_manager_history_dt`
-sections, whose binary layout fmsave's older readers do not parse. Their layouts were
+These come from the `hall_of_fame`, `tc_cup_history_dt`, `tc_manager_history_dt` and
+`award_year_hist_dt` sections, whose binary layout fmsave's older readers do not parse.
+Their layouts were
 reverse-engineered on one save (`Karl Hudgell - UnemployedNew.fm`, build 26.3.2,
 FM24 save imported into FM26) and are not yet verified across builds, so every field
 is unconfirmed. The decoders are pattern scans, not layout-walks: a field is read
@@ -103,6 +104,47 @@ class CupEntry:
 
 
 @dataclass(frozen=True, slots=True)
+class Award:
+    """One award row the yearly award history stores, one per (award, season, winner).
+
+    The section streams 26 and 30-byte award records; the reader accepts the records
+    that carry a season and award head, whether they carry a club field or not — the
+    club-less shape carries club-winner rows and person winners (player awards)
+    alike. Records without the season/award head are kept out, so a season's monthly
+    awards are mostly absent from the table.
+
+    `award_id` is an award instance id that the game's award-definition section keys
+    its records on; award names are not stored in a save, so an id cannot be named
+    from the save alone.
+
+    Attributes:
+        season_year: Season-ending year the award belongs to, e.g. 2031 for 2030/31
+            (unconfirmed).
+        award_id: Award instance id the row names; the ids an award-definition
+            section keys its records on (unconfirmed).
+        tag: The record's leading category word, 0xffff on most rows (unconfirmed).
+        winner_id: Winner the row records, a person or club id in this section's
+            reference space, which joins to no table fmsave reads (unconfirmed).
+        club_uid: Uid of the club the row is under, or None on the records that
+            store no club field — the club-winner rows and the person winners alike
+            (unconfirmed).
+        winner_age: The winner's age at the award, read off the row's trailing
+            block; the value the ground-truth save's manager rows carry is their
+            real age (unconfirmed).
+        tail: The row's trailing bytes as ints, the season and winner data the
+            section stores around the award row; their meaning is unconfirmed.
+    """
+
+    season_year: int
+    award_id: int
+    tag: int
+    winner_id: int
+    club_uid: int | None
+    winner_age: int
+    tail: tuple[int, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class ManagerSpell:
     """A spell a manager holds at a club, from the manager history section.
 
@@ -136,6 +178,10 @@ register_field_statuses(
 register_field_statuses(
     CupEntry,
     unconfirmed=("club_uid", "competition_id", "start_season", "end_season"),
+)
+register_field_statuses(
+    Award,
+    unconfirmed=("season_year", "award_id", "tag", "winner_id", "club_uid", "winner_age", "tail"),
 )
 register_field_statuses(
     ManagerSpell,

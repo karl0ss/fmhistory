@@ -41,7 +41,22 @@ What each section holds:
   person uids the hall of fame stores, so rows cannot be tied to one manager yet;
   they are keyed by club.
 
-Competition ids in all three sections are save-internal ids, and no save stores a
+- `award_year_hist_dt` — award rows across the game world, streamed as 26-byte
+  and 30-byte records that sit directly against each other, with placeholder
+  records (tags and winners unset) filling the slots between:
+
+      [02] [u32 flags] [u16 tag] [u16 year] [u16 award] [u32 winner] [u32 club]
+      [u8 age] [u16] [u16] [u16] [u16] [u8]           30 bytes with a club field
+
+  The club field is absent on some records — club-winner rows and person winners
+  (player awards) alike — which makes those records 26 bytes. The flags word holds small flag values (0x1, 0x40, 0x400,
+  0x4000 seen), the tag word 0xffff on most rows with a run of category values on
+  the rest, and the trailing block's first byte is the winner's age on
+  person-winner rows. Records without the year/award head — the monthly-award
+  records, most likely — parse in a way the filler between them also satisfies,
+  so they are kept out.
+
+Competition ids in the career-history sections are save-internal ids, and no save stores a
 competition name, so none of these records carries a name; naming needs the same
 editor-database-id map the competition reader uses.
 """
@@ -52,11 +67,12 @@ import re
 import struct
 
 from fmsave._errors import CorruptSaveError
-from fmsave.models.career_history import CupEntry, Honour, ManagerSpell, PersonHistory
+from fmsave.models.career_history import Award, CupEntry, Honour, ManagerSpell, PersonHistory
 
 HALL_OF_FAME_SECTION = "hall_of_fame"
 CUP_HISTORY_SECTION = "tc_cup_history_dt"
 MANAGER_HISTORY_SECTION = "tc_manager_history_dt"
+AWARD_SECTION = "award_year_hist_dt"
 
 # The section-wide node id every honours row and most person record tails carry (u32 765).
 _HONOURS_NODE = b"\xfd\x02\x00\x00"
@@ -254,3 +270,128 @@ def decode_manager_spells(data: bytes) -> tuple[ManagerSpell, ...]:
         seen.add(key)
         spells.append(ManagerSpell(club_uid=club, start_day=day, start_year=season))
     return tuple(spells)
+
+
+_AWARD_LEAD_BYTE = 2
+_AWARD_FLAG_MAX = 0x4081
+_AWARD_ID_MAX = 4700
+_AWARD_HEAD_BYTES = 30
+_AWARD_NO_CLUB_BYTES = 26
+_AWARD_TAIL_BYTES = 11
+_AGE_MIN = 13
+_AGE_MAX = 95
+_AWARD_REFERENCE_MAX = 2_500_000
+
+
+def _award_head(row: bytes) -> Award | None:
+    """The award record a 30-byte headed row holds, or None when the bytes fail it.
+
+    A row runs `[02][u32 flags][u16 tag][u16 year][u16 award][u32 winner][u32 club]`
+    plus the 11-byte trailing block. The checks are the sanity bounds the scan can
+    hold a row to: small flags, a real year, a small award id, references below the
+    unset value the placeholders carry, and an age byte in human range.
+    """
+    if len(row) < _AWARD_HEAD_BYTES or row[0] != _AWARD_LEAD_BYTE:
+        return None
+    flags = int.from_bytes(row[1:5], "little")
+    if flags > _AWARD_FLAG_MAX:
+        return None
+    tag, season_year, award_id, winner_id, club_uid = struct.unpack_from("<HHHII", row, 5)
+    age = row[19]
+    if not (_MIN_YEAR <= season_year <= _MAX_YEAR and season_year != _NULL_YEAR):
+        return None
+    if award_id > _AWARD_ID_MAX or winner_id >= _AWARD_REFERENCE_MAX:
+        return None
+    if club_uid >= _AWARD_REFERENCE_MAX or not _AGE_MIN <= age <= _AGE_MAX:
+        return None
+    return Award(
+        season_year=season_year,
+        award_id=award_id,
+        tag=tag,
+        winner_id=winner_id,
+        club_uid=club_uid,
+        winner_age=age,
+        tail=tuple(row[19 : 19 + _AWARD_TAIL_BYTES]),
+    )
+
+
+def _award_head_without_club(row: bytes) -> Award | None:
+    """The award record a 26-byte headed row holds, the shape the club-history records carry.
+
+    Some records — club-winner history rows and person winners (player awards)
+    alike — name their winner in a
+    u32 and then stop: `[02][u32 flags][u16 tag][u16 year][u16 award][u32 winner]`
+    plus the trailing block, 26 bytes. The scan reads this shape only when the 30-byte
+    shape fails, since the two agree on every byte the shorter one holds: under the
+    longer shape the club field is the shorter record's first trailing bytes and the
+    age byte sits four bytes on, so a sparse trailing block — zeros around an age, the
+    shape the section's records carry — fails the longer shape and this one takes it.
+    """
+    if len(row) < _AWARD_NO_CLUB_BYTES or row[0] != _AWARD_LEAD_BYTE:
+        return None
+    flags = int.from_bytes(row[1:5], "little")
+    if flags > _AWARD_FLAG_MAX:
+        return None
+    tag, season_year, award_id, winner_id = struct.unpack_from("<HHHI", row, 5)
+    age = row[15]
+    if not (_MIN_YEAR <= season_year <= _MAX_YEAR and season_year != _NULL_YEAR):
+        return None
+    if award_id > _AWARD_ID_MAX or winner_id >= _AWARD_REFERENCE_MAX:
+        return None
+    if not _AGE_MIN <= age <= _AGE_MAX:
+        return None
+    return Award(
+        season_year=season_year,
+        award_id=award_id,
+        tag=tag,
+        winner_id=winner_id,
+        club_uid=None,
+        winner_age=age,
+        tail=tuple(row[15 : 15 + _AWARD_TAIL_BYTES]),
+    )
+
+
+def decode_awards(data: bytes) -> tuple[Award, ...]:
+    """Every award row in the yearly award section that carries a season and award head.
+
+    The section streams 26- and 30-byte records against each other, placeholders
+    between them. The scan walks forward one byte at a time and takes the first
+    shape that passes its checks at each position — the 30-byte shape, then the
+    26-byte one that a record whose winner is a club itself carries — and a
+    placeholder or other unmatched record is walked past, not parsed. This reads
+    the records the (year, award) head identifies; the section's head-less records
+    (its monthly-award records, most likely) are left for a later pass, because the
+    checks that separate them from their filler do not hold yet.
+
+    An award row's season year is the season's ending year, and `winner_age` is the
+    winner's age on person-winner rows; both are confirmed on the ground-truth
+    save's manager rows, where the six rows carry the biography's named awards with
+    ages matching the manager's birth year.
+    """
+    awards: list[Award] = []
+    seen: set[tuple[int, int, int, int, int]] = set()
+    position = 0
+    limit = len(data) - _AWARD_NO_CLUB_BYTES
+    while position <= limit:
+        record = _award_head(data[position : position + _AWARD_HEAD_BYTES])
+        if record is None:
+            record = _award_head_without_club(
+                data[position : position + _AWARD_NO_CLUB_BYTES]
+            )
+        if record is not None:
+            key = (
+                record.season_year,
+                record.award_id,
+                record.winner_id,
+                record.club_uid if record.club_uid is not None else -1,
+                record.winner_age,
+            )
+            if key not in seen:
+                seen.add(key)
+                awards.append(record)
+            position += (
+                _AWARD_HEAD_BYTES if record.club_uid is not None else _AWARD_NO_CLUB_BYTES
+            )
+            continue
+        position += 1
+    return tuple(awards)
