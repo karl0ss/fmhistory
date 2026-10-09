@@ -335,14 +335,32 @@ logic on top of the raw data.
 - Available via CLI as `fmsave career-history` command
 - Compatible with existing validation framework
 
-### Remaining plan (future sessions)
+### Remaining plan (owner priority, 2026-10-09: DECODERS FIRST)
 
-1. **Documentation**: Add reference entry in `docs/reference/league_history.md`
-2. **Testing**: Validate decoded data against known ground-truth values
-3. **Application Logic**: Users can now build career history websites, chain
-   reconstruction algorithms, or performance analysis tools on top of the raw data
-4. **Future Enhancements**: Optional advanced decoders for chain reconstruction
-   could be built as separate layers on top of the simple data extraction
+Standing direction from the owner: the priority is **finishing the missing
+decoders in fmsave** — no tooling/site work until the data is complete, since a
+site built on partial data is built on guesses. The screenshots remain
+calibration-only (each decoder's output gets validated against them; that
+validation is part of the decoder work, not a separate step).
+
+**Gaps between what the site needs and what fmsave currently reads** (decoders
+for league positions, honours, cup runs, awards, manager spells exist):
+
+1. **transfer_man (53 MB)** — transfer records are absent from fmsave (only
+   transfer *windows* exist). The site's next-widest gap after league history:
+   fees (u32 ÷1000), dates, player/club ids (127 bought / £101M / £23M Dumas /
+   £32.5M Young-Thomas pinned by ground truth). **START HERE.**
+2. **Validation backlog** for the just-landed `career_league_history()`:
+   decode the ground-truth save, check the 2024/25 VNS 111 pts and 2028/29 L1
+   P34-W20-D7-L7 anchor rows, pin them in a pytest.
+3. **player_stats_hist_dt (876 MB)** — per-player statistical history
+   (appearances/goals per season); needed for player pages.
+4. **tc_best_eleven_history_dt (13 MB)** — best XI per season.
+5. **news (40 MB)** — season-summary news items (e.g. 6 May 2025 champions
+   item) carry narrative + stats strings; good filler and cross-checks.
+6. Lower priority: award_club_hist_dt (partly covered via award_year_hist
+   club-award rows), tc_record_man (22 MB live-updating records, semantics
+   unconfirmed — own project), tc_history_dt, tc_extended_club_records_history_dt.
 
 ## Method notes
 - Names live in `game_db`; history sections reference people/clubs by uid (u32 LE),
