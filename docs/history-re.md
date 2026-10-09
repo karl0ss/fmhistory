@@ -385,6 +385,80 @@ Save-derived values are deliberately not committed (CONTRIBUTING guardrail);
 the anchor offsets above are the re-verification recipe on the ground-truth
 save.
 
+### transfer_man (`tad.`) — structure 80% mapped (checkpoint 1, 2026-10-09)
+
+Section: 53,306,010 B, 13-byte header `03 01 'tad.' 23 00 | u32@8 = 11,560,192`
+(varies per save; record count proxy). Three zones + compressed tail:
+
+| region | range (GT save) | contents |
+|---|---|---|
+| zone 1 | `0x0`–`0x10d0000` (~17.6 MB, clear) | family-A full transfer records (31,749) 0–4.6 MB + compact per-club families (B/C/D, 69-byte-stride club tables, fee-sorted lists) 5–17 MB |
+| zone 2 | `0x10d0000`–`0x2472e84` (~20 MB, clear) | 73-byte per-season records, seasons 2035/2036/2037 |
+| tail zstd | `0x2472e84`–EOF (~15 MB) | **13 zstd frames** (magic `28 b5 2f fd`, FDS `04`, WD `50`), one per season, 2022–2034 (frame12 = 2034, decompresses when the **1 trailing footer byte is dropped**). 85 MB raw, same 73-byte record format. Frame0 (2,854 B raw) = season-2022 prologue. |
+
+**73-byte season record** (1,433,706 rows total; chronology per year field:
+2022: 39, 2023: 32,213, 2024: 124,931, … 2033: 97,736, **2034: 97,100**, 2035:
+96,093, 2036: 95,968, 2037: 85,610; each zstd frame = one season's block).
+Marker: `00 0X 0Y 07` — variants `00 01 01 07` (dominant), `00 01 00 07`,
+`00 00 01 07`, `00 00 00 07` (variant byte 2 of 3 unknown meaning).
+
+```
+s+0..3   marker 00 0b 0c 07
+s+4..7   u32 P1 = id<<8 | seq   (id space TBD; 716 appears — 972 rows ours)
+s+8      00                     s+9..12  u32 P2 (nullable ff×4, ~47% null)
+s+13     00                     s+14..17 u32 P3 (nullable, 43% null; == P4 62% of the time)
+s+18     00                     s+19..22 u32 P4 (often == P3, "doubled value")
+s+23..30 mostly 00              s+31..34 u32 P5 (97% ff null)
+s+35     type byte (4 = 702/972 (72%) of club-716 rows; also 3:72, 1:71, 37:35, 24:23, 6:22)
+s+36..39 u16 X (~11k–23k for mid-career rows, ~12.9k burst on whole-squad tables)
+         + s+38..39 = u16 YEAR (calendar year of season; ff sentinels on non-year rows)
+s+40..41 flags (01 00 / 01 01 / 32 00 / 10 00 …)
+s+42..45 u32 P6 (club id: 716 = 1,659 rows)   s+46..49 u32 P7 (small counts)
+s+50..53 u32 P8 (nullable)                    s+54..57 u32 P9 (nullable)
+s+58..72 ff padding / extra
+```
+
+Per-season rows for a club form a contiguous table sorted by seq (seq 07→3d
+etc. within a season). The whole-squad table snapshot pattern (X constant
+12,981 over ~21 consecutive club-716 rows) shows P6=£/small counter,
+P7=counter. **P1 id space**: `Club.uid` space confirmed as candidate (St.
+Albans City uid 716/unique_id 717; `P1>>8==716` = 972 rows; `Club.uid=716`
+verified via fmsave clubs()). Family-A idB (`+25`, id<<8|seq) is a different
+space (Dumas = 0x12c305) — likely transfer-negotiation ids, NOT person uids;
+**player save uids (Dumas 2,000,205,315, Y-T 2,002,095,850) never appear in
+transfer_man at all** (0 hits for u32 of any player uid/unique_id).
+
+**Open (next session, in order):**
+1. Semantics of P2/P3/P4 (doubled-value pairs) — fee vs value vs wage. Anchors
+   (both verified in the parsed table):
+   Dumas £23M 10/8/2036 → row @`0x006dc8e8`, P1=`0x0002cc07`, P2=P4=23,972
+   (all other fields null); Y-T £32.5M 9/8/2036 → row @`0x008bcb2f`,
+   P1=`0x0002ccac`, P3=P4=32,604, P6=3999 (buyer club id!), P9=104,680.
+   Note 23,972≠23,000 and 32,604≠32,500 — both ~0.4–1% above the UI fee
+   (add-ons included? base ≠ total?). Fee likely P2/P4 or P3/P4 pair;
+   validate against the 127/£101M totals.
+2. Decode +36..40 X field (per-table constants 12,952→13,166 in 2036 — a
+   date/tick?). Find Dumas's row by date if possible.
+3. Map type bytes (4=squad/club rows; 37/3/9/6/1/14/24 = ? — probably offers,
+   releases, contracts). Count club-716 type-4 rows vs GT 127 bought/39 sold/50 released.
+4. Zone-1 compact families (B `11 00`, C `03`+date, D `0b 00` 69-byte stride
+   per-club tables): these held the 22,963/22,952/32,500 copies — they are
+   the per-club "completed transfer" tables and likely carry the actual fee
+   columns. The early 0x6100 sub-family (running serials, 2022 dates) too.
+5. Family-A date slots (+56/+60/+75/+80) and its +34..36 triple/tag.
+6. v02/v03 cross-save: same macro-structure (zstd frames? check) — family-A parse
+   failing there is likely the same 73B/zstd reordering, not alien content.
+
+Scripts: `/home/karl/fm26-career/tmp_xfer/scan19-35.py`; artifacts:
+`tmp_transfer/gt_tail/full_stream.bin` (105.5 MB; Z2 2035–37 clear first, then
+frames 2022–34), `tmp_transfer/tail_rows.pkl` (1,433,706 rows, tuples
+`(off, P1, P2, P3, P4, P5, type, X, year, fl, P6, P7, P8, P9, marker_variant)`).
+Readers used for uid lookups: `players()` (Dumas uid 2,000,205,315 / unique_id
+2,000,205,316; Y-T uid 2,002,095,850 / unique_id 2,002,095,851, club_uid
+23,292,170); `clubs()` (`St. Albans City` uid 716, unique_id 717).
+Also: upstream `rhiever.github.io/fmsave` docs have NO transfer reader — no
+shortcut exists; our fork is ahead.
+
 ### Remaining plan (owner priority, 2026-10-09: DECODERS FIRST)
 
 Standing direction from the owner: the priority is **finishing the missing
@@ -398,8 +472,12 @@ for league positions, honours, cup runs, awards, manager spells exist):
 
 1. **transfer_man (53 MB)** — transfer records are absent from fmsave (only
    transfer *windows* exist). The site's next-widest gap after league history:
-   fees (u32 ÷1000), dates, player/club ids (127 bought / £101M / £23M Dumas /
+   fees, dates, player/club ids (127 bought / £101M / £23M Dumas /
    £32.5M Young-Thomas pinned by ground truth). **START HERE.**
+   Status: checkpoint 1 done (see section above) — full byte map + 73B row
+   schema + season frames decoded; semantics (fee column, dates, id linkage)
+   still open. Candidate fee anchors found in the parsed rows: Dumas
+   P2=P4=23,972; Young-Thomas P3=P4=32,604 (buyer club P6=3999).
 2. ~~Validation backlog~~ **DONE (checkpoint 4)**: anchors verified, reader bugs
    fixed, pytest pinned. Still open inside league history: identifying the
    club's rows for 2026/27 (League Two) and the Premier-era seasons (2034/35+
@@ -427,7 +505,13 @@ for league positions, honours, cup runs, awards, manager spells exist):
   uid is one less than the editor's unique id everywhere (St. Albans 716/717,
   Stafford Rangers 717/718). Sections differ in which space they use: the club's
   own history rows use uid 716.
-- Transfer fees in transfer_man are u32 **÷1000** (£32.5M sale found only as `32500`).
+- ~~Transfer fees in transfer_man are u32 ÷1000~~ **REFUTED (2026-10-09)**: the u32
+  at family-A +21 is a global monotonic **record id** (0→45,156, file-order
+  sorted, +1 runs of 27/170 records) — not a fee. Family-A copies of
+  22,952/22,963/32,500 were red herrings (each value recurs at dozens of
+  unrelated sites), but strong fee candidates DO exist in the 73B season rows:
+  Dumas £23M = 23,972 (P2=P4), Young-Thomas £32.5M = 32,604 (P3=P4) — both
+  slightly above the UI fee (add-ons? see transfer_man section).
 - Dates: many sections store (u16 day, u16 year) where day counts within a season
   starting ~1 July (182 ≈ 1 July), 1900 (`6c 07`) = null sentinel. Some serialized
   records embed dates as `… <u8> <u8> <u16 year>` word runs (year u16 last).
