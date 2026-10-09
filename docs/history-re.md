@@ -87,8 +87,17 @@ The u16 y_a/y_b pairs in the block: single-season rows show y_a==y_b (e.g.
 2021/2021), multi-year spans show (1975,1976), (1977,1978), (1993,1994),
 (1995,1996), (2018,2019) — so the pair is a spell start/end, not per-season rows.
 
-### tc_manager_history_dt (tmc., 799,746 B, header count field 0x1f30 = 7,984)
+### tc_manager_history_dt (tmc., 799,746 B, header count field 0x1f30 = 7,984) —
+#### spell-start rows INTEGRATED (`Save.career_manager_spells()`)
 - Header: `03 01 'tmc.' 02 00 30 1f 00 00 01 00`, records follow (12-byte header).
+- One record per manager in the game world: the wire pattern `00 0a 00 00 00 00`
+  occurs 8,178 times against the header count of 7,984 (a handful of extra
+  occurrences inside record bodies). Only the spell-start row is decoded:
+  `<u32 club> u16 day u16 season u16 u16 same-season ff*8` — the all-unset tail is
+  the shape a spell still open carries. Spells that HAVE ended use an undecoded
+  shape, so `career_manager_spells` covers open spells only (195 rows on the
+  ground truth, every one season 2022-2024 — an import-boundary artifact, since
+  only pre-import-era spells carry that shape by 2037).
 - APPEND-ONLY confirmed by diffing saves 10 matchdays apart (Nov 14 → Dec 4 2037):
   the old 793,856 B section is an exact byte prefix of the new 799,746 B one
   (+5,890 B of appended records, ~1.1 KB per matchday: rows for every new spell/result
@@ -104,12 +113,6 @@ The u16 y_a/y_b pairs in the block: single-season rows show y_a==y_b (e.g.
   spell per manager per season, whole game world.
 - Persons here are NOT referenced by their 0x775648bf-style uid or by the pids from
   hall_of_fame (searched, zero hits) — reference encoding still unknown.
-
-### tc_cup_history_dt
-- Repeating 16-byte campaign rows:
-  `<u32 club_or_comp_id> <u16 start_year> <u16 end_year> <u16> <u32> <u32 club_uid>`
-  e.g. `4d 15 00 00 e8 07 e9 07 02 01 ff ff ff 00` (year pair 2024/2025)
-  with St. Albans (716) as one of the two clubs — 20 rows = 14ish seasons of entries.
 
 ### tc_record_man (tad., 22,737,139 B)
 - Header: `03 01 'tad.' 18 00 | u32 5 | ff * 24 | u32 22 | u32 ... | u32 6 ...`
@@ -131,37 +134,57 @@ The u16 y_a/y_b pairs in the block: single-season rows show y_a==y_b (e.g.
   across 22.7 MB — u16 collision-level noise, so they are NOT raw literals there;
   likely indexes into offset-sized arrays or reconstructed at load.
 
-### hall_of_fame — person records with INLINE names + honours rows (partially decoded)
+### hall_of_fame — INTEGRATED (persons + honours decoders live in the package)
 
-`03 01 'tad.' 0a 00 ...`. Somewhere inside are self-contained person records:
+`src/fmsave/readers/career_history.py` (exposed via `Save.career_persons()`,
+`Save.career_honours()` and the `fmsave career-history` command) reads:
+- 5,413 person records with inline names, birth dates and person uids.
+- 897 honours rows (99 pass only with looser tail rules; both keep club 716's four).
+
+**Person records** (variable-length names, walked forward from every
+`flag + u32 length` pair whose tail passes the bounds):
 
 ```
-[00|01] 04 00 00 00 "Karl" 07 00 00 00 "Hudgell"   <- u32 length-prefixed first/last names, inline
-00 00 00 00
-u16 0x4c (76)      <- dob day-of-year (76 = 17 March)
-u16 0x7c2 (1986)   <- birth year
-u32 ...            <- shared/non-person value (see caveat below)
-u32 0x775648bf     <- PERSON UID (raw, this is the manager's)
-01
-fd 02 00 00        <- u32 765; appears in EVERY honours row and after each person block
-                      (section-wide constant — node/type id, NOT a person id)
-04 03 03 00        <- flags/count
+[01|00] u32 len1 "first" u32 len2 "last"
+00 00 00 00                     <- 4 zero bytes
+u16 dob_day_of_year             (0x4c = 76 = 17 March for the manager)
+u16 birth_year                  (0x7c2 = 1986)
+u32 shared/non-id               (0x1f6442 = 2,057,282 for the manager's FM24 copy,
+                                 0xffffffff for some records — unset)
+u32 person_uid                  (0x775648bf manager; 0x77554473 for the FM24 copy)
+01 fd 02 00 00 07 03 03 ...     <- node id 765 + varying tail bytes
 ```
+
+- Person blocks vary after the birth fields: some carry an 8-byte ff sentinel +
+  `00 <u32 node>` instead of a ref/uid pair, and node ids other than 765 exist
+  (f3 02 = 755 seen), so the forward names+fields scan keys on the birth-date pair,
+  not on the node constant.
+- Both manager records decode (Karl Hudgell, dob 76/1986, uids 0x77554473 and
+  0x775648bf) alongside 5,400+ historical people (Dave Bassett, John Coleman...).
+
+**Honours rows** — refined grammar (the earlier "3 03 00 tail" note only covered 101
+of the rows): `<u32 club> 01 00 <u32 comp> fd 02 00 00 02 00 <u16 count> 01 [01 00 |
+04 01 00] <u16s> <u16 season@node+13> <varies>`, 897 rows, 426 clubs. The season is
+ALWAYS the u16 at node id + 13, and it is the year the honour was won (2025 = the
+2024/25 season). The bytes after the season differ row to row (03 03 00 only 284 of
+897; 00 00 00, 02 00 00, 0a 00 00 ... also appear) — do not anchor on a tail.
+One arithmetic correction: comp 0x4e2bef = **5,123,055**, not 5,121,759 as an earlier
+note had it.
 
 - The manager's honours follow (4 rows, all club 716):
 
 | comp id | season | matches ground truth |
 |---|---|---|
-| 0x4e2bef = 5,121,759 | 2025 (`e9 07`) | Vanarama NLS title (recreated-comp id space) |
+| 0x4e2bef = 5,123,055 | 2025 (`e9 07`) | Vanarama NLS title (recreated-comp id space) |
 | 0x1aa92 = 109,202 | 2025 | FA Trophy |
 | 0x1aa91 = 109,201 | 2026 | Vanarama National League title |
 | 0x0d = 13 | 2029 | Sky Bet League One title |
 
-Row shape: `cc 02 00 00 | 01 00 | <comp_id u32> | fd 02 00 00 | 02 00 | <u16: 46/53/72/107> | 01 | <01|04 00> <u16> | <year u16> | 03 03 00` — the increasing u16 (46, 53, 72, 107) may be a running honour/award counter.
+(The season year stored is the year the honour was won — the season's final year:
+2025 = the 2024/25 season.)
 
-- The value 0x8e56e3 = 9,331,427 sits where an "internal person id" was expected BUT
-  it is shared by two unrelated persons (manager b.1986 + a 2024-born newgen, "Azmil
-  Mohd Ali") — NOT a person id. True person uids are the 0x77xxxxxx u32s.
+- The value 0x8e56e3 = 9,331,427 is NOT a person id (shared by two unrelated
+  persons). True person uids are the 0x77xxxxxx u32s.
 - uid convention: hall_of_fame stores the manager uid as 0x775648bf; game_db stores
   0x775648be (fmsave person_id = selector − 1 offset). Search history sections for
   the +1 variant.
@@ -169,9 +192,12 @@ Row shape: `cc 02 00 00 | 01 00 | <comp_id u32> | fd 02 00 00 | 02 00 | <u16: 46
   blocks in "tad." sections can embed names directly; other sections reference by uid.
 
 ### tc_cup_history_dt — FULL TABLE DECODED (18-byte rows)
-- `03 01 'tmc.' 01 00` + preamble rows, then a pure 18-byte row array from offset 4:
-  `[u32 club][u32 comp][u16 y1][u16 y2] 02 01 ff ff` (+4-byte tail of next record lead)
-  — 165,490 rows, each with y2 = y1 + 1. `scripts/decode_cup_history.py` walks it.
+- INTEGRATED (`Save.career_cup_entries()`, `fmsave career-history`): `03 01 'tmc.' 01 00`,
+  then a flat 18-byte row array from offset 4:
+  `[u32 club][u32 comp][u16 y1][u16 y2] 02 01 ff ff` — 165,490 rows, 99.95% with
+  y2 in y1..y1+2 (same-year rows common, two-year spans rare). 61,034 rows carry
+  club 0xffffffff = competition records without a club. `scripts/decode_cup_history.py`
+  walks it.
 - Club 716: exactly 20 rows, seasons 2024/25 → 2034/35 (none in 2026/27, 2029/30,
   2030/31 and none in 2023/24 — that season lives in the FM24 blob):
   comp 0x154d (5,453) → 13 rows; 0x154e (5,454) → 5; 0x16e3 (5,859) → 1 (2024/25);

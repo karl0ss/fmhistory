@@ -20,6 +20,7 @@ import sys
 import unicodedata
 import warnings
 from collections.abc import Callable, Generator, Iterable, Sequence
+from dataclasses import asdict as dataclasses_asdict
 from dataclasses import dataclass
 from pathlib import Path, PureWindowsPath
 from typing import NoReturn, TextIO
@@ -38,6 +39,7 @@ from fmsave._errors import (
 from fmsave._package import __version__
 from fmsave.checks import ValidationReport, validate_save
 from fmsave.models.affiliates import AffiliateGroup
+from fmsave.models.career_history import CupEntry, Honour
 from fmsave.models.clubs import Club
 from fmsave.models.competitions import Competition, Stage
 from fmsave.models.contracts import Contract
@@ -337,6 +339,24 @@ def _build_parser() -> _CommandLineParser:
     )
     _add_save_argument(validate_parser)
     validate_parser.add_argument("--json", action="store_true", help="print JSON instead of text")
+
+    career_parser = subcommands.add_parser(
+        "career-history",
+        help="read the career history sections: hall of fame, cup campaigns, spell rows",
+        description="Decode the history sections the other commands do not read: the hall "
+        "of fame's person records and honours rows, the cup history table, and the "
+        "manager history section's spell rows. The decoders are pattern scans "
+        "reverse-engineered on one save, so counts may miss entries a changed layout "
+        "does not cover.",
+    )
+    _add_save_argument(career_parser)
+    career_parser.add_argument(
+        "--club",
+        metavar="UID",
+        type=int,
+        help="only rows for one club, given as its save club uid",
+    )
+    career_parser.add_argument("--json", action="store_true", help="print JSON instead of text")
     return parser
 
 
@@ -1192,6 +1212,74 @@ def _run_validate(arguments: argparse.Namespace) -> int:
     return _validation_exit_code(report)
 
 
+def _run_career_history(arguments: argparse.Namespace) -> int:
+    club_uid = arguments.club
+    with fmsave.open(Path(arguments.save_path)) as career_save:
+        persons = career_save.career_persons()
+        honours = career_save.career_honours()
+        cup_entries = career_save.career_cup_entries()
+        spells = career_save.career_manager_spells()
+    if club_uid is not None:
+        honours = tuple(honour for honour in honours if honour.club_uid == club_uid)
+        cup_entries = tuple(entry for entry in cup_entries if entry.club_uid == club_uid)
+        spells = tuple(spell for spell in spells if spell.club_uid == club_uid)
+
+    def _season_ending(year: int) -> str:
+        # An honour's season ends the year it was won: season 2025 is 2024/25.
+        return f"{year - 1}/{year - 2000:02d}"
+
+    def _season_start(year: int) -> str:
+        # A cup entry's span starts on the year it names: season 2024 is 2024/25.
+        return f"{year}/{year % 100 + 1:02d}"
+
+    lines: list[str] = []
+    lines.append(f"persons in the hall of fame: {len(persons)}")
+    spell_lines = [
+        f"club {spell.club_uid}: spell started day {spell.start_day} of "
+            f"{_season_ending(spell.start_year + 1)}"
+        for spell in spells
+    ]
+    lines.append(f"manager spells: {len(spells)}")
+    lines.extend(spell_lines)
+    lines.append(f"honours rows: {len(honours)}")
+    honours_by_club: dict[int, list[Honour]] = {}
+    for honour in honours:
+        honours_by_club.setdefault(honour.club_uid, []).append(honour)
+    for honour_club in sorted(honours_by_club):
+        rows = sorted(honours_by_club[honour_club], key=lambda row: (row.season, row.competition_id))
+        lines.append(f"club {honour_club}:")
+        lines.extend(
+            f"  competition {row.competition_id} {_season_ending(row.season)} (count {row.count})"
+            for row in rows
+        )
+    lines.append(f"cup campaigns: {len(cup_entries)}")
+    cups_by_club: dict[int, list[CupEntry]] = {}
+    for cup_entry in cup_entries:
+        cups_by_club.setdefault(cup_entry.club_uid, []).append(cup_entry)
+    for entry_club in sorted(cups_by_club):
+        rows = sorted(cups_by_club[entry_club], key=lambda row: row.start_season)
+        by_competition: dict[int, list[int]] = {}
+        for row in rows:
+            by_competition.setdefault(row.competition_id, []).append(row.start_season)
+        lines.append(f"club {entry_club}: {len(rows)} campaign rows")
+        for competition, seasons in sorted(by_competition.items()):
+            season_text = " ".join(_season_start(season) for season in sorted(seasons))
+            lines.append(f"  competition {competition} ({len(seasons)} rows): {season_text}")
+    if arguments.json:
+        payload = {
+            "persons": [dataclasses_asdict(person) for person in persons],
+            "honours": [dataclasses_asdict(honour) for honour in honours],
+            "cup_entries": [dataclasses_asdict(cup_entry) for cup_entry in cup_entries],
+            "manager_spells": [dataclasses_asdict(spell) for spell in spells],
+        }
+        report_text = json.dumps(payload, indent=2, ensure_ascii=False)
+    else:
+        report_text = "\n".join(lines)
+    with _output_write_errors(to_standard_output=True):
+        print(report_text)
+    return EXIT_OK
+
+
 def _run_command(arguments: argparse.Namespace) -> int:
     if arguments.command == "info":
         return _run_info(arguments)
@@ -1199,6 +1287,8 @@ def _run_command(arguments: argparse.Namespace) -> int:
         return _run_export(arguments)
     if arguments.command == "validate":
         return _run_validate(arguments)
+    if arguments.command == "career-history":
+        return _run_career_history(arguments)
     return EXIT_USAGE
 
 

@@ -17,7 +17,8 @@ runs every reader at once and reports how each fared, without raising or warning
        competitions, fixtures, stadiums, transfer_windows, injury_types, injuries, affiliates,
        job_vacancies, league_tables, competition_rules, player_match_stats,
        player_season_stats, finances, sponsorships, facilities, staff, staff_lists, tactics,
-       set_pieces, training, mentoring, close
+       set_pieces, training, mentoring, career_persons, career_honours, career_cup_entries,
+       career_manager_spells, close
 ```
 
 ## Save metadata

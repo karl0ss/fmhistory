@@ -32,7 +32,8 @@ def main() -> None:
     ap.add_argument("--all-rows", type=int, default=0, help="print first N raw rows too")
     args = ap.parse_args()
 
-    data = open(args.section_bin, "rb").read()
+    with open(args.section_bin, "rb") as handle:
+        data = handle.read()
     body = len(data) - ROW0 - 8
     n_rows, tail = divmod(body, ROW)
     print(f"file {len(data)} B; {n_rows} rows from offset {ROW0}; tail {tail} B", file=sys.stderr)

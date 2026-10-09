@@ -11,7 +11,7 @@ import os
 import sys
 
 sys.path.insert(0, "/home/karl/fm26-career/fs")
-import fmsave  # noqa: E402
+import fmsave
 
 
 def extract(save_path: str, section: str) -> bytes:
@@ -37,10 +37,10 @@ def main() -> None:
         os.makedirs(d, exist_ok=True)
     new = extract(args.save_new, args.section)
     old = extract(args.save_old, args.section)
-    base = os.path.basename(args.save_new)
-    base_old = os.path.basename(args.save_old)
-    open(os.path.join(args.dump_dir, args.section + ".bin"), "wb").write(new)
-    open(os.path.join(args.old_dump_dir, args.section + ".bin"), "wb").write(old)
+    with open(os.path.join(args.dump_dir, args.section + ".bin"), "wb") as handle:
+        handle.write(new)
+    with open(os.path.join(args.old_dump_dir, args.section + ".bin"), "wb") as handle:
+        handle.write(old)
     print(f"{args.section}: new {len(new)} B / old {len(old)} B (delta {len(new)-len(old):+d})")
 
     if args.find_hex:

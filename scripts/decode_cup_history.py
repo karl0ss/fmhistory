@@ -2,12 +2,11 @@
 """Decode tc_cup_history_dt: one 18-byte row per (club, competition, season) cup entry.
 
 Verified against the ground-truth save (section 2,978,828 B):
-  header `03 01 'tmc.' 01 00` + a few preamble rows, then a pure 18-byte row array
-  from offset 4:  [u32 club][u32 comp][u16 y1][u16 y2] `02 01` `ff ff` `ff 00`
-  (165,490 rows; every row's y2 == y1 + 1).
-
-St. Albans rows span 2024/25 - 2034/35 and jump seasons exactly as the career
-demands (cups entered only when the club's tier qualifies it).
+  header `03 01 'tmc.' 01 00`, then a flat 18-byte row array from offset 4:
+  [u32 club][u32 comp][u16 y1][u16 y2] `02 01` `ff ff` `ff 00`
+  (165,490 rows; 61,034 of them carry club 0xffffffff, a competition record without
+  a club). The span y1->y2 is usually one season but same-year rows exist and a few
+  spans cover two years: 99.95 percent of rows have y2 in y1..y1+2.
 
 Usage: decode_cup_history.py SECTION_BIN [--club UID] [--comp COMP] [--years N]
 """
@@ -29,7 +28,8 @@ def main() -> None:
     ap.add_argument("--min-year", type=int, default=1900)
     args = ap.parse_args()
 
-    data = open(args.section_bin, "rb").read()
+    with open(args.section_bin, "rb") as handle:
+        data = handle.read()
     n = (len(data) - ROW0) // ROW
     rows = []
     for i in range(n):
@@ -38,8 +38,8 @@ def main() -> None:
         flags = data[off + 12 : off + 16]
         rows.append((off, cl, comp, y1, y2, flags))
 
-    sane = sum(1 for r in rows if 1850 <= r[3] <= 2050 and r[4] == r[3] + 1)
-    print(f"rows: {n} (with valid year pair: {sane})", file=sys.__stderr__)
+    sane = sum(1 for r in rows if 1850 <= r[3] <= 2050 and r[3] <= r[4] <= r[3] + 2)
+    print(f"rows: {n} (span-valid: {sane})", file=sys.__stderr__)
     print(f"header: {data[:16].hex(' ')}", file=sys.__stderr__)
 
     hits = [

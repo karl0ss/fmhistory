@@ -27,6 +27,7 @@ from fmsave._layouts import (
 from fmsave._reader_stats import ResultStats, TacticStats
 from fmsave._version import read_save_info
 from fmsave.models.affiliates import AffiliateGroup
+from fmsave.models.career_history import CupEntry, Honour, ManagerSpell, PersonHistory
 from fmsave.models.clubs import Club
 from fmsave.models.competitions import Competition, Stage
 from fmsave.models.contracts import Contract
@@ -66,6 +67,14 @@ from fmsave.readers.affiliates import (
     build_affiliate_groups,
     find_affiliate_layout,
     walk_affiliate_groups,
+)
+from fmsave.readers.career_history import (
+    CUP_HISTORY_SECTION,
+    HALL_OF_FAME_SECTION,
+    MANAGER_HISTORY_SECTION,
+    decode_cup_entries,
+    decode_hall_of_fame,
+    decode_manager_spells,
 )
 from fmsave.readers.facilities import find_facility_layout, read_club_facilities
 from fmsave.readers.finances import find_finance_layouts, read_club_finances
@@ -165,6 +174,10 @@ FINANCES_TABLE_CACHE_KEY = "table:finances"
 SPONSORSHIPS_TABLE_CACHE_KEY = "table:sponsorships"
 FACILITIES_TABLE_CACHE_KEY = "table:facilities"
 AFFILIATES_TABLE_CACHE_KEY = "table:affiliates"
+CAREER_PERSONS_TABLE_CACHE_KEY = "table:career_persons"
+CAREER_HONOURS_TABLE_CACHE_KEY = "table:career_honours"
+CAREER_CUP_ENTRIES_TABLE_CACHE_KEY = "table:career_cup_entries"
+CAREER_MANAGER_SPELLS_TABLE_CACHE_KEY = "table:career_manager_spells"
 JOB_VACANCIES_TABLE_CACHE_KEY = "table:job_vacancies"
 STADIUMS_TABLE_CACHE_KEY = "table:stadiums"
 STAFF_TABLE_CACHE_KEY = "table:staff"
@@ -680,6 +693,79 @@ class Save:
             candidates=candidates,
             summaries=summaries,
             packet_scores=packet_scores,
+        )
+
+    def career_persons(self) -> Table[PersonHistory]:
+        """Every person record the hall of fame stores, with their names and birth dates.
+
+        A row is one `hall_of_fame` person record: names written inline, plus the birth
+        date and a save-internal person uid, which joins to no table the other readers
+        give. A real person can hold two rows, since an import from an older FM save
+        keeps one record per source record. The rows are found by a pattern scan, not a
+        layout-walk, and can miss a record the pattern does not cover.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written.
+        """
+        context = self._context
+        return context.cached(CAREER_PERSONS_TABLE_CACHE_KEY, self._read_career_persons)
+
+    def career_honours(self) -> Table[Honour]:
+        """Every honours row the hall of fame stores, as one competition won by a club.
+
+        A row carries the club uid, the save-internal competition id and the season the
+        honour was won, which for a cup is its final year. The competition id joins to
+        the stage id space, but rebuilt and import-created competitions may not surface
+        in `competitions()`, so a row's competition cannot always be named. The scan
+        keys rows on the hall of fame's section-wide node id and can miss a row the
+        pattern does not cover.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written.
+        """
+        context = self._context
+        return context.cached(CAREER_HONOURS_TABLE_CACHE_KEY, self._read_career_honours)
+
+    def career_cup_entries(self) -> Table[CupEntry]:
+        """Every cup campaign of every club, one row per (club, competition, stage).
+
+        The cup history section is a flat 18-byte row array, one row per cup campaign
+        per stage, so a club's cup run of one season may hold several rows. The
+        section's rows are checked as they are read: fewer than nine rows in ten whose
+        end season is the start season plus one raises, because then the row layout has
+        moved and none of the rows can be trusted.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written, or the cup
+                history section no longer holds the 18-byte row layout the reader knows.
+        """
+        context = self._context
+        return context.cached(CAREER_CUP_ENTRIES_TABLE_CACHE_KEY, self._read_career_cup_entries)
+
+    def career_manager_spells(self) -> Table[ManagerSpell]:
+        """The manager spell-start rows the manager history section stores.
+
+        One row per spell a manager still holds at the time of the save, with the club
+        uid, the day of season the spell began and its season year. Ended spells store
+        their dates in a shape not decoded yet, so older spells are absent from the
+        table; a club the table has a row for may also have more rows later in its
+        record family. Rows cannot be tied to one manager: the section does not
+        reference people by the person uids the hall of fame stores.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written.
+        """
+        context = self._context
+        return context.cached(
+            CAREER_MANAGER_SPELLS_TABLE_CACHE_KEY, self._read_career_manager_spells
         )
 
     def stadiums(self) -> Table[Stadium]:
@@ -2167,6 +2253,26 @@ class Save:
         self._enforce_checks((managed_check,))
         self._store_reader_checks((managed_check,))
         return Table(managed_clubs, ManagedClub)
+
+    def _read_career_persons(self) -> Table[PersonHistory]:
+        with self._context.section(HALL_OF_FAME_SECTION) as hall_data:
+            persons, _ = decode_hall_of_fame(hall_data)
+        return Table(persons, PersonHistory)
+
+    def _read_career_honours(self) -> Table[Honour]:
+        with self._context.section(HALL_OF_FAME_SECTION) as hall_data:
+            _, honours = decode_hall_of_fame(hall_data)
+        return Table(honours, Honour)
+
+    def _read_career_cup_entries(self) -> Table[CupEntry]:
+        with self._context.section(CUP_HISTORY_SECTION) as cup_data:
+            entries = decode_cup_entries(cup_data)
+        return Table(entries, CupEntry)
+
+    def _read_career_manager_spells(self) -> Table[ManagerSpell]:
+        with self._context.section(MANAGER_HISTORY_SECTION) as manager_data:
+            spells = decode_manager_spells(manager_data)
+        return Table(spells, ManagerSpell)
 
     def _read_stages(self) -> Table[Stage]:
         context = self._context

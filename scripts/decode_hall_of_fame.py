@@ -19,7 +19,7 @@ Honours rows referenced afterwards (and interleaved with other persons' rows):
     cc 02 00 00 01 00 <u32 comp_id> fd 02 00 00 02 00 <u16 n>
     01 <01|04> 00 <u16 x> <u16 season_year> 03 03 00
 
-On the ground truth the manager has exactly 4 such rows: (comp 5,121,759, 2025),
+On the ground truth the manager has exactly 4 such rows: (comp 5,123,055, 2025),
 (109,202, 2025), (109,201, 2026), (13, 2029) - matching the FA Trophy + Vanarama
 South title 2025, National League title 2026, League One title 2029.
 
@@ -63,8 +63,8 @@ def main() -> None:
     ap.add_argument("--person", type=int, default=0, help="person uid to filter (e.g. 2002143423)")
     args = ap.parse_args()
 
-    data = open(args.section_bin, "rb").read()
-    print(f"{len(data)} B", file=None.__class__.__name__ or None) if False else None
+    with open(args.section_bin, "rb") as handle:
+        data = handle.read()
 
     # person blocks
     print("== person blocks ==")
@@ -77,10 +77,7 @@ def main() -> None:
         pos = m.end()
         found += 1
         # dob + birth year are the two u16s right after the 00 00 00 00 that follows names
-        after = data[m.end() : m.end() + 24]
-        # skip zeroes to dob/yr/refs
-        uid_off = after.find(b"\x77\x00")  # unlikely: uids are 0x77xxxxxx so last byte 0x77
-        # names, then 00 00 00 00, then dob, yr, ref, uid
+        # names, then 00 00 00 00, then dob, yr, refs
         tail = data[m.end() : m.end() + 40]
         zero = tail.find(b"\x00\x00\x00\x00")
         dob, yr = struct.unpack_from("<HH", tail, zero + 4)

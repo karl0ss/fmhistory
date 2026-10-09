@@ -95,3 +95,16 @@ only for the club the save's human manager runs.
 .. autoclass:: fmsave.TrainingWeek
 .. autoclass:: fmsave.MentoringGroup
 ```
+
+## Career history
+
+`career_persons()`, `career_honours()`, `career_cup_entries()` and `career_manager_spells()`: rows
+the save's history sections keep (see the reader module's notes; competition ids name nothing yet
+and the spells table covers open spells only).
+
+```{eval-rst}
+.. autoclass:: fmsave.PersonHistory
+.. autoclass:: fmsave.Honour
+.. autoclass:: fmsave.CupEntry
+.. autoclass:: fmsave.ManagerSpell
+```

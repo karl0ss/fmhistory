@@ -27,6 +27,7 @@ from fmsave.checks import (
     validate_save,
 )
 from fmsave.models.affiliates import AffiliateGroup
+from fmsave.models.career_history import CupEntry, Honour, ManagerSpell, PersonHistory
 from fmsave.models.clubs import Club, Team
 from fmsave.models.common import CodedValue, ContractEndSource, TransferValueState
 from fmsave.models.competitions import Competition, CompetitionRound, Stage
@@ -118,6 +119,7 @@ __all__ = [
     "ContractType",
     "CorporateFacilities",
     "CorruptSaveError",
+    "CupEntry",
     "FieldStatus",
     "FinanceMonth",
     "Fixture",
@@ -125,6 +127,7 @@ __all__ = [
     "FmsaveWarning",
     "GateCheckError",
     "GateResult",
+    "Honour",
     "InjuryCause",
     "InjuryRecord",
     "InjuryRecordKind",
@@ -136,12 +139,14 @@ __all__ = [
     "LeagueTableRow",
     "LeagueTableSplit",
     "ManagedClub",
+    "ManagerSpell",
     "MatchOutcome",
     "MatchPosition",
     "MatchSide",
     "Mentality",
     "MentoringGroup",
     "NotAFmSaveError",
+    "PersonHistory",
     "Personality",
     "Player",
     "PlayerMatchStats",
