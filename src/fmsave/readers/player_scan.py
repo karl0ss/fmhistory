@@ -12,6 +12,7 @@ from __future__ import annotations
 import functools
 import re
 import struct
+import sys
 from array import array
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
@@ -103,7 +104,7 @@ def locate_player_records(
     merged.sort(key=lambda candidate: candidate[0])
     if not merged:
         raise layout_mismatch(file_name, "no player records found")
-    _reject_repeated_keys(merged, file_name)
+    merged = _reject_repeated_keys(merged, file_name)
     record_offsets = array(RECORD_OFFSET_TYPECODE, (candidate[0] for candidate in merged))
     pindexes = array(PINDEX_TYPECODE, (candidate[1] for candidate in merged))
     uids = array(UID_TYPECODE, (candidate[2] for candidate in merged))
@@ -173,16 +174,26 @@ def closing_unique_id(
     return found
 
 
-def _reject_repeated_keys(candidates: Sequence[_Candidate], file_name: str) -> None:
-    seen_pindexes: set[int] = set()
-    seen_uids: set[int] = set()
-    for _, pindex, uid in candidates:
-        if pindex in seen_pindexes:
-            raise layout_mismatch(file_name, f"pindex {pindex} appears in two player records")
-        if uid in seen_uids:
-            raise layout_mismatch(file_name, f"player uid {uid} appears in two player records")
-        seen_pindexes.add(pindex)
-        seen_uids.add(uid)
+def _reject_repeated_keys(candidates: Sequence[_Candidate], file_name: str) -> list[_Candidate]:
+    # Fork: career saves upgraded from an older FM26 build may carry some player records
+    # twice (old copy and post-upgrade copy). Keep the latest occurrence of each
+    # (pindex, uid) pair and continue, rather than aborting the whole players table.
+    kept: dict[tuple[int, int], _Candidate] = {}
+    dropped: dict[tuple[int, int], int] = {}
+    for candidate in candidates:
+        _, pindex, uid = candidate
+        key = (pindex, uid)
+        if key in kept:
+            dropped[key] = dropped.get(key, 0) + 1
+        kept[key] = candidate
+    if dropped:
+        print(
+            f"fmsave-fork: kept latest record for {len(dropped)} duplicated player key(s) "
+            f"({sum(dropped.values())} extra copies dropped), first uid "
+            f"{min(uid for _, uid in dropped)}",
+            file=sys.stderr,
+        )
+    return sorted(kept.values())
 
 
 def _scan_marker_candidates(

@@ -28,3 +28,7 @@ oom-*
 
 # Docs
 docs/_build/
+sections/
+exports/
+*.bin
+.venv/
