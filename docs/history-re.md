@@ -356,15 +356,44 @@ The club's pre-import rows sit in region 0x231800-0x231f00 interleaved with anot
 team 16141's chain; rows for 1993-2022 are elsewhere/different (only 24 raw
 u32-16142 hits — the modern pre-import chain must thread through ls).
 
-### Remaining plan
+### Where this stands (checkpoint 2, 2026-10-09)
 
-1. Thread the club's post-import chain 2023/24→2037/38 through ls (start from the
-   two known nodes 0x11b88/0x30bc0; follow their ls values as index links; resolve
-   the region at 0x71268 / 0x6f210 whose pairs point at ~1940s pre-import rows).
-2. Map the remaining comp ids (VNS, VNL, League Two, Premier Division) via the
-   promotion/relegation sequence in the tables.
-3. Integrate: model `LeagueHistorySeason` + reader over the ≡8 grid + ls traversal,
-   `Save.career_league_history()`, docs, tests, push.
+- The four anchor rows above are verified against honours + screenshots — the row
+  grammar itself is production-grade.
+- The club's post-import row chain is still not threaded end-to-end: the two ls
+  nodes that point at the 2029/30 row (0x11b88, 0x30bc0) end contiguous (dt, ls)
+  runs whose *other* rows are other clubs', so plain run extraction does not work
+  and the index-link structure (the ls word stored next to each row pointer) is
+  what remains to be understood.
+- Dead ends confirmed this round: **no rows with ref 16142 or ref 8001 exist
+  anywhere on the grid for seasons 2023-2026** — the import-boundary-era rows
+  (2023/24 VNS 3rd, 2024/25 VNS 1st, 2025/26 VNL 1st) carry neither ref, and a
+  strict scan for the known 2023/24 shape (pos 2/24 W21 D14 L9, 2-pt era) finds no
+  matching row either. Candidates for the rebuilt comps found: **comp 7047**
+  appears with strict rows in 2024/2025/2026 but only 16 clubs each (matches an
+  16-club league, not the 24-club Vanarama tiers); the 24-club Vanarama-era rows
+  of the club's 2-point-era spell are so far unfound.
+- Comp id progress: comp 10 = Championship (6-club-era confirmations in 2024 too,
+  e.g. 0x722a98 = 2024 comp 10 pos 2/24 P46 W20 D14 L12 Pts74); comp 13 = League
+  One. Still unknown: VNS, VNL, League Two, Premier Division (2035-2037 rows sit
+  in 20-club P38 tables; candidates 7, 199, 22, 51, 924, 526, 23, 21, 3484-3486, 581).
+
+### Remaining plan (next session picks up here)
+
+1. **Pin more anchor rows before the chain hunt.** Decode the (2028, League One,
+   pos 6/18) row (2027/28 7th) and the League Two 2026/27 block (pos 2/24) by
+   scanning comp-13's 2028 table and every 24-club P46 comp's 2026 table; each new
+   anchor row gives another ls node to follow.
+2. **Understand the ls value next to a row pointer.** For each anchor row, read its
+   sibling ls word in the u32 stream and follow the (count, first-row-ptr) shape
+   observed at 0x71268 (0x330 = 816 = 34×24, first ptr → the club's 1979 row) as a
+   possible club chain header; enumerate all headers shaped like it and test
+   whether St Albans' signature (the 12 known positions) matches exactly one.
+3. **Map remaining comp ids** by chaining successive tables' promoted/relegated
+   positions (comp of the 2027 row ≡ League Two etc).
+4. **Integrate** once a full chain 2023/24→2037/38 exists end-to-end via ls:
+   model `LeagueHistorySeason` + reader over the ≡8 grid + ls traversal,
+   `Save.career_league_history()`, CLI, docs, tests, push.
 
 ## Method notes
 - Names live in `game_db`; history sections reference people/clubs by uid (u32 LE),
