@@ -53,8 +53,8 @@ What each section holds:
   0x4000 seen), the tag word 0xffff on most rows with a run of category values on
   the rest, and the trailing block's first byte is the winner's age on
   person-winner rows. Records without the year/award head — the monthly-award
-  records, most likely — parse in a way the filler between them also satisfies,
-  so they are kept out.
+  records, most likely, whose ages run a real player age curve — carry no season
+  year, so they cannot sit in a year-keyed table and are kept out.
 
 Competition ids in the career-history sections are save-internal ids, and no save stores a
 competition name, so none of these records carries a name; naming needs the same
@@ -359,9 +359,10 @@ def decode_awards(data: bytes) -> tuple[Award, ...]:
     shape that passes its checks at each position — the 30-byte shape, then the
     26-byte one that a record whose winner is a club itself carries — and a
     placeholder or other unmatched record is walked past, not parsed. This reads
-    the records the (year, award) head identifies; the section's head-less records
-    (its monthly-award records, most likely) are left for a later pass, because the
-    checks that separate them from their filler do not hold yet.
+    the records the (year, award) head identifies. The section also holds head-less
+    records — the monthly-award rows, most likely, and their ages run a real player
+    age curve — but they carry no season year, so they cannot sit in a year-keyed
+    table and are left for a later pass.
 
     An award row's season year is the season's ending year, and `winner_age` is the
     winner's age on person-winner rows; both are confirmed on the ground-truth

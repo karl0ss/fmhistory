@@ -110,8 +110,8 @@ class Award:
     The section streams 26 and 30-byte award records; the reader accepts the records
     that carry a season and award head, whether they carry a club field or not — the
     club-less shape carries club-winner rows and person winners (player awards)
-    alike. Records without the season/award head are kept out, so a season's monthly
-    awards are mostly absent from the table.
+    alike. The section's monthly-award rows carry no season year, so they cannot
+    sit in a year-keyed table and are kept out.
 
     `award_id` is an award instance id that the game's award-definition section keys
     its records on; award names are not stored in a save, so an id cannot be named

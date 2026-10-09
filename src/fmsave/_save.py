@@ -779,9 +779,8 @@ class Save:
         winner's age and the row's trailing data. Award ids are the ids the game's
         award-definitions section keys its records on, but no save stores an award
         name, so an id cannot be named from the save alone. The scan reads records
-        with the season/award head only: the section's head-less records — its
-        monthly-award records, most likely — are kept out, so a season's monthly
-        awards are absent from the table.
+        with the season/award head only. The section's monthly-award rows carry no
+        season year, so they cannot sit in a year-keyed table and are kept out.
 
         Raises:
             SaveClosedError: The save is closed.

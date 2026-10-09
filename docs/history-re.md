@@ -133,6 +133,17 @@ The u16 y_a/y_b pairs in the block: single-season rows show y_a==y_b (e.g.
 - u32 payloads (record ids like 2593, 3486) appear as bytes only ~100-183 times each
   across 22.7 MB — u16 collision-level noise, so they are NOT raw literals there;
   likely indexes into offset-sized arrays or reconstructed at load.
+- 12-byte record grammar in the appended end region (current season, ids ~235,300):
+  `[u32 club][u32 id][u8 m][u8 n][0x4f][0x00]` — ids globally sequential across
+  clubs (710…724 around club 716; a run of 115 records decodes: ids 235,286-235,400,
+  modes m mostly 1, occasionally 2/3/4/5/7; n ∈ {50…100} in 5-steps). Club 716's 13
+  records run 100→80 descending in 5-steps — a percentage meter (fan/board
+  confidence?) updated per match: 13 records ≈ the matches to the in-game date.
+  The `4f` byte is constant in this family; n's 5-step quantisation looks like a
+  0-100 scale value. Semantics unconfirmed.
+- The 47 scattered u32-716 hits elsewhere use wider record families (context shows
+  `[u32 club][u16 ?][u16 year]` with years 2032-2037 around, and the club byte before
+  the u32 varying) — a full tc_record_man decode is its own project.
 
 ### hall_of_fame — INTEGRATED (persons + honours decoders live in the package)
 
@@ -246,11 +257,20 @@ note had it.
   (2026/27), 101 = League One MoS (2028/29), 99 = Championship MoS in BOTH 2030/31 and
   2033/34 — "(twice)" per the biography ✓. Each id also appears exactly once in
   award_man as a definition record.
-- The 2024/25 NLS MoS runner-up = a HEAD-LESS record (tag 0x8b, 26 bytes: winner, club,
-  tail) kept out of the table: head-less records parse in a way the filler also
-  satisfies, so the scan keeps them out. The manager's ~13 monthly awards likewise: 19
-  biography awards total vs 6 season rows here — the missing 13 are monthly and do not
-  sit in this section with the manager id.
+- The 2024/25 NLS MoS runner-up = a HEAD-LESS record (26 bytes: `[02][u32 flags]
+  [u16 tag][u32 winner][u32 club][tail 11]`, no year/award head) — the tag
+  0x8b row with winner 328,408, club 716, age 39. Head-less records stay out of the
+  table because they carry no season year (a year-keyed table cannot place them).
+  Under the reader's bounds they parse cleanly — 20,556 of them — and their age
+  distribution is a textbook player-age curve (peak 27-28, tapering both ways), so
+  these are the section's monthly **player** award rows: winner = player id, club =
+  the winner's club. Tags: 0xffff on 2,099 rows and 178 small category values, the
+  commonest 189 (×2,234), 187 (×878), 143, 131, 137, 170... Club 716 has 12 head-less
+  rows (11 player rows + the manager's NLS row). Exactly ONE head-less row carries
+  the manager id, so the manager's remaining ~12 monthly biography awards are NOT in
+  this section — 19 biography awards vs 6 season rows + 1 monthly row here.
+  (Earlier junk-B fears came from laxer bounds; with winner/club < 2.5M and the age
+  check the parse is clean.)
 - Pre-2023 = the import-time historical block (~1.47 MB, not year-ordered, no 2023+
   records), 2006/2023 = a pre-career player-award row; 2023+ = appended chronologically
   (club 716's rows: 2023:1, 2024:2, 2026:1×2..., all decoded).
