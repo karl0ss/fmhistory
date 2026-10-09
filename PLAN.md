@@ -76,8 +76,6 @@ Verify that reasonable data is extracted from known ground-truth save:
 ### Completed
 - Add reference entry in `docs/reference/league_history.md`
 - Update `docs/history-re.md` with new checkpoint (after league history section)
-- Create `docs/IMPLEMENTATION_SUMMARY.md` with technical details
-- Create `FINAL_SUMMARY.md` summarizing accomplishments
 
 ### Remaining
 - Application logic: Users can now build career history websites, chain reconstruction algorithms, or performance analysis tools on top of the raw data
@@ -89,4 +87,3 @@ Verify that reasonable data is extracted from known ground-truth save:
 - Provides maximum flexibility for application logic to interpret the data
 - Uses existing patterns from other career history decoders (awards, hall of fame, etc.)
 - Integrates cleanly with existing fmsave framework and validation
-- Fixed Python 3.11 compatibility issues (removed `type` statements)
