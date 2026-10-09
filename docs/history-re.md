@@ -122,9 +122,11 @@ The u16 y_a/y_b pairs in the block: single-season rows show y_a==y_b (e.g.
   here at matchday granularity.
 - 11-byte appended event records (from the diffs):
   `84/85/8c/9e 87 00 00 | e4..f1 af 03 00 (incrementing seq u16 base 0xafe4) | 01|02 | value u16s (~20,3xx; 50/32 for zeroed) | 84 …`.
-- Club references here use uid **717** (the database unique_id; 189 hits) rather than
-  the save uid 716 (47 hits) — club-row records: repeating
-  `cd 02 00 00 01 00 08 01 00 00 00 <u32 id> … <date u16s … f4 07 = 2036 / f5 07 = 2037>`.
+- Club references here use uid 717 for Stafford Rangers (club uid 717/unique_id 718)?
+  no — see correction: `unique_id = uid + 1` holds for EVERY club (fmsave Club rows:
+  St. Albans cid 716 unique 717, Stafford 717/718), so a u32 717 in tc_record_man is
+  simply the club AFTER St. Albans in uid space (Stafford Rangers). The St. Albans
+  rows are the 47 u32-716 hits in the same `… 00 08 01 00 00 00 …` record grammar.
 - u32 payloads (record ids like 2593, 3486) appear as bytes only ~100-183 times each
   across 22.7 MB — u16 collision-level noise, so they are NOT raw literals there;
   likely indexes into offset-sized arrays or reconstructed at load.
@@ -166,6 +168,24 @@ Row shape: `cc 02 00 00 | 01 00 | <comp_id u32> | fd 02 00 00 | 02 00 | <u16: 46
 - Inline names exist here (`04 00 00 00`="Karl", `07 00 00 00`="Hudgell"), so person
   blocks in "tad." sections can embed names directly; other sections reference by uid.
 
+### tc_cup_history_dt — FULL TABLE DECODED (18-byte rows)
+- `03 01 'tmc.' 01 00` + preamble rows, then a pure 18-byte row array from offset 4:
+  `[u32 club][u32 comp][u16 y1][u16 y2] 02 01 ff ff` (+4-byte tail of next record lead)
+  — 165,490 rows, each with y2 = y1 + 1. `scripts/decode_cup_history.py` walks it.
+- Club 716: exactly 20 rows, seasons 2024/25 → 2034/35 (none in 2026/27, 2029/30,
+  2030/31 and none in 2023/24 — that season lives in the FM24 blob):
+  comp 0x154d (5,453) → 13 rows; 0x154e (5,454) → 5; 0x16e3 (5,859) → 1 (2024/25);
+  0x1617 (5,655) → 1 (2031/32). Multiple rows per season = per-round/per-stage
+  entries, ids unresolved (competitions are NOT named in the save — see fmsave note
+  on database_id maps).
+
+### non_pl_hist_dt — manager spells (pre-career chain)
+- Records: `01 0b 00 00 | <u32 subject> | <u16 day1> <u16 year1> | <u16 day2> <u16
+  year2> | 01 00 6c 07` (1900 end-sentinel when spell not ended).
+- St. Albans spells from FM24-era data appear here (`cc 02 00 00 | day/year …`),
+  e.g. spells ending 2022 (`f5 00 e0 07 00 00 e6 07` = 272→356 2016, 2022…). This
+  section carries the non-league/pre-import manager chains.
+
 ### award_year_hist_dt
 - 29 club-716 hits; rows are records containing club uid + season year u16 + award
   ids (`91 07 04 00` = award id 1937 + u16 4, e.g.). Person-765 (`fd 02 00 00`) hits
@@ -176,6 +196,18 @@ Row shape: `cc 02 00 00 | 01 00 | <comp_id u32> | fd 02 00 00 | 02 00 | <u16: 46
 ## Method notes
 - Names live in `game_db`; history sections reference people/clubs by uid (u32 LE),
   often with the doubled/sound-header encoding fmsave uses for persons.
+- Competition names are NOT in the save (fmsave docs are explicit): the game renders
+  them from the installed database. fmsave `competitions()` gives
+  `Competition(id, database_id, name=None, stage_ids)` — any name mapping must come
+  from the editor DB keyed on `database_id`.
+- Club ids: `Club(uid, unique_id)` with `unique_id = uid + 1` for every club — the
+  uid is one less than the editor's unique id everywhere (St. Albans 716/717,
+  Stafford Rangers 717/718). Sections differ in which space they use: the club's
+  own history rows use uid 716.
+- Transfer fees in transfer_man are u32 **÷1000** (£32.5M sale found only as `32500`).
+- Dates: many sections store (u16 day, u16 year) where day counts within a season
+  starting ~1 July (182 ≈ 1 July), 1900 (`6c 07`) = null sentinel. Some serialized
+  records embed dates as `… <u8> <u8> <u16 year>` word runs (year u16 last).
 - `fmsave.open(save)._read_section(name)` gives the decompressed bytes — good enough
   for analysis; extracted copies in analysis workdir are not committed.
 - For FM24-imported careers: game_db carries duplicated player records (old + new copy);
