@@ -57,7 +57,9 @@ def test_records_butt_against_each_other_in_file_order() -> None:
     second = head_row_without_club(0xFFFF, 1937, 4, 716, bytes([21, 0, 0, 0, 0, 25, 0, 0, 0, 0, 0]))
     third = head_row(0, 2031, 99, 1234, 216, _TAIL)
     awards = decode_awards(first + second + third)
-    assert [(award.season_year, award.award_id, award.winner_id, award.club_uid) for award in awards] == [
+    assert [
+        (award.season_year, award.award_id, award.winner_id, award.club_uid) for award in awards
+    ] == [
         (2026, 144, 328408, 716),
         (1937, 4, 716, None),
         (2031, 99, 1234, 216),
@@ -67,9 +69,13 @@ def test_records_butt_against_each_other_in_file_order() -> None:
 def test_headless_record_is_kept_out() -> None:
     # The monthly-award records carry no year/award head; keep them out rather than
     # misread them. The scan walks past one in a stream without losing alignment.
-    headless = b"\x02" + _FLAGS + struct.pack("<H", 0x8B) + struct.pack(
-        "<II", 328408, 716
-    ) + bytes([39, 0, 46, 0, 0, 0, 0, 0, 0, 0, 0])
+    headless = (
+        b"\x02"
+        + _FLAGS
+        + struct.pack("<H", 0x8B)
+        + struct.pack("<II", 328408, 716)
+        + bytes([39, 0, 46, 0, 0, 0, 0, 0, 0, 0, 0])
+    )
     next_row = head_row(0xFFFF, 2031, 99, 1234, 216, _TAIL)
     awards = decode_awards(headless + next_row)
     assert len(awards) == 1
@@ -92,7 +98,10 @@ def test_row_outside_the_year_bounds_is_rejected() -> None:
     tail = bytes([45, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
     # 1900 is the null-year sentinel these sections use elsewhere; years before 1850 and
     # past the 2050 in-game horizon are junk. The edge years both sides of the band read.
-    assert all(decode_awards(head_row(0xFFFF, year, 99, 328408, 716, tail)) == () for year in (1849, 1900, 2051))
+    assert all(
+        decode_awards(head_row(0xFFFF, year, 99, 328408, 716, tail)) == ()
+        for year in (1849, 1900, 2051)
+    )
     assert len(decode_awards(head_row(0xFFFF, 1850, 99, 328408, 716, tail))) == 1
     assert len(decode_awards(head_row(0xFFFF, 2050, 99, 328408, 716, tail))) == 1
 
@@ -107,15 +116,19 @@ def test_award_id_above_the_instance_band_is_rejected() -> None:
 
 
 def test_winner_or_club_at_the_unset_sentinel_is_rejected() -> None:
-    unset_winner = b"\x02" + _FLAGS + struct.pack("<HHH", 0xFFFF, 2031, 99) + struct.pack(
-        "<II", 0xFFFFFFFF, 716
-    ) + bytes([45, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+    unset_winner = (
+        b"\x02"
+        + _FLAGS
+        + struct.pack("<HHH", 0xFFFF, 2031, 99)
+        + struct.pack("<II", 0xFFFFFFFF, 716)
+        + bytes([45, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+    )
     assert decode_awards(unset_winner) == ()
 
 
 def test_age_outside_human_range_is_rejected() -> None:
-    row_head = b"\x02" + _FLAGS + struct.pack("<HHH", 0xFFFF, 2031, 99) + struct.pack(
-        "<II", 328408, 716
+    row_head = (
+        b"\x02" + _FLAGS + struct.pack("<HHH", 0xFFFF, 2031, 99) + struct.pack("<II", 328408, 716)
     )
     for age in (10, 96):
         assert decode_awards(row_head + bytes([age, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])) == ()
@@ -123,9 +136,13 @@ def test_age_outside_human_range_is_rejected() -> None:
 
 
 def test_large_flags_word_is_rejected() -> None:
-    row = b"\x02" + struct.pack("<I", 0x4082) + struct.pack(
-        "<HHH", 0xFFFF, 2031, 99
-    ) + struct.pack("<II", 328408, 716) + bytes([45, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+    row = (
+        b"\x02"
+        + struct.pack("<I", 0x4082)
+        + struct.pack("<HHH", 0xFFFF, 2031, 99)
+        + struct.pack("<II", 328408, 716)
+        + bytes([45, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+    )
     assert decode_awards(row) == ()
 
 

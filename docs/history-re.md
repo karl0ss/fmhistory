@@ -326,14 +326,64 @@ The simple extraction approach provides maximum flexibility for users to build
 their own career chain reconstruction, performance analysis, or visualization
 logic on top of the raw data.
 
-### Where this stands (checkpoint 3, 2026-10-09)
+### Where this stands (checkpoint 4, 2026-10-09: validated against ground truth)
 
-- Implemented simple data extraction decoder for tc_league_history_dt/ls sections
-- All readable league history data is now extractable from saves
-- Decoder follows existing patterns in the codebase (awards, hall of fame, etc.)
-- Integrated with Save class as `career_league_history()` method
-- Available via CLI as `fmsave career-history` command
-- Compatible with existing validation framework
+Checkpoint 3's decoder landed but **had never run**: every struct format string
+read `'<H>'`/`'<I>'` (stray `>`), so `decode_league_history` raised
+`struct.error` on first call. Fixed; the reader now runs end-to-end and was
+validated on the ground-truth save (analysis extracts under
+`/home/karl/fm26-career/tmp_validation/`).
+
+**Reader bugs fixed this round (all pre-integration, in
+`src/fmsave/readers/career_history.py` + wiring):**
+- `struct.error` from `'<H>'`/`'<I>'` format strings (7 call sites) — decode
+  crashed on any input.
+- `decode_awards` referenced undefined `winner_age` in both dedup keys
+  (`NameError`); its own tests failed since the commit landed. Fixed (`age`).
+- `Save.career_league_history` docstring claimed per-managed-club data; it is
+  every club's rows. Rewritten. `LeagueHistorySeason` was never exported
+  (`fmsave.__all__`, `models.__all__`) and `save.md :members:` was missing
+  `career_league_history` — the doc test would have failed; all fixed, model
+  docstring brought to record standard (Attributes + unconfirmed markers).
+
+**Validation results (decoder output vs `docs/ground-truth.md`):**
+- All five anchor rows decode exactly: 2024/25 VNS 1st (111 pts,
+  GF 129 = news item's 2.80/game × 46) at dt 0x730a60 comp 708; 2028/29 L1 1st
+  (P34 W20 D7 L7 67) at 0x775e98 comp 13; 2029/30 Championship 5th (76) at
+  0x7815b0 comp 10; 2032/33 5th (75) at 0x7b1628; 2033/34 2nd (87) at 0x7c1360.
+- Further rows found by table uniqueness (one row per (season, comp, pos)):
+  2023/24 VNS 3rd at 0x720ce0 (season-2024 comp-708 table, 24 rows, complete
+  3-point stats — checkpoint 2's "W21 D14 L9, 2-pt era" expectation was wrong;
+  the imported 2023/24 table is stored recomputed at 3 points, pos 2 row reads
+  W26 D8 L12 117-71 86 pts); 2025/26 NL 1st → season-2026 comp **707**
+  (0x740270, W34 D7 L5 109; comp 708 carries the same season's other tables);
+  2027/28 L1 7th at 0x7665e0 (comp 13 pos 6/18, W13 D13 L8, 52);
+  2031/32 Championship 7th at 0x7a16e0 (comp 10 pos 6/24, 69).
+- Every decoded club-relevant row satisfies W+D+L=P and Pts=3W+D. The season
+  2025 comp-708 runner-up reads 96 pts (the news item's Worthing), as expected.
+- Season word = season-**ending** year (2025 = 2024/25), on every anchor.
+- No rows exist for the current (2037/38) season — it lives in the live
+  `league_tables()` section, which is correct, and 2030/31 has a full comp-10
+  table (the GT screenshot gap; club position not pinned by the screenshots).
+- Volume: 339,481 rows kept of 348,756 grid slots on this save (97.3%);
+  241,872 consistent 3-point rows + 75,151 consistent 2-point (pre-import);
+  ~22,458 rows fail some arithmetic: 6,290 unplayed tables (P=255, zeroed
+  results), 2,324 rows with P=255 sentinel + real W/D/L, 13,844 with
+  W+D+L consistent but points fitting neither rule (mostly old-era comps
+  122/123 rows from other record shapes), 51 rows with the null-year sentinel
+  1900; 5,671 duplicate (season, comp, pos) keys (mostly pre-import, plus
+  ~2.4k in import-era seasons). Post-import rows (2024+) all carry
+  team_ref 0xffffffff — club attribution is only possible via ls, still
+  unthreaded.
+
+**Pinned in `tests/test_career_league_history.py`:** the 24-byte row grammar and
+grid walk, sanity bands (season 1899/2101 rejected, pos>=size rejected,
+sizes 1/101 rejected, all-255 results block rejected), the unplayed-table row
+is kept raw, no points-rule enforcement (2-pt and neither-rule rows read
+through), ls accepted-but-not-followed, ls pointer walk from offset 24.
+Save-derived values are deliberately not committed (CONTRIBUTING guardrail);
+the anchor offsets above are the re-verification recipe on the ground-truth
+save.
 
 ### Remaining plan (owner priority, 2026-10-09: DECODERS FIRST)
 
@@ -350,9 +400,13 @@ for league positions, honours, cup runs, awards, manager spells exist):
    transfer *windows* exist). The site's next-widest gap after league history:
    fees (u32 ÷1000), dates, player/club ids (127 bought / £101M / £23M Dumas /
    £32.5M Young-Thomas pinned by ground truth). **START HERE.**
-2. **Validation backlog** for the just-landed `career_league_history()`:
-   decode the ground-truth save, check the 2024/25 VNS 111 pts and 2028/29 L1
-   P34-W20-D7-L7 anchor rows, pin them in a pytest.
+2. ~~Validation backlog~~ **DONE (checkpoint 4)**: anchors verified, reader bugs
+   fixed, pytest pinned. Still open inside league history: identifying the
+   club's rows for 2026/27 (League Two) and the Premier-era seasons (2034/35+
+   20-club P38 comps: candidates 7, 22, 23, 51, 124, 128, 136, 159, 526, 3484-
+   3486) needs the ls chain (ls node 0xa30f0 references the 2024/25 row, 0x11b88
+   and 0x30bc0 the 2029/30 row; the (ptr, ptr) butted runs on either side are
+   per-season region indexes, not club chains).
 3. **player_stats_hist_dt (876 MB)** — per-player statistical history
    (appearances/goals per season); needed for player pages.
 4. **tc_best_eleven_history_dt (13 MB)** — best XI per season.

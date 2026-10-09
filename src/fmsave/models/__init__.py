@@ -1,7 +1,13 @@
 """Public record types."""
 
 from fmsave.models.affiliates import AffiliateGroup
-from fmsave.models.career_history import CupEntry, Honour, ManagerSpell, PersonHistory
+from fmsave.models.career_history import (
+    CupEntry,
+    Honour,
+    LeagueHistorySeason,
+    ManagerSpell,
+    PersonHistory,
+)
 from fmsave.models.clubs import Club, Team
 from fmsave.models.common import CodedValue, ContractEndSource, TransferValueState
 from fmsave.models.competitions import Competition, CompetitionRound, Stage
@@ -96,6 +102,7 @@ __all__ = [
     "InjurySeverity",
     "InjuryType",
     "JobVacancy",
+    "LeagueHistorySeason",
     "LeagueTable",
     "LeagueTableMatch",
     "LeagueTableRow",

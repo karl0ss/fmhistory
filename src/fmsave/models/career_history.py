@@ -188,6 +188,62 @@ register_field_statuses(
     unconfirmed=("club_uid", "start_day", "start_year"),
 )
 
+
+@dataclass(frozen=True, slots=True)
+class LeagueHistorySeason:
+    """One 24-byte league-history row, a single club's table line for one season.
+
+    `tc_league_history_dt` stores past league tables as butted 24-byte rows on an
+    offset grid (`offset % 24 == 8`); a row is `[u16 season][u16 competition]
+    [u8 position][u8 team count] [u16 zero][u32 team reference] [u8 games][u8 games
+    again][u8 wins][u8 draws][u8 losses][u8 zero] [u16 goals for][u16 goals
+    against][u16 points]`. The reader walks the grid and keeps a row whose fields
+    pass sanity bounds, so it holds every readable line of every stored table, not
+    one club's career: rows carry no club identity, because a post-import row stores
+    the unset team reference 0xffffffff (pre-import rows store a team id), and
+    tying rows to a club needs the `tc_league_history_ls` index, which this table
+    does not follow.
+
+    The season a row stores is the season's ending year (a 2024/25 season stores
+    2025), the position is 0-based, and on the ground-truth save every readable
+    post-import row satisfies games = wins + draws + losses and points =
+    3 x wins + draws (rows imported from an FM24 save satisfy points =
+    2 x wins + draws instead). The current season stores no history rows at all:
+    they come from the live `league_tables()` reader instead.
+
+    Attributes:
+        season_year: Season-ending year the row belongs to, e.g. 2025 for the
+            2024/25 season (unconfirmed).
+        competition_id: Save-internal competition id the table was played in; the
+            ids are stable across seasons for one competition on the ground-truth
+            save (e.g. one id covers the Championship across the whole career), but
+            they join to nothing fmsave reads reliably (unconfirmed).
+        position: The club's 0-based finishing position in that table (unconfirmed).
+        total_teams: Number of teams the table held that season (unconfirmed).
+        games_played: Games played; stored twice, once at each of the row's two
+            game bytes, and read from the first (unconfirmed).
+        wins: Wins (unconfirmed).
+        draws: Draws (unconfirmed).
+        losses: Losses (unconfirmed).
+        goals_for: Goals scored (unconfirmed).
+        goals_against: Goals conceded (unconfirmed).
+        points: Points; rows of an imported older save may carry the 2-point-era
+            value 2 x wins + draws (unconfirmed).
+    """
+
+    season_year: int
+    competition_id: int
+    position: int
+    total_teams: int
+    games_played: int
+    wins: int
+    draws: int
+    losses: int
+    goals_for: int
+    goals_against: int
+    points: int
+
+
 register_field_statuses(
     LeagueHistorySeason,
     unconfirmed=(
@@ -204,19 +260,3 @@ register_field_statuses(
         "points",
     ),
 )
-
-
-@dataclass(frozen=True, slots=True)
-class LeagueHistorySeason:
-    """One season of league table performance for a club."""
-    season_year: int          # Season ending year (e.g. 2025 for 2024/25)
-    competition_id: int       # Save-internal competition id
-    position: int             # 0-based league position
-    total_teams: int          # Number of teams in league that season
-    games_played: int         # P
-    wins: int                 # W
-    draws: int                # D
-    losses: int               # L
-    goals_for: int            # GF
-    goals_against: int        # GA
-    points: int               # Pts

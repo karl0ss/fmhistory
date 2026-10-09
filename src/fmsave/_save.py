@@ -27,7 +27,14 @@ from fmsave._layouts import (
 from fmsave._reader_stats import ResultStats, TacticStats
 from fmsave._version import read_save_info
 from fmsave.models.affiliates import AffiliateGroup
-from fmsave.models.career_history import Award, CupEntry, Honour, LeagueHistorySeason, ManagerSpell, PersonHistory
+from fmsave.models.career_history import (
+    Award,
+    CupEntry,
+    Honour,
+    LeagueHistorySeason,
+    ManagerSpell,
+    PersonHistory,
+)
 from fmsave.models.clubs import Club
 from fmsave.models.competitions import Competition, Stage
 from fmsave.models.contracts import Contract
@@ -795,13 +802,19 @@ class Save:
         return context.cached(CAREER_AWARDS_TABLE_CACHE_KEY, self._read_career_awards)
 
     def career_league_history(self) -> Table[LeagueHistorySeason]:
-        """League table performance history for the managed club.
+        """Every readable past league-table row the save stores, for every club.
 
-        Returns one record per season containing the season ending year,
+        The `tc_league_history_dt` section holds one 24-byte row per club per season
+        per table. Rows carry no club identity (imported-career rows store the unset
+        team reference), so this is every club's raw rows, not one club's career: use
+        the season-year/competition grid and the position and results fields, or
+        thread rows to clubs through the `tc_league_history_ls` index (which this
+        reader does not follow). The season a row stores is the season's ending year
+        and the current, unfinished season has no history row at all.
+
+        Returns one record per readable row with the season ending year,
         competition id, league position, number of teams, games played,
         wins, draws, losses, goals for, goals against, and points.
-        All data is read from the tc_league_history_dt and tc_league_history_ls
-        sections by extracting all readable league history rows.
 
         Raises:
             SaveClosedError: The save is closed.
@@ -809,7 +822,9 @@ class Save:
             CorruptSaveError: The save is damaged or was being written.
         """
         context = self._context
-        return context.cached(CAREER_LEAGUE_HISTORY_TABLE_CACHE_KEY, self._read_career_league_history)
+        return context.cached(
+            CAREER_LEAGUE_HISTORY_TABLE_CACHE_KEY, self._read_career_league_history
+        )
 
     def stadiums(self) -> Table[Stadium]:
         """Every ground the save's database holds, in the order the save stores them.

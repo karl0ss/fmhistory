@@ -1238,7 +1238,7 @@ def _run_career_history(arguments: argparse.Namespace) -> int:
     lines.append(f"persons in the hall of fame: {len(persons)}")
     spell_lines = [
         f"club {spell.club_uid}: spell started day {spell.start_day} of "
-            f"{_season_ending(spell.start_year + 1)}"
+        f"{_season_ending(spell.start_year + 1)}"
         for spell in spells
     ]
     lines.append(f"manager spells: {len(spells)}")
@@ -1248,7 +1248,9 @@ def _run_career_history(arguments: argparse.Namespace) -> int:
     for honour in honours:
         honours_by_club.setdefault(honour.club_uid, []).append(honour)
     for honour_club in sorted(honours_by_club):
-        rows = sorted(honours_by_club[honour_club], key=lambda row: (row.season, row.competition_id))
+        rows = sorted(
+            honours_by_club[honour_club], key=lambda row: (row.season, row.competition_id)
+        )
         lines.append(f"club {honour_club}:")
         lines.extend(
             f"  competition {row.competition_id} {_season_ending(row.season)} (count {row.count})"

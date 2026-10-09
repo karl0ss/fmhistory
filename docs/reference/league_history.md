@@ -6,24 +6,12 @@ The league history sections (`tc_league_history_dt` and `tc_league_history_ls`) 
 ## Data Model
 
 ### LeagueHistorySeason Dataclass
-```python
-@dataclass(frozen=True, slots=True)
-class LeagueHistorySeason:
-    """One season of league table performance for a club."""
-    season_year: int          # Season ending year (e.g. 2025 for 2024/25)
-    competition_id: int       # Save-internal competition id
-    position: int             # 0-based league position
-    total_teams: int          # Number of teams in league that season
-    games_played: int         # P
-    wins: int                 # W
-    draws: int                # D
-    losses: int               # L
-    goals_for: int            # GF
-    goals_against: int        # GA
-    points: int               # Pts
-```
 
-All fields are marked as `unconfirmed=` per the decoder integration checklist.
+The record's fields and their meanings are documented on `fmsave.LeagueHistorySeason`
+itself (see `fmsave.models.career_history`); every field is registered
+`unconfirmed`. In short: one row is one club's line of one past league table, keyed
+by the season's ending year and the competition's save-internal id, with the 0-based
+position, table size and the P/W/D/L/GF/GA/Pts block.
 
 ## Section Structure
 
@@ -79,13 +67,13 @@ Access league history data through the Save object:
 ```python
 import fmsave
 
-save = fmsave.open('Karl Hudgell - UnemployedNew.fm')
+save = fmsave.open("my-career.fm")
 league_history = save.career_league_history()
 
 for season in league_history:
     print(f"{season.season_year}: Position {season.position + 1}/{season.total_teams}")
     print(f"  Record: {season.wins}-{season.draws}-{season.losses} ({season.points} pts)")
-    print(f"  Goals: {season.goals_forfor}-{season.goals_against}")
+    print(f"  Goals: {season.goals_for}-{season.goals_against}")
 ```
 
 ## Integration with Other Career History Data

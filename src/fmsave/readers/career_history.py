@@ -57,6 +57,19 @@ What each section holds:
   rows, most likely, whose ages run a real player age curve — carry no season
   year, so they cannot sit in a year-keyed table and are left for a later pass.
 
+- `tc_league_history_dt` — past league tables as butted 24-byte rows on an offset
+  grid (`offset % 24 == 8`), one row per club per table per season:
+
+      [u16 season][u16 competition][u8 position][u8 team count]
+      u16 zero  u32 team reference
+      u8 games u8 games-again u8 wins u8 draws u8 losses u8 zero
+      u16 goals_for  u16 goals_against  u16 points
+
+  A row carries no club identity (a post-import row's team reference is unset), so
+  the decoder returns every readable row of every stored table rather than one
+  club's career; tying rows to clubs is the `tc_league_history_ls` index's job,
+  which is not followed here. The season is the season's ending year.
+
 Competition ids in the career-history sections are save-internal ids, and no save stores a
 competition name, so none of these records carries a name; naming needs the same
 editor-database-id map the competition reader uses.
@@ -68,7 +81,14 @@ import re
 import struct
 
 from fmsave._errors import CorruptSaveError
-from fmsave.models.career_history import Award, CupEntry, Honour, ManagerSpell, PersonHistory, LeagueHistorySeason
+from fmsave.models.career_history import (
+    Award,
+    CupEntry,
+    Honour,
+    LeagueHistorySeason,
+    ManagerSpell,
+    PersonHistory,
+)
 
 HALL_OF_FAME_SECTION = "hall_of_fame"
 CUP_HISTORY_SECTION = "tc_cup_history_dt"
@@ -227,7 +247,10 @@ def decode_cup_entries(data: bytes) -> tuple[CupEntry, ...]:
     for row_offset in range(4, len(data) - _CUP_ROW_BYTES + 1, _CUP_ROW_BYTES):
         club, competition, start_season, end_season = struct.unpack_from("<IIHH", data, row_offset)
         rows.append((club, competition, start_season, end_season))
-        if _MIN_CUP_SEASON <= start_season <= _MAX_YEAR and start_season <= end_season <= start_season + 2:
+        if (
+            _MIN_CUP_SEASON <= start_season <= _MAX_YEAR
+            and start_season <= end_season <= start_season + 2
+        ):
             valid += 1
     if len(rows) < 10 or valid < len(rows) * _VALID_ROWS_NEEDED:
         raise CorruptSaveError(
@@ -264,7 +287,7 @@ def decode_awards(data: bytes) -> tuple[Award, ...]:
     ages matching the manager's birth year.
     """
     awards: list[Award] = []
-    seen: set[tuple[int, int, int, int, int]] = set()
+    seen: set[tuple[int, int, int, int, int | None, int]] = set()
     position = 0
     limit = len(data) - 26  # _AWARD_NO_CLUB_BYTES
     while position <= limit:
@@ -274,13 +297,18 @@ def decode_awards(data: bytes) -> tuple[Award, ...]:
             if record[0] == 2:  # _AWARD_LEAD_BYTE
                 flags = int.from_bytes(record[1:5], "little")
                 if flags <= 0x4081:  # _AWARD_FLAG_MAX
-                    tag, season_year, award_id, winner_id, club_uid = struct.unpack_from("<HHHII", record, 5)
+                    tag, season_year, award_id, winner_id, club_uid = struct.unpack_from(
+                        "<HHHII", record, 5
+                    )
                     age = record[19]
-                    if (_MIN_YEAR <= season_year <= _MAX_YEAR and season_year != _NULL_YEAR and
-                        award_id <= 4700 and  # _AWARD_ID_MAX
-                        winner_id < 2_500_000 and  # _AWARD_REFERENCE_MAX
-                        (club_uid == 0xFFFF_FFFF or club_uid < 2_500_000) and
-                        13 <= age <= 95):  # _AGE_MIN, _AGE_MAX
+                    if (
+                        _MIN_YEAR <= season_year <= _MAX_YEAR
+                        and season_year != _NULL_YEAR
+                        and award_id <= 4700  # _AWARD_ID_MAX
+                        and winner_id < 2_500_000  # _AWARD_REFERENCE_MAX
+                        and (club_uid == 0xFFFF_FFFF or club_uid < 2_500_000)
+                        and 13 <= age <= 95
+                    ):  # _AGE_MIN, _AGE_MAX
                         tail = tuple(record[19:30])
                         key = (
                             season_year,
@@ -288,7 +316,7 @@ def decode_awards(data: bytes) -> tuple[Award, ...]:
                             tag,
                             winner_id,
                             club_uid if club_uid != 0xFFFF_FFFF else None,
-                            winner_age,
+                            age,
                         )
                         if key not in seen:
                             seen.add(key)
@@ -313,10 +341,13 @@ def decode_awards(data: bytes) -> tuple[Award, ...]:
                 if flags <= 0x4081:  # _AWARD_FLAG_MAX
                     tag, season_year, award_id, winner_id = struct.unpack_from("<HHHI", record, 5)
                     age = record[15]
-                    if (_MIN_YEAR <= season_year <= _MAX_YEAR and season_year != _NULL_YEAR and
-                        award_id <= 4700 and  # _AWARD_ID_MAX
-                        winner_id < 2_500_000 and  # _AWARD_REFERENCE_MAX
-                        13 <= age <= 95):  # _AGE_MIN, _AGE_MAX
+                    if (
+                        _MIN_YEAR <= season_year <= _MAX_YEAR
+                        and season_year != _NULL_YEAR
+                        and award_id <= 4700  # _AWARD_ID_MAX
+                        and winner_id < 2_500_000  # _AWARD_REFERENCE_MAX
+                        and 13 <= age <= 95
+                    ):  # _AGE_MIN, _AGE_MAX
                         tail = tuple(record[15:26])
                         key = (
                             season_year,
@@ -324,7 +355,7 @@ def decode_awards(data: bytes) -> tuple[Award, ...]:
                             tag,
                             winner_id,
                             -1,  # club_uid as -1 for None
-                            winner_age,
+                            age,
                         )
                         if key not in seen:
                             seen.add(key)
@@ -379,7 +410,14 @@ def decode_manager_spells(data: bytes) -> tuple[ManagerSpell, ...]:
 
 
 def _is_valid_league_history_row(dt_data: bytes, offset: int) -> bool:
-    """Check if a 24-byte block at offset is a valid league history row."""
+    """Whether the 24 bytes at a grid offset read as a league-history row.
+
+    A row sits at an offset congruent to 8 modulo 24, its season is a real year, its
+    position fits inside its table, the table has a plausible size, and the row is
+    not one whose whole results block is unset. Rows whose results are zeroed but
+    whose played-games byte is unset (a table that was never played) still pass: they
+    are part of the section, and separating them is the caller's job.
+    """
     if offset + 24 > len(dt_data):
         return False
 
@@ -388,8 +426,7 @@ def _is_valid_league_history_row(dt_data: bytes, offset: int) -> bool:
         return False
 
     # Extract the row data
-    season = struct.unpack_from('<H>', dt_data, offset)[0]
-    comp = struct.unpack_from('<H>', dt_data, offset + 2)[0]
+    season = struct.unpack_from("<H", dt_data, offset)[0]
     pos = dt_data[offset + 4]
     size = dt_data[offset + 5]
 
@@ -409,28 +446,24 @@ def _is_valid_league_history_row(dt_data: bytes, offset: int) -> bool:
     w = dt_data[offset + 14]
     d = dt_data[offset + 15]
     l = dt_data[offset + 16]
-    if w == 255 and d == 255 and l == 255:
-        return False
-
-    return True
+    return not (w == 255 and d == 255 and l == 255)
 
 
 def _decode_league_history_row(dt_data: bytes, offset: int) -> LeagueHistorySeason:
     """Decode a league history row at the given offset."""
     # Extract the 24-byte row data
-    season = struct.unpack_from('<H>', dt_data, offset)[0]
-    comp = struct.unpack_from('<H>', dt_data, offset + 2)[0]
+    season = struct.unpack_from("<H", dt_data, offset)[0]
+    comp = struct.unpack_from("<H", dt_data, offset + 2)[0]
     pos = dt_data[offset + 4]
     size = dt_data[offset + 5]
-    team_ref = struct.unpack_from('<I>', dt_data, offset + 8)[0]
     # P is duplicated at offsets 12 and 13 (both should be equal)
     games_played = dt_data[offset + 12]
     wins = dt_data[offset + 14]
     draws = dt_data[offset + 15]
     losses = dt_data[offset + 16]
-    goals_for = struct.unpack_from('<H>', dt_data, offset + 18)[0]
-    goals_against = struct.unpack_from('<H>', dt_data, offset + 20)[0]
-    points = struct.unpack_from('<H>', dt_data, offset + 22)[0]
+    goals_for = struct.unpack_from("<H", dt_data, offset + 18)[0]
+    goals_against = struct.unpack_from("<H", dt_data, offset + 20)[0]
+    points = struct.unpack_from("<H", dt_data, offset + 22)[0]
 
     return LeagueHistorySeason(
         season_year=season,
@@ -448,15 +481,20 @@ def _decode_league_history_row(dt_data: bytes, offset: int) -> LeagueHistorySeas
 
 
 def decode_league_history(dt_data: bytes, ls_data: bytes) -> tuple[LeagueHistorySeason, ...]:
-    """Extract all readable league history data from dt and ls sections.
+    """Every readable past league-table row the dt section stores, in file order.
 
-    This function simply extracts all readable data without attempting to
-    reconstruct career chains. The application logic can then use this raw
-    data to build career histories as needed.
+    The section holds past league tables as butted 24-byte rows on an offset grid
+    (`offset % 24 == 8`), so the walk stops at every grid offset and keeps the rows
+    that pass the row check. Each row is one club's line of one table of one season:
+    because the grid admits other record families (a row whose results block is
+    unset, tables that were never played) and rows carry no club identity, the table
+    holds every club's rows rather than one career. The `ls_data` argument is the
+    section's linked-list index, which ties rows to clubs; it is accepted but not
+    followed, and can be walked record by record with
+    `decode_league_history_ls_pointers`.
 
     Returns:
-        tuple of LeagueHistorySeason objects representing all readable rows
-        from the tc_league_history_dt section.
+        One `LeagueHistorySeason` per readable row, in file order.
     """
     rows: list[LeagueHistorySeason] = []
 
@@ -483,6 +521,6 @@ def decode_league_history_ls_pointers(ls_data: bytes) -> tuple[int, ...]:
     for offset in range(24, len(ls_data), 4):
         if offset + 4 > len(ls_data):
             break
-        value = struct.unpack_from('<I', ls_data, offset)[0]
+        value = struct.unpack_from("<I", ls_data, offset)[0]
         pointers.append(value)
     return tuple(pointers)
