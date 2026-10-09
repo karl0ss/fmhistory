@@ -40,6 +40,7 @@ from fmsave.models.competitions import Competition, Stage
 from fmsave.models.contracts import Contract
 from fmsave.models.facilities import ClubFacilities
 from fmsave.models.finances import FinanceMonth, Sponsorship
+from fmsave.models.transfer_history import PlayerSeasonRecord
 from fmsave.models.fixtures import Fixture
 from fmsave.models.injuries import InjuryRecord, InjuryType
 from fmsave.models.jobs import JobVacancy
@@ -88,10 +89,16 @@ from fmsave.readers.career_history import (
     decode_league_history,
     decode_manager_spells,
 )
+from fmsave.readers.transfer_history import (
+    TRANSFER_MAN_SECTION,
+    decode_player_season_records,
+    raise_when_unreadable,
+)
 from fmsave.readers.facilities import find_facility_layout, read_club_facilities
 from fmsave.readers.finances import find_finance_layouts, read_club_finances
 from fmsave.readers.fixtures import build_fixtures_with_offsets
 from fmsave.readers.injuries import (
+    build_injury_records,
     build_injury_records,
     find_injury_manager_layout,
     find_injury_type_layout,
@@ -192,6 +199,7 @@ CAREER_CUP_ENTRIES_TABLE_CACHE_KEY = "table:career_cup_entries"
 CAREER_MANAGER_SPELLS_TABLE_CACHE_KEY = "table:career_manager_spells"
 CAREER_AWARDS_TABLE_CACHE_KEY = "table:career_awards"
 CAREER_LEAGUE_HISTORY_TABLE_CACHE_KEY = "table:career_league_history"
+TRANSFER_MAN_SEASON_RECORDS_TABLE_CACHE_KEY = "table:transfer_man_season_records"
 JOB_VACANCIES_TABLE_CACHE_KEY = "table:job_vacancies"
 STADIUMS_TABLE_CACHE_KEY = "table:stadiums"
 STAFF_TABLE_CACHE_KEY = "table:staff"
@@ -824,6 +832,33 @@ class Save:
         context = self._context
         return context.cached(
             CAREER_LEAGUE_HISTORY_TABLE_CACHE_KEY, self._read_career_league_history
+        )
+
+    def transfer_man_player_seasons(self) -> Table[PlayerSeasonRecord]:
+        """Every readable 73-byte season-record row the `transfer_man` section stores.
+
+        The section's tail is a per-season store of per-player-per-club rows across
+        the whole game world, newest seasons stored clear and older seasons in one
+        zstd-compressed block each. A row keys a player through the club uid and
+        squad slot in its head id and groups under the season year it stores, and
+        its money fields sit on the raw-£ weekly-wage scale. The reader pattern-scans
+        each season region, so rows a layout the scan misses are skipped rather than
+        misread; row semantics are unconfirmed on the ground-truth save and are not
+        verified across builds. The section's transfer-registration and negotiation
+        families are not decoded, and the section carries no transfer fees.
+
+        Returns one record per readable row with the club uid, squad slot, head
+        variant bytes, the four money fields, the row type byte, the tick word,
+        the season year, the status word and the four trailing fields.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written.
+        """
+        context = self._context
+        return context.cached(
+            TRANSFER_MAN_SEASON_RECORDS_TABLE_CACHE_KEY, self._read_transfer_man_player_seasons
         )
 
     def stadiums(self) -> Table[Stadium]:
@@ -2344,6 +2379,12 @@ class Save:
         ):
             entries = decode_league_history(dt_data, ls_data)
         return Table(entries, LeagueHistorySeason)
+
+    def _read_transfer_man_player_seasons(self) -> Table[PlayerSeasonRecord]:
+        with self._context.section(TRANSFER_MAN_SECTION) as transfer_data:
+            records = decode_player_season_records(transfer_data)
+        raise_when_unreadable(len(records), transfer_data)
+        return Table(records, PlayerSeasonRecord)
 
     def _read_stages(self) -> Table[Stage]:
         context = self._context

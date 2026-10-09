@@ -705,6 +705,53 @@ monthly balances behind GT's -£1.2M→£131M arc live somewhere; "finances" is
 not a section name — check `starting_club_debt_db`/game_db streams). Validate
 against GT only after a reader exists.
 
+### transfer_man checkpoint 6 (2026-10-09): 73B grid reader INTEGRATED
+
+`Save.transfer_man_player_seasons()` → `Table[PlayerSeasonRecord]`
+(`src/fmsave/models/transfer_history.py`, `src/fmsave/readers/transfer_history.py`,
+wired in `_save.py` with cache key `table:transfer_man_season_records`; tests
+`tests/test_transfer_history.py` — synthetic blobs, no save data in the repo).
+
+Decoder design (proven on GT, scan100–scan109):
+
+- **Framing**: clear season region = section header .. first zstd magic; then
+  13 concatenated zstd frames (seasons 2022..2034, oldest first; clear region
+  = newest 2035–2037). Frame boundaries are magic positions; a false magic
+  inside one frame's compressed bytes ends a segment early, so a segment that
+  fails to decompress is retried extended over the next magic. A frame that
+  decompresses under none of a 0–8 trailing-byte drop sweep is skipped (final
+  frame needs drop=1 — the 1-byte section tail; the others need 0).
+- **Row read**: single `re.finditer` pass anchored on head word
+  `00 [00|01] [00|01] 07` (NOT `[01]` — that regex character class matches the
+  ASCII bytes, a bug that cost a session round; `[\x00\x01]` is required), then
+  per-candidate validation: separator bytes at row offset +8/+13/+18 == 0, and
+  season year ∈ 2005–2050 ∪ {1900}. Year 0xffff is REJECTED: on GT every
+  ff-year candidate is one uniform junk family (club 0, slot 0/11/76, type 1,
+  flags 0x01ff, tick 65280, value fields prefixed 0x0192/0x076c) — 89 hits in
+  zone1 + 9 in zone2; accepting the sentinel admitted 98 junk rows per save.
+- **Row type 33 wildcard**: all 1,320 t33 rows carry head id 0xffffff
+  (club 16777215, slot 255) — club-free world-level money rows (£1k–£193k/wk
+  in value_b). No club-uid gate in the reader: any u32 head id is accepted
+  (a u24 field by construction); the year/separator fingerprint does the
+  filtering.
+- **Zone2 is not a pure butted grid**: row runs butt at stride 73 (~277,760
+  clear-region rows) but ~238 ~1.1 KB story/TLV chunks (names, club strings,
+  base64) interrupt them — hence per-row fingerprint validation over a
+  store-wide grid walk (scan105; a grid-walk validator dies on the chunks).
+- **Header is 12 bytes**, not 13: `03 01 'tad.' <u16 0x23> <u32 0xb06500>` —
+  the u32 sits at offset 8 and the section content starts at 12.
+
+GT validation: 1,428,558 rows, year histogram 2022:39, 2023:32,213,
+2024:124,931, 2025:109,561, 2026:93,730, 2027:94,208, 2028:102,511,
+2029:103,068, 2030:99,120, 2031:98,263, 2032:98,407, 2033:97,736, 2034:97,100,
+2035:96,093, 2036:95,968, 2037:85,610 (matches the checkpoint-1 pickle counts
+exactly); 3,225 distinct clubs (max uid 3,675); Dumas row and companion
+reproduce; junk rows 0. Decode ~13.4 s, cached per Save instance.
+
+Not integrated yet: zone1's compact families (family-A registrations, 11 00
+wage ledger, 03, 0b negotiation — maps in checkpoints 1/3), and per-transfer
+fees remain unfound (next: `person_record_history_dt`, 131 MB).
+
 ### Remaining plan (owner priority, 2026-10-09: DECODERS FIRST)
 
 Standing direction from the owner: the priority is **finishing the missing
@@ -720,11 +767,16 @@ for league positions, honours, cup runs, awards, manager spells exist):
    transfer *windows* exist). The site's next-widest gap after league history:
    fees, dates, player/club ids (127 bought / £101M / £23M Dumas /
    £32.5M Young-Thomas pinned by ground truth). **START HERE.**
-   Status: checkpoint 1 done (see section above) — full byte map + 73B row
-   schema + season frames decoded; checkpoints 4–5 established the 73B rows
-   are per-player-per-club seasonal rows (wage scale) and **fees are in
-   neither transfer_man nor any value-anchored hit** (fee log unfound —
-   likely `person_record_history_dt`; see checkpoint 5).
+   Status: **73B season-grid reader INTEGRATED (2026-10-09) —
+   `Save.transfer_man_player_seasons()`**: model `PlayerSeasonRecord` +
+   reader `src/fmsave/readers/transfer_history.py`; reference in
+   `docs/reference/transfer_man.md`. GT: 1,428,558 rows / 16 seasons
+   (2022:39 … 2037:85,610), Dumas (716,7) 23,972@2036 and companion (716,172)
+   32,604@2036 reproduce exactly; 98 ff-year junk rows excluded by the
+   year-acceptance filter; ~13.4 s decode, cached. All 16 fields unconfirmed.
+   Transfer *fees* remain unfound (checkpoints 4–5: value anchoring closed;
+   structural candidates next). Registration families (family-A, 11 00, 03,
+   0b) still to integrate — see checkpoint 3 maps.
 2. ~~Validation backlog~~ **DONE (checkpoint 4)**: anchors verified, reader bugs
    fixed, pytest pinned. Still open inside league history: identifying the
    club's rows for 2026/27 (League Two) and the Premier-era seasons (2034/35+
