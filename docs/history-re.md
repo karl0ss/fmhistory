@@ -501,6 +501,95 @@ Readers used for uid lookups: `players()` (Dumas uid 2,000,205,315 / unique_id
 Also: upstream `rhiever.github.io/fmsave` docs have NO transfer reader — no
 shortcut exists; our fork is ahead.
 
+### transfer_man checkpoint 3 (2026-10-09): family-A map final; 0b type-1 layout + units
+
+Scripts `scan61–69` + inline tests. Corrections and additions to checkpoint 2:
+
+**Family-A (definitive field map — supersedes the earlier "fee" read).**
+`03 | 13 00 | u32 handle | u16 A1@+8 | u16 A3@+12 | u16 A4@+14 | u32 flags@+16 |
+u32 recid@+21 | u32 idB@+25 | u8 tag@+29 | ff×4 @+30 | persons u32 @+56/+60/+64`.
+- `+21` = **recid** (global append-log id, 0→45,156 monotonic); `+25` = idB
+  (0x12b000–0x140000 ≈ 1.2M, the 73B-row id at write time); recid/idB
+  increment +1 in lockstep down the append regions (verified 22,969→22,980 ↔
+  idB 0x12c31a→0x12c325).
+- The 23,000 @`0x17e2e2` and 32,500 @`0x2e8761` are **pure recid coincidences**
+  — family-A carries NO fees. Checkpoint 2's "fee" anchor was wrong; the fee
+  evidence is the 0b kind-8 money ladder (below).
+
+**0b type-1 negotiation records (`0b 00 01 00` header, 56,808 sites in
+0x100000–0x10d0000):**
+```
++0  0b 00 01 00   +4  u32 ref (2,276 distinct; ~25 recs/ref; some junk high)
++8  u32 money — CONSTANT per (ref, kind)
++12 u32 varied  — subject handle was WRONG: not per-ref const (24/2,276 refs
+                  only), not a date (u16hi spans 0–39); semantics unknown
++16 u32 handle (club<<8|seq); 0xffffffff ≈ null (5,571×)
++20 u32 = ff (null)
++24 u8 kind ∈ {0,2,3,4,6,7,8,9}  (8: 24,677 · 6: 17,956 · 7: 11,024 · 3: 1,027
+                                  9: 973 · 4: 968 · 0: 179 · 2: 4)
++25 f32 −1.0 (mostly)   +29 u32 bitfield   then `ff 63` tag + u16 f63 + tail
+```
+Record length = **69 + k×14 extension blocks** (69: 39,588 / 83: 9,678 /
+97: 1,135 / 125 / 153 / 209 / 349 … up to 5.7k B containers). Extensions hold:
+28-B `11 00`-embeds, 18-B `06 00`-items, count-prefixed lists, and **nested
+`0b 00 <subtype> 00` sub-records** (subtypes 0x0a/0x10/0x16/0x2c/0x32/0x40).
+
+- money@+8 ladders per (ref, kind): ref-1479 = {6: 13,416; 7: 22,042 (×28);
+  **8: 23,000 (×11)**; 9: 23,959}; ref-912 = {6: 14,638; 7: 22,789 & 24,048;
+  8: 23,780 (×11, + 25,094 ×2); 9: 24,771}. Kind-7→8→9 sequence per ref looks
+  like a **negotiation evolving across stages** (wage → bid → settled?).
+  Kinds 3/4 = global constants (3: 4,446 ×1,027 recs; 4: 36,300 ×968) —
+  template/defaults, not per-deal values.
+- `ff 63` u16 (f63): per-record wage-offer value; common round values
+  (20,020/20,680/…) recur across hundreds of refs/handles ⇒ **NOT
+  player-unique**. f63 ≈ money+500 pattern common (e.g. 20,880→21,380).
+- `06 00`-items (18 B): `06 00 | u32 handle | u32 value24 | 01 00 | 6c 07 |
+  02/00 00 00`, value >>8 descending 39,000→242 inside one list = a **valuation
+  / player-list** (hypothesis: squad valuation ranking).
+- Nested-0b run @ref-1479 kind-6 container (`0f 00 00 00` prefix, six
+  sub-records): shared ref 1,479, value const 99,890, per-record second value
+  varies (23,816/703,533/…).
+
+**Money units: no raw £ anywhere** (u32 23,000,000 / 32,500,000 / 101,000,000
+= 0 sites in the section). GT fees £23M/£32.5M map to stored **23,000/32,500 =
+£k** (fees in thousands); the wage-scale values (11-record V1/V2, 0b money
+18.7k–40k, 73B P2–P4) are raw-£ weekly wages. The exact collisions (23,000 as
+both Dumas fee and common wage) stay unresolved until fee-vs-wage kinds are
+untagged; current best split: **kind-8 money = fee (£k), kind-7 = wage offer,
+kind-6 = valuation-related, +25 f63 = wage offer**.
+
+**Dual-club `11 00`-embed pairs inside one 0b record = transfer registration
+pairs** (same (V1,V2) at two clubs; e.g. ref-195: (2535,86)+(716,33) V1 20,680
+V2 62,040; ref-844: (716,2515) wage ×3). 1,040 records have dual pairs, but
+**only 5 touch club 716** — not the main attribution channel for 166 GT
+transfers. Embed-based ref→club attribution in general = NOISE (zone 1 holds
+several interleaved append streams; `11 00`-runs are physically interleaved,
+so in-span "other club" attribution is untrustworthy; only exact
+same-(V1,V2) two-club pairs are signal).
+
+**Dead ends this arc (do not redo):** u32 length-prefix before `0b 00` starts;
++12 as subject-club handle (census shows 81 clubs, no 716) or as a date;
+f63 as player-unique wage; embed-count club attribution; raw-£ money;
+"family-A +21 = fee".
+
+**Open (in order):**
+1. `+12` semantics; ref→club/player attribution (test: does Dumas's
+   negotiation = a ref ≠ 1,479 found via kind-6 `06 00`-lists, or via a
+   (716,x)/(543,x) `+16` handle link?).
+2. Confirm kind-8-money = fee: collect (ref, kind-8 money) for 716-links and
+   check Σ ≈ 101,000 (£k) / count ≈ 127 / max 23,000.
+3. Units cross-check: 23,048 cluster (@0x8550xx, ~12 sites) & ref-912 24,048 —
+   "×048" fee-like second cluster?
+4. `0f 00 00 00` nested-0b run semantics (99,890 const).
+5. 03-family A/B/C/D semantics; `11 00` V2/V1 ratio = contract term?
+6. Date anchors vs GT (Dumas 10/8/2036, Y-T 9/8/2036).
+7. Then integration checklist (model/reader/`Save.` methods/tests).
+
+Scripts: `/home/karl/fm26-career/tmp_xfer/scan61–69.py` (+ inline heredoc
+tests in session log). Raw extract:
+`/home/karl/fm26-career/sections/transfer_man.bin` (53,306,010 B, outside
+repo).
+
 ### Remaining plan (owner priority, 2026-10-09: DECODERS FIRST)
 
 Standing direction from the owner: the priority is **finishing the missing
