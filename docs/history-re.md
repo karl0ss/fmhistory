@@ -36,6 +36,29 @@ Suffixes seen in save container: `_dt` (history/data-table), `_ls` (list), `_man
 
 ## Decoded so far
 
+### comp_history_dt — STRUCTURE BREAKTHROUGH (55-byte aligned rows)
+Year words are u16 LE (`e2 07`=2018 ... `f5 07`=2037). Rows align cleanly on a
+55-byte stride; a row containing club uid 716 (u32 LE) looks like:
+
+```
+[u16 season_year_a] [u16 season_year_b] [u16 small] [u16 year_or_1900]
+[u32 club0] [u32 club1] [u32 club2] [u32 club3] ... [u32 -1 sentinels ...] [00 04 00]
+```
+
+Observations from the ground-truth save:
+- Small int field values seen: 1, 63, 69, 145, 162, 139, 330, 340, 361, 181 —
+  varies; some repeat ACROSS different clubs (361, 1900) → looks like a
+  competition/tier/round code, not position.
+- 1900 appears where a year would be — likely a null/sentinel year.
+- Rows show club-uid u32s in varying positions: champion/promotion slots.
+  St. Albans (716) appears 37x, e.g. block at 0x1340xx rows for years
+  2017/18→2021/22 (pre-career club history!) and singles at 0xf1cb (1993/94),
+  0x10b865 (1998/99), 0x1a8d4e-0x1a8da8 (1975-1978), 0x216a01-0x216a38
+  (2018-2020), 0x380efb (1977/78).
+- Two u32 payload values per row (ranges 263…9,490; e.g. 3486/3485 sequential)
+  — plausibly internal record ids of that season's table snapshot
+  (tc_record_man / tc_league_history_dt) or prev/next-season chain ids.
+
 ### tc_manager_history_dt (tmc., 799,746 B, header count field 0x1f30 = 7,984)
 - Header: `03 01 'tmc.' 02 00 30 1f 00 00 01 00`, records follow.
 - Year words are u16 LE right in the data (e.g. `e6 07` = 2022, `98 00` = 0x98 = day 152
@@ -59,7 +82,7 @@ Suffixes seen in save container: `_dt` (history/data-table), `_ls` (list), `_man
 - Rows keyed on club uid 716 (29 hits) with small u32s after
   (`15 00 00 00`, `19 00 00 00` = 21, 25 — award index / year offset pairs).
 
-### comp_history_dt
+### comp_history_dt (earlier probe, superseded by the section above)
 - 55-byte stride blocks around 0x1340fa..0x13420d, ascending years, St. Albans row each
   season (2032→2037 visible), two u32 fields per row (values 263..9,490) — likely
   points/position/goals-ish aggregates. Needs ground truth to pin down.
