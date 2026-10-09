@@ -392,7 +392,7 @@ Section: 53,306,010 B, 13-byte header `03 01 'tad.' 23 00 | u32@8 = 11,560,192`
 
 | region | range (GT save) | contents |
 |---|---|---|
-| zone 1 | `0x0`–`0x10d0000` (~17.6 MB, clear) | family-A full transfer records (31,749) 0–4.6 MB + compact per-club families (B/C/D, 69-byte-stride club tables, fee-sorted lists) 5–17 MB |
+| zone 1 | `0x0`–`0x10d0000` (~17.6 MB, clear) | family-A full transfer records (31,749) 0–4.6 MB + compact families (checkpoint 2): `11 00` wage ledger (stride 28), `03` (club,slot)→person registry (stride 27), `0b 00` negotiation/offer records (variable, 69 in one cluster) |
 | zone 2 | `0x10d0000`–`0x2472e84` (~20 MB, clear) | 73-byte per-season records, seasons 2035/2036/2037 |
 | tail zstd | `0x2472e84`–EOF (~15 MB) | **13 zstd frames** (magic `28 b5 2f fd`, FDS `04`, WD `50`), one per season, 2022–2034 (frame12 = 2034, decompresses when the **1 trailing footer byte is dropped**). 85 MB raw, same 73-byte record format. Frame0 (2,854 B raw) = season-2022 prologue. |
 
@@ -428,26 +428,68 @@ space (Dumas = 0x12c305) — likely transfer-negotiation ids, NOT person uids;
 **player save uids (Dumas 2,000,205,315, Y-T 2,002,095,850) never appear in
 transfer_man at all** (0 hits for u32 of any player uid/unique_id).
 
+**Checkpoint 2 (2026-10-09): compact families decoded; FEE located.**
+
+1. **`(club<<8|seq)` is a club-internal 16-bit object handle (0–255 slot)**
+   used consistently by *all* record families: 73B rows (P1), family-A (+3),
+   and all three compact families. For club 716 the handle space = squad/
+   staff slot numbers (e.g. Dumas's 73B rows all carry handle `0x2cc07` =
+   `(716, 7)`). seq is NOT season-relative — the same handle recurs across
+   season tables for the same player.
+2. **`11 00`-family — per-handle wage/contract ledger, 31,520 records**
+   (0x500000–0x1080000, offsets: club-716 records monotonic ⇒ one global
+   chronological log): `11 00 | u32 handle | u8 f | u64 V1 | u64 V2 | 00 |
+   u32 t4` (28 B). f = 4 (66%) / 7 (23%) / 5 (10%) / rare others;
+   t4 ≈ 0. **V1 = money (weekly-wage scale), V2 = V1 × n with n an integer
+   1–13** (44% n=1, n=2/n=3 common, ≥6 rare; a few non-integer outliers =
+   phase/variant cases to re-verify). Working hypothesis: n = contract
+   portion (months-remaining/12 or term). Wage histories reconstruct per
+   handle: e.g. Y-T 18,700 → 20,020 → 32,500. Two clubs (2536, 716) carrying
+   the *identical* (V1,V2) pair ⇒ shared/loan registrations appear twice.
+   Wage-ledger values ~20–38k for club 716 = wage-scale (£k/wk), NOT fees.
+3. **`03`-family — (club, slot)→person registry, stride 27, 82,782 records**:
+   `03 | u32 handle | u32 person | 02 | u32 A | u32 B (ff = null) | u32 C |
+   u32 D`. Persons in the 0x07f1–0x07f5 xxxxx space (same space as family-A
+   +56/+60 person slots); 6,306 distinct persons, one person recurs up to
+   677× ⇒ each record = one (person, club-slot) association, ~13 per person
+   (≈ seasonal spells). A often 0/small, B mostly −1, C flag-ish (1/8/16/
+   1,024/16,384...). Same (handle, person) recurs with varied A = updates.
+   Semantics (staff vs player slots) unresolved.
+4. **`0b 00`-family — negotiation/offer records (variable length; 69 B
+   stride in its uniform cluster @0x92f9xx)**: `0b 00 | 01 00 | u32
+   negotiation-id | u32 ...` then money/clause u32s, ff-nulls, f32 −1.0
+   sentinels, dates. **THE FEE column lives here**: u32 23,000 = Dumas's
+   £23M *exactly* (11 records in the 0x92f9xx cluster = one negotiation's
+   snapshots); ref space ≈ 0–2,281 distinct negotiation ids.
+   (Caveat: the naive "u32@+8 = fee" parse fails globally — +8 is flags in
+   other layouts; layout is tagged/variable, needs TLV-style walking.)
+5. **73B P2/P3/P4 reinterpreted (wage-like, not fee)**. Club-716 P2==P4 rows:
+   506 rows summing 5.9M — far from GT 127 buys/£101M ⇒ P2-set ≠ buy rows.
+   Per-year P2 sums (~150–600k/yr) = wage-bill scale. New fee+add-ons model
+   (unconfirmed): Dumas 23,972 = fee 23,000 + add-ons 972; Y-T 32,604 =
+   32,500 + 104 with P9 = 104,680 ≈ the add-on in different units; UI
+   displays the base fee. Family-A record for (716,7) @`0x0037e074`:
+   V1 = 11,704 ≈ the 2035-row P6 (11,714) — another wage-ish quantity;
+   V2 = V1<<8 confirmed.
+6. Dumas 73B row trio: @`0x1395264` (P6=11,714), @`0x17ac8e8` (P2=P4=23,972),
+   @`0x210d85c` (P3=P4=23,972, P6=543) — handle (716,7) recurs across the
+   three zone-2 season tables.
+
 **Open (next session, in order):**
-1. Semantics of P2/P3/P4 (doubled-value pairs) — fee vs value vs wage. Anchors
-   (both verified in the parsed table):
-   Dumas £23M 10/8/2036 → row @`0x006dc8e8`, P1=`0x0002cc07`, P2=P4=23,972
-   (all other fields null); Y-T £32.5M 9/8/2036 → row @`0x008bcb2f`,
-   P1=`0x0002ccac`, P3=P4=32,604, P6=3999 (buyer club id!), P9=104,680.
-   Note 23,972≠23,000 and 32,604≠32,500 — both ~0.4–1% above the UI fee
-   (add-ons included? base ≠ total?). Fee likely P2/P4 or P3/P4 pair;
-   validate against the 127/£101M totals.
-2. Decode +36..40 X field (per-table constants 12,952→13,166 in 2036 — a
-   date/tick?). Find Dumas's row by date if possible.
-3. Map type bytes (4=squad/club rows; 37/3/9/6/1/14/24 = ? — probably offers,
-   releases, contracts). Count club-716 type-4 rows vs GT 127 bought/39 sold/50 released.
-4. Zone-1 compact families (B `11 00`, C `03`+date, D `0b 00` 69-byte stride
-   per-club tables): these held the 22,963/22,952/32,500 copies — they are
-   the per-club "completed transfer" tables and likely carry the actual fee
-   columns. The early 0x6100 sub-family (running serials, 2022 dates) too.
-5. Family-A date slots (+56/+60/+75/+80) and its +34..36 triple/tag.
-6. v02/v03 cross-save: same macro-structure (zstd frames? check) — family-A parse
-   failing there is likely the same 73B/zstd reordering, not alien content.
+1. TLV-parse the `0b 00`-negotiation family (length prefix observed:
+   u32 24 immediately before some `0b 00` starts; ref 912 record shows
+   evolving money 23,812 → 24,771 = raised bids). Build (negotiation-id →
+   fee, clubs, date) and join to 73B rows via handles/recid. Validate vs
+   GT: 127 bought / £101M / 39 sold (Σ fees with fee > 0).
+2. `03`-family D-field meaning; is it the (player, wage-history) anchor
+   family-A +56/+60 ids resolve into?
+3. `11 00`-family: confirm V1 = weekly wage, n = contract months/12
+   (compare n against a known GT contract length if one exists in
+   screenshots; none currently pinned).
+4. Date/tick fields: 73B X, family-A V1, `11 00` seq (day-of-season?)
+   — anchor vs GT dates (joined 18/7/2023, Dumas 10/8/2036, Y-T 9/8/2036).
+5. Then AGENTS.md integration checklist for the three compact families +
+   73B reader.
 
 Scripts: `/home/karl/fm26-career/tmp_xfer/scan19-35.py`; artifacts:
 `tmp_transfer/gt_tail/full_stream.bin` (105.5 MB; Z2 2035–37 clear first, then
