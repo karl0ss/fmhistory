@@ -51,8 +51,10 @@ class PlayerRecords:
         pindexes: Each record's pindex, aligned with record_offsets.
         uids: Each record's uid, aligned with record_offsets.
         markerless_count: How many records were found only by the completeness pass.
-        position_by_pindex: Position in the arrays above for each pindex.
-        position_by_uid: Position in the arrays above for each uid.
+        position_by_pindex: Position in the arrays above for each pindex (the last
+            accepted record wins on colliding keys).
+        position_by_uid: Position in the arrays above for each uid (the last accepted
+            record wins on colliding keys).
         layout: The layout the scan used, for building a PlayerDecoder.
     """
 
@@ -73,9 +75,14 @@ def locate_player_records(
 ) -> PlayerRecords:
     """Scan `game_db` for player records with both the marker and completeness passes.
 
+    Records whose (pindex, uid) pair appears twice — continued-career saves upgraded
+    from an older build carry both copies — are deduped to the latest copy; see
+    `_reject_repeated_keys` for the warning it writes. A uid or pindex shared by
+    records with different partners is kept as-is, and the index above maps the key
+    to the latest record.
+
     Raises:
-        ReaderCheckError: No player records were found, or a pindex or uid appears in two
-            records.
+        ReaderCheckError: No player records were found.
         CorruptSaveError: An accepted record runs past the end of `game_db`.
     """
     uid_layout = _uid_layout(layout)

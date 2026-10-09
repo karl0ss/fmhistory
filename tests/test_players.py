@@ -918,10 +918,34 @@ def test_no_player_records_found_raises_reader_check() -> None:
     assert "game_db" in message
 
 
-def test_repeated_uid_raises_reader_check() -> None:
+def test_duplicate_player_key_keeps_latest_record() -> None:
+    # Fork: continued-career saves upgraded from an older build may carry a player's
+    # record twice (old copy and post-upgrade copy). The reader keeps the latest
+    # (pindex, uid) copy and decodes it, instead of aborting the whole players table.
     duplicate = dict(PLAYER_ZERO_CA)
     duplicate["current_ability"] = 120
-    duplicate["uid"] = 900001
+    duplicate["pindex"] = PLAYER_A["pindex"]
+    duplicate["uid"] = PLAYER_A["uid"]
+    payload = (
+        name_pools_bytes([], [], [])
+        + game_db_body([SOUTHPORT_CLUB], [SOUTHPORT_STATUS], gap_bytes=2000)
+        + player_record_bytes(**PLAYER_A)
+        + player_record_bytes(**duplicate)
+    )
+    game_db = section_body(".dat", GAME_DB_SCHEMA, payload)
+    name_pools = locate_name_pools(game_db, registered_name_pool_layout(), FILE_NAME)
+    players = decode_all(game_db)
+    assert len(players) == 1
+    assert by_uid(players, 900001).ability.current == 120
+
+
+def test_shared_uid_across_distinct_records_does_not_abort_the_table() -> None:
+    # The fork tolerates uid and pindex collisions that are not exact (pindex, uid)
+    # copies: both records decode rather than the reader aborting. The lookup indexes
+    # map each key to the last accepted record.
+    duplicate = dict(PLAYER_ZERO_CA)
+    duplicate["current_ability"] = 120
+    duplicate["uid"] = PLAYER_A["uid"]
     duplicate["pindex"] = 21
     payload = (
         name_pools_bytes([], [], [])
@@ -931,18 +955,17 @@ def test_repeated_uid_raises_reader_check() -> None:
     )
     game_db = section_body(".dat", GAME_DB_SCHEMA, payload)
     name_pools = locate_name_pools(game_db, registered_name_pool_layout(), FILE_NAME)
-    with pytest.raises(ReaderCheckError) as error_info:
-        locate_player_records(game_db, name_pools.end_offset, registered_player_layout(), FILE_NAME)
-    message = str(error_info.value)
-    assert "900001" in message
-    assert FILE_NAME in message
-    assert "game_db" in message
+    player_records = locate_player_records(
+        game_db, name_pools.end_offset, registered_player_layout(), FILE_NAME
+    )
+    assert len(player_records.record_offsets) == 2
+    assert player_records.position_by_uid[PLAYER_A["uid"]] == 1
 
 
-def test_repeated_pindex_raises_reader_check() -> None:
+def test_shared_pindex_across_distinct_records_does_not_abort_the_table() -> None:
     duplicate = dict(PLAYER_ZERO_CA)
     duplicate["current_ability"] = 120
-    duplicate["pindex"] = 11
+    duplicate["pindex"] = PLAYER_A["pindex"]
     duplicate["uid"] = 900022
     payload = (
         name_pools_bytes([], [], [])
@@ -952,12 +975,11 @@ def test_repeated_pindex_raises_reader_check() -> None:
     )
     game_db = section_body(".dat", GAME_DB_SCHEMA, payload)
     name_pools = locate_name_pools(game_db, registered_name_pool_layout(), FILE_NAME)
-    with pytest.raises(ReaderCheckError) as error_info:
-        locate_player_records(game_db, name_pools.end_offset, registered_player_layout(), FILE_NAME)
-    message = str(error_info.value)
-    assert "pindex 11" in message
-    assert FILE_NAME in message
-    assert "game_db" in message
+    player_records = locate_player_records(
+        game_db, name_pools.end_offset, registered_player_layout(), FILE_NAME
+    )
+    assert len(player_records.record_offsets) == 2
+    assert player_records.position_by_pindex[PLAYER_A["pindex"]] == 1
 
 
 def test_player_and_related_records_survive_pickle_and_deepcopy() -> None:

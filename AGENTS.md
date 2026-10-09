@@ -41,7 +41,21 @@ cup runs, awards, transfers — per season, for the manager and their clubs.*
   — the pattern of an integrated decoder: model + reader +
   `register_field_statuses(..., unconfirmed=...)`.
 - Analysis section extracts live OUTSIDE the repo under
-  `/home/karl/fm26-career/sections*/` (never commit binary save data).
+  `/home/karl/fm26-career/sections*/` (never commit binary save data). Scratch
+  scripts and interim findings notes also belong there, never in the repo tree.
+
+## Environment
+
+- Run every Python command through the project venv:
+  `.venv/bin/python` (3.13, matches `pyproject.toml`'s ≥3.12 requirement).
+  This includes pytest (`.venv/bin/python -m pytest -q`) and section analysis
+  scripts.
+- Never run fmsave code with the system interpreter (3.11): the codebase uses
+  modern type syntax (`type X = ...`, PEP 695 generics) that only parses on
+  3.12+. One session hit the resulting `SyntaxError` and "fixed" it by
+  rewriting source files into old `typing` style — that must not happen again;
+  switch to the venv, never edit the code to suit an older interpreter.
+- Never push (or commit) a fix that downgrades code for an older Python.
 
 ## Decoder integration checklist
 
