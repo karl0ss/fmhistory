@@ -752,6 +752,60 @@ Not integrated yet: zone1's compact families (family-A registrations, 11 00
 wage ledger, 03, 0b negotiation — maps in checkpoints 1/3), and per-transfer
 fees remain unfound (next: `person_record_history_dt`, 131 MB).
 
+### person_record_history_dt — first survey (checkpoint 7, 2026-10-09; scans 110–118)
+
+The next fee-log candidate structurally (131,338,838 B dt + 13,656,218 B ls,
+both extracted). First-pass facts:
+
+- **Header 12 B**: `03 01 'tmc.' 02 00 | b6 00 | e7 07` — the `tmc.` family
+  (same tag as tc_manager_history_dt which uses `03 01 'tmc.' 02 00 <u32
+  count> <u16>`), but here a u16 2023 word sits in the header (import/season
+  mark) and no count u32 at that position.
+- **ls** (`03 01 'tad.' 04 00 | u32 7,880` + 3,414,051 u32): NOT a sorted
+  offset array — 1.76M descents; 2,192,338 entries land inside dt. In-range
+  consecutive pairs sit 39–42 B apart. Hypothesis: per-person pointer lists
+  (7,880 = a table-count field of some other layer). The >dt-range entries
+  (1.22M) are a second value space — unexplained.
+- **dt records**: 1,839,096 occurrences of separator `ff ff ff ff ff ff 00`;
+  distances between separators are all multiples of 21 (42 dominant with 12,656
+  hits in the first sample, then 84, 63, 21, 126, …) → a 21-byte atomic record
+  unit; 42 B two-unit records dominate. Records carry:
+  - a ref u32 (`ff ff ff ff` = none) after the separator,
+  - a tick u16 + **year u16** — `c9 00 | e4 07 (2020)`, `de 60 | e9 07 (2025)`,
+    `b6 00 | e7 07 (2023)` — and often a SECOND (tick, year) pair later in the
+    record (contract from/till shape, unconfirmed),
+  - **person uid literals**: u32 `0x77xxxxxx` — 10,158 aligned occurrences; one
+    confirmed in a record body (`0x773b7628` at +20 of the record at dt[0x2a]),
+    ~39.5k more unaligned (unaligned-sweep caution: some are noise),
+  - money-like u32s: 645,833 / 505,193 / 605,228 in one record family —
+    ≈ wage-annual scale (£/52 = £9.7k–12.4k/wk ✓ plausible per-season wage
+    totals).
+- **Year coverage**: u16 year words 2020–2037 present, counts rising
+  2020:27k → 2037:336k (matchday-granularity whole-game accumulation, like
+  tc_manager_history's append-only behaviour).
+- **Person ids still half-open** (the key next arc): full uids for Dumas
+  (0x7738b603) and YT (0x77558eea) have ZERO hits in dt; YT's low16
+  (0x8eea = 36,586) hits 749 times in record-shaped contexts
+  (`… <3d/7a/7b/6f> 00 00 | ea 8e 00 00 | <u32> | ff ff 00 …`), while Dumas's
+  low16 (0xb603) hits 0, Dumas's low16±1 hit 5/111, and high16s hit
+  (dumas 0x7738: 114; yt 0x7755: 179). Encodings differ per record family —
+  records reach most persons via the **ls index**, with uid literals only in
+  special records.
+- **Fee-value dead end (extends checkpoint 5)**: 23,000,000 / 32,500,000 /
+  101,000,000 (raw £) → 0 hits; 23,000 (£k) → 14 hits all in wage-shaped
+  coincidences (checkpoint-5's pattern: (tick, year) records with ff-refs);
+  32,500 → 3 hits, same shape. **The fee, if held here, must be reached
+  structurally via a person-linked record — not by value.**
+
+**Concrete next steps:** (1) segment the ls — map positions → ascending runs,
+bind pointer → record offset, and count records per person; (2) pin the record
+grammar from a clean run: diff the records 42 B apart at dt[0x2a..0x120],
+confirm the 21-byte unit's field map, and read the `3d/7a/7b/6f/5e/21 00 00`
+prefix as a family/type byte; (3) decode the YT family against the pinned
+facts (sold 9/8/2036, £32.5M) — his 749-hit low16 family first; (4) resolve
+Dumas through the ls index (not id literals) and dump every record in his
+list; check one Aug-2036 record for a fee-shaped field.
+
 ### Remaining plan (owner priority, 2026-10-09: DECODERS FIRST)
 
 Standing direction from the owner: the priority is **finishing the missing
