@@ -32,7 +32,7 @@ readers we write own this grammar.
 | hall_of_fame | 951,133 | hall of fame |
 | award_man / award_club_hist_dt | 842,684 / 23,984 | current award shortlists / club awards |
 | tc_manager_history_dt | 799,746 | manager career history (all managers) |
-| news | 40,657,499 | news items, contains readable strings |
+| news | 40,657,499 | news items: 12-day rolling buffer (23 Nov–4 Dec 2037), dead end for history |
 | transfer_man | 53,306,010 | transfers |
 | manager_manager | 5,735,697 | manager records (human manager among them) |
 | humans | 27,604 | human-controlled people (player-manager etc.) |
@@ -1559,6 +1559,48 @@ many uqs look like original database ids, e.g. 29191769, 2000120283).
 **Open:** stub flag bytes and trailing word; the 650 headerless + 458
 formless refs; birth dates for stub people (not stored in the stub).
 
+### news — DEAD END for career history: a 12-day rolling buffer (2026-10-10; scratch `fm26-career/tmp_news/`)
+
+Extract `tmp_news/news.bin` (40,667,113 B, `03 01 'tad.'` head). Scripts
+`hdr.py`, `h1840.py`, `range.py`, `check2025.py`, `item_types.py`.
+
+**Item header (solid).** `u16 packed-day | u16 year | u32 news_id |
+u8 flags (0x18 = 19,911 items, 0x38 = 346) | 40 00 | u16 type | ff…`.
+Date = the usual fmsave game date (`_scan.decode_date`, slot in the high 7
+bits). 20,257 items; `news_id` 6,090,468–6,110,798, **strictly increasing**
+in file order (19,910/19,910 steps); first header at 0x2d7127 (the first
+~3 MB is a different block: `13 c0`/`13 e0`-flagged records carrying
+reversed 8-char `…pser` tags and 14,405 `tacn`/`tcsn` tag pairs, also Nov
+2037 ids). 1,124 distinct types (top: 82 ×2057, 85 ×988, 86 ×979, 112
+×912, 105 ×858, 111 ×836). Item bodies are parameter payloads, not text:
+persons by **history reference** (Karl 328408 ×151, Dumas 189608 ×156;
+staff/player uids ×0), teams by team id (603 ×1214), clubs by uid (716
+×236, Shanghai Port 23292170 ×22) — partly inside tagged property maps of
+reversed 4-char keys `tag | 01 | typecode (01 u32, 11 u8, 12 u16, 03 bool)
+| value` (e.g. `SoFo` = club uid). Competition/stadium names and per-item
+`u32 len | first | u32 len | last` person name tables are the only strings;
+"St Albans" ×9, "Worthing"/"Young-Thomas"/"Shanghai Port" ×0.
+
+**Why it is a dead end.** Every item is dated **23 Nov 2037 – 4 Dec 2037**
+(save date 4/12/2037): FM keeps only ~12 days of news. A scan for the
+header shape with any year 2023–2040 finds no older items (6 stray hits, all
+non-items); `humans`, `media_man`, `manager_manager`, `interaction_manager`,
+`press_conference_manager`, `save_game_summary` hold no news-item headers
+either (scan `other_sections.py`). Hence:
+- the 6 May 2025 season summary is **not in the save** (date 126/2025 ×0
+  anywhere in the section; ±1 day ×2 each, coincidental);
+- Dumas (10/8/2036) and Young-Thomas (9/8/2037) transfer news is gone; the
+  20/87 hits on those dates are embedded unrelated date fields (no
+  Dumas/YT/club refs within ±64 B); fee values as u32 23,000,000/32,500,000
+  ×0, £k 23,000 ×7 / 32,500 ×11 (unrelated contexts).
+- Only 219 items touch 716/603 bytes and 11 carry Karl's ref — all Nov/Dec
+  2037, i.e. post-career (manager unemployed).
+
+**Do not redo:** fee/season-summary hunting in news. A generic `NewsItem`
+decoder would only ever expose the last ~12 days of the save's world news —
+not career history — so it was not integrated. If live-news access is ever
+wanted, start from the header above and the type distribution.
+
 ### Remaining plan (owner priority, 2026-10-09: DECODERS FIRST)
 
 **Superseded: the working roadmap now lives in `docs/PLAN.md` — every session
@@ -1604,8 +1646,9 @@ for league positions, honours, cup runs, awards, manager spells exist):
    UNSOLVED (see the player_stats_hist_dt checkpoint for ruled-out arcs and
    next leads).
 4. **tc_best_eleven_history_dt (13 MB)** — best XI per season.
-5. **news (40 MB)** — season-summary news items (e.g. 6 May 2025 champions
-   item) carry narrative + stats strings; good filler and cross-checks.
+5. ~~news (40 MB)~~ **DEAD END (2026-10-10)** — only a 12-day rolling
+   buffer (23 Nov – 4 Dec 2037); no season summaries or transfer fees
+   survive (see the news section above).
 6. Lower priority: award_club_hist_dt (partly covered via award_year_hist
    club-award rows), tc_record_man (22 MB live-updating records, semantics
    unconfirmed — own project), tc_history_dt, tc_extended_club_records_history_dt.
