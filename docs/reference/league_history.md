@@ -99,8 +99,9 @@ for season in save.club_league_history(716):  # St Albans City on the ground-tru
 
 League history data can be combined with other career history decoders:
 
-- **Awards**: `save.career_awards()` - seasonal manager awards
-- **Cup history**: `save.career_cup_entries()` - cup runs per season
+- **Awards**: `save.career_awards()` - season award placings (winner, runner-up, third)
+- **Cup history**: `save.career_cup_entries()` / `save.club_cup_history(uid)` - how each
+  cup campaign ended (stage, result, opponent team) per season
 - **Hall of fame**: `save.career_honours()` - honours won per season
 - **Manager spells**: `save.career_manager_spells()` - job start dates
 - **Transfers** (future): transfer activity per season

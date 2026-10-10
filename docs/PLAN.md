@@ -47,6 +47,14 @@ validated against the k-world yearly reports (seasons 1–9) and screenshots.
       club's list from its league titles (honours → database id → title row);
       St Albans resolves from the save alone. Clubs without a post-import
       title stay unresolved. **Next:** validate vs k-world, then D2.
+- [x] **Cup history + award placings re-framed (2026-10-10).** Both readers
+      were misaligned: `tc_cup_history_dt` rows start at offset 8 (stage id,
+      years, result, method, position, opponent team id), threaded to team lists
+      by `tc_cup_history_ls`; `Save.club_cup_history(uid)` pins a club's list from
+      its cup honours (St Albans = list 3643, FA Trophy 2024/25 final vs Bath
+      City). `award_year_hist_dt` is 82-byte records with three placing slots;
+      `Award.placing` added (NLS MoS 2024/25 runner-up now read). Monthly awards:
+      not in the yearly history; location still open.
 - [ ] **D2. Award names.** Map `career_awards`' `award_id` to award names from
       `award_man` (`tad.`, 842,938 B, partially mapped).
 - [ ] **D3. Competition names.** Resolve competition_id → name for honours,
