@@ -22,6 +22,7 @@ elsewhere in these sections (never in a row we accept).
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 
 from fmsave._status import register_field_statuses
 
@@ -249,6 +250,27 @@ register_field_statuses(
 )
 
 
+class LeagueHistoryClubMethod(StrEnum):
+    """How a `tc_league_history_ls` list was pinned to a club.
+
+    Attributes:
+        FIXTURES: A team's league fixtures of one season, summed to played, won,
+            drawn, lost, goals for and against, equal exactly one history row of that
+            season and competition, and no other team's sums equal them.
+        TITLE: A league title the hall of fame records names the club, and exactly one
+            first-place row the game wrote matches that season and competition.
+        UID_ORDER: The list sits between two lists pinned by fixtures or titles, and
+            the clubs between those two clubs in uid order are exactly as many as the
+            lists between them, with no gap in the clubs' first-team ids where a club
+            the save does not list could sit. Relies on lists running in club uid
+            order, which every pinned pair on the ground-truth save follows.
+    """
+
+    FIXTURES = "fixtures"
+    TITLE = "title"
+    UID_ORDER = "uid_order"
+
+
 @dataclass(frozen=True, slots=True)
 class LeagueHistorySeason:
     """One 24-byte league-history row, a single club's table line for one season.
@@ -298,6 +320,13 @@ class LeagueHistorySeason:
             whose first league season came after an imported career appended at
             the end. Neither section stores which club uid a list belongs to. None
             when the index does not cover the row (unconfirmed).
+        club_uid: Uid of the club whose list holds the row, as
+            `league_history_clubs()` pins it; None from `career_league_history()`
+            (which does not resolve clubs) and wherever the list is not pinned
+            (unconfirmed).
+        club_name: Denormalised name of club_uid (unconfirmed).
+        club_method: How the list was pinned to club_uid, or None when it is not
+            (unconfirmed).
     """
 
     season_year: int
@@ -313,6 +342,9 @@ class LeagueHistorySeason:
     points: int
     imported: bool = False
     history_index: int | None = None
+    club_uid: int | None = None
+    club_name: str | None = None
+    club_method: LeagueHistoryClubMethod | None = None
 
 
 register_field_statuses(
@@ -331,7 +363,41 @@ register_field_statuses(
         "points",
         "imported",
         "history_index",
+        "club_uid",
+        "club_name",
+        "club_method",
     ),
+)
+
+
+@dataclass(frozen=True, slots=True)
+class LeagueHistoryClub:
+    """One `tc_league_history_ls` list pinned to the club it belongs to.
+
+    The league-history index stores one row list per club but never the club's uid;
+    `league_history_clubs()` pins lists from evidence elsewhere in the save, and a
+    list it cannot pin exactly has no record rather than a guess.
+
+    Attributes:
+        history_index: Number of the list, as `LeagueHistorySeason.history_index`
+            carries it (unconfirmed).
+        club_uid: Uid of the club the list belongs to (unconfirmed).
+        club_name: Denormalised name of club_uid (unconfirmed).
+        method: The evidence that pinned the list (unconfirmed).
+        team_id: The team whose fixtures matched, for a list pinned by fixtures;
+            None otherwise (unconfirmed).
+    """
+
+    history_index: int
+    club_uid: int
+    club_name: str
+    method: LeagueHistoryClubMethod
+    team_id: int | None = None
+
+
+register_field_statuses(
+    LeagueHistoryClub,
+    unconfirmed=("history_index", "club_uid", "club_name", "method", "team_id"),
 )
 
 

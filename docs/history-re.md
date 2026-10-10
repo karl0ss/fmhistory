@@ -320,7 +320,8 @@ Integrated as `Save.career_league_history()` (reference:
 `docs/reference/league_history.md`). dt = 24-byte rows on an 8-mod-24 grid;
 ls = one delta-encoded row list per club (checkpoint 5 below), surfaced as
 each row's `history_index`. Checkpoint 4 records the reader-bug fixes; read
-its anchor list together with checkpoint 5's correction.
+its anchor list together with checkpoint 5's correction. Checkpoint 7 pins 2,791
+lists to clubs (`Save.league_history_clubs()`, `Save.league_history_table()`).
 
 ### Where this stands (checkpoint 4, 2026-10-09: validated against ground truth)
 
@@ -472,11 +473,106 @@ leagues make llp ambiguous). The honours docstring claim "competition id
 joins to the stage id space" was wrong; corrected.
 
 **Next steps (after checkpoint 6):** (1) validate St Albans' chain against
-the k-world yearly reports; (2) optional: pin untitled clubs (other
+the k-world yearly reports; (2) optional (DONE in checkpoint 7, via fixtures
++ uid order): pin untitled clubs (other
 `tc_*_ls` sections share the grammar, but the cup ls is per TEAM, ordered by
 first row, and its rows carry opponent team ids, not their own club — see the
 re-framed cup section); (3) D2 award names, D3
 competition names.
+
+### League-history lists → clubs at scale (checkpoint 7, 2026-10-10; scans `tmp_leagues/e/e1–e31`)
+
+**Integrated:** `Save.league_history_clubs()` → `Table[LeagueHistoryClub]`
+(`history_index`, `club_uid`, `club_name`, `method`, `team_id`), new
+`Save.league_history_table(season_year, competition_id)` (one past table, by
+position, rows named), and `club_league_history(uid)` now uses the new pins.
+`LeagueHistorySeason` gained `club_uid` / `club_name` / `club_method` (None from
+`career_league_history()`, which stays club-free and fast). Readers:
+`league_history_fixture_pins`, `resolve_league_history_clubs`.
+
+**Methods (strongest first):**
+1. **Fixtures — the big win.** `fixtures()` holds 2035/36 (second half only),
+   all of 2036/37 and the current 2037/38. A team's league fixtures summed to
+   (P, W, D, L, GF, GA) per (season start, competition) — and per stage, so
+   tables whose row excludes play-offs (VNS/National/L2… play-off stages) or a
+   later phase still match — equal exactly one non-imported history row of that
+   competition in start year or start+1 (calendar leagues store the start year,
+   e.g. comp 136: fixtures `season_start_year` 2036 ↔ row season 2036). Fixture
+   competition ids are the league-row ids (7 = PL …). Uniqueness enforced on
+   both sides at every level (an early stage-only version pinned list 15395 to
+   two teams with a P9 record in different stages — fixed by keying uniqueness
+   on (season, comp, record) across levels). **2,077 lists**, 0 conflicts.
+2. **Titles** (checkpoint 6) add nothing new here: 63 title pins, of which **8
+   name an honour club id that is not a `clubs()` uid** — 321/878 honour rows
+   carry such ids (e.g. AFC Wimbledon's titles under 5110769 while its uid is
+   5110756; Ebbsfleet 5100157 vs 5100154; Forest Green 109206 vs 109193). Those
+   7–8 checkpoint-6 pins were therefore "clubs" no reader knows; fixtures pin the
+   same lists to the real clubs. The remaining **55 agree 55/55**. Titles stay
+   as a tier (other saves) but only for ids `clubs()` holds. (Open: what the
+   honours id space is — it is not `Club.unique_id` either.)
+3. **Uid-order fill (714 lists).** Between consecutive pinned lists i < j
+   (clubs a < b), if the unpinned clubs with uid in (a, b) number exactly
+   j − i − 1, assign in order. **Caveat found:** `clubs()` does not list every
+   club — first-team ids run 52…44,884 for 33,001 clubs with 5,305 gaps, and
+   first-team id order = uid order (0 inversions); e.g. Serie B list 607 plays
+   as team 940 (between Chieti 939/uid 1121 and Como 941/uid 1123) but no club
+   with uid 1122 is read, which made the only g > n "violation" (lists
+   605–608). So a fill is allowed only when the two anchors' first-team ids
+   leave no unused id between them (300 of 550 count-forced gaps; 714 of 3,988
+   lists). Fills limited to lists below the last list holding an imported row
+   (19,276): lists 19,276–19,295 have no imported rows and *do* break uid order
+   (all 5 inversions among pinned lists are at ≥ 19,257/19,276 — Brazilian
+   state-league clubs). Validation: 962/962 held-out fixture pins reproduced
+   (5 random thirds), 198/198 fills with post-import rows match the competition's
+   nation (comp → nation unanimous over fixture pins, 170/170 comps).
+
+**Validation (GT):** 2,791 lists, 0 clubs with two lists, 0 uid inversions below
+19,276, 55/55 title agreement, St Albans = 351 (fixtures, team 603), its 65 rows.
+Coverage of non-imported rows by season: 2024 76.6% · 2025 77.4% · 2026 78.3% ·
+2027 77.9% · 2028–2031 78.5–79.1% · 2032 79.2% · 2033 79.4% · 2034 80.1% · 2035
+80.4% · 2036 81.8% · 2037 84.3%. English tiers (708/707/150/10/9/8/7): 90.2%
+(2024) → 93–95% (2027–2035) → 96.3% (2036) → **100% (2037)**. Timing: ~41 s
+(dominated by `fixtures()` 32 s); `club_league_history` afterwards 0.02 s.
+
+**Demo — 2024/25 National League South (`league_history_table(2025, 708)`):**
+St Albans 111, Worthing 96, Barnet 95, Bath 84, Chelmsford 83, Dulwich 78,
+Maidstone 78, Dorking 77, Torquay 71, Hampton & Richmond 70, Weston-super-Mare 62,
+Tonbridge 59, Aveley 59, Welling 55, **?** 55, **?** 54, Hornchurch 50, **?** 49,
+Dover 49, Chippenham 47, Chesham 45, **?** 41, **?** 31, **?** 30 — 18/24 named. The
+six unnamed lists (14365, 6987, 2360, 5193, 17721, 10421) end in VNS/VNN by 2032–
+2034: relegated below the lowest level the save keeps tables for, so no fixture
+evidence exists, and their gaps are not count-forced. **2036/37 Premier League
+(`(2037, 7)`): 20/20 named** (Man City 82 … St Albans 11th 45 … Everton 9 pts).
+
+**Dead ends / evaluated leads (do not redo):**
+- **Best-eleven → league link.** Best-eleven lists (2,724) are a different
+  membership and **not uid-ordered** (799 inversions once pinned). Best-eleven
+  list → club *does* work: a table's 18 players' clubs during the season
+  (move log `transfer_man_player_seasons`, team before/inside a Jan(S)–Jun(S+1)
+  window, current club for players with no move) agree on exactly one club in
+  12,955 of 26,434 tables → **2,396 lists, 0 cross-season conflicts, St Albans
+  685 → 716** (6 clubs claimed by two lists) — worth integrating for the
+  best-eleven open item. But linking to league lists needs (T,kind) → competition,
+  and **(T,kind) is a level class shared across nations**, not a league id
+  ((2,4) = VNS and VNN; (0,8) = L2 and comp 250 …; only 22/65 families map to one
+  competition). Signature matching (family comp sets + uid bounds + nation)
+  gives +225 lists but held-out 185 ok / **1 wrong** (best-eleven 2702 =
+  Ljungskile: family (0,10) mixes calendar and split-year leagues, so its season
+  offset is wrong for Swedish comps; P=255 view-only rows) → **not integrated**.
+- Stage-level-only matches without cross-level uniqueness (see method 1).
+- Live `league_tables()` for the unnamed view-only leagues: those competitions
+  (4138, 5826, 2969, 6401–6405, 39–44, 711, 1066/1067 …) have **no live tables
+  and no fixtures**; their history rows are mostly P=255 position-only rows.
+
+**Next steps:**
+1. Integrate best-eleven list → club (move-log unanimity) as
+   `career_best_eleven` club identity; then retry the league link with a
+   per-competition season offset (from fixture dates) and ≥ 3 best-eleven
+   seasons, accepting only with 0 held-out errors.
+2. Find which club ids the honours use (321/878 rows) — would revive titles as
+   an independent tier.
+3. Read the clubs `clubs()` misses (first-team-id gaps): each one found turns
+   unsafe gaps into count-forced fills.
 
 ### transfer_man (`tad.`) — structure 80% mapped (checkpoint 1, 2026-10-09)
 
