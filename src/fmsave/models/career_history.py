@@ -14,14 +14,19 @@ The competition ids these records carry are save-internal ids in the stage id sp
 (the ids `competitions()` stores) except on import-created competitions, and no save
 stores a competition name, so see the reader module's notes on naming.
 
-Every date here is the (day-of-season, season-year) pair the history sections store:
+`person_record_manager` (manager career statistics) stores real game dates, which
+its records carry as `datetime.date`. Every other date here is the (day-of-season,
+season-year) pair the history sections store:
 the day counts within a season that starts around 1 July, and 1900 marks a null date
 elsewhere in these sections (never in a row we accept).
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import date
+from typing import ClassVar
 
 from fmsave._status import register_field_statuses
 
@@ -493,5 +498,236 @@ register_field_statuses(
         "first_name",
         "last_name",
         "common_name",
+    ),
+)
+
+
+@dataclass(frozen=True, slots=True)
+class ManagerFee:
+    """One record transfer fee a manager's career record keeps (highest paid or received).
+
+    Attributes:
+        player_reference: History reference of the player moved; `history_people()` or
+            `history_player_references()` names him (unconfirmed).
+        transfer_date: The day the transfer went through (unconfirmed).
+        fee: The fee in whole pounds as stored; the game displays it rounded (e.g.
+            22,937,564 shows as £23M) (unconfirmed).
+        from_team_id: `Team.team_id` of the selling team (unconfirmed).
+        to_team_id: `Team.team_id` of the buying team (unconfirmed).
+    """
+
+    player_reference: int
+    transfer_date: date | None
+    fee: int
+    from_team_id: int | None
+    to_team_id: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class ManagerSpellWindow:
+    """A spell window a manager's career record keeps (longest or shortest job).
+
+    Attributes:
+        team_id: `Team.team_id` of the team managed (unconfirmed).
+        start_date: First day of the spell (unconfirmed).
+        end_date: Last day of the spell; an open spell carries the save's current date
+            (unconfirmed).
+    """
+
+    team_id: int
+    start_date: date | None
+    end_date: date | None
+
+
+@dataclass(frozen=True, slots=True)
+class ManagerCurrentJob:
+    """The current-job half of a manager's career record (the profile's "Current Club").
+
+    Attributes:
+        team_id: `Team.team_id` of the team the manager runs now (unconfirmed).
+        start_date: The day the manager took the job (unconfirmed).
+        highest_fee_paid: The highest fee paid in this job, or None.
+        highest_fee_received: The highest fee received in this job, or None.
+        money_spent: Total transfer fees paid in this job, whole pounds (unconfirmed).
+        money_received: The stored total of fees received in this job, whole pounds
+            (unconfirmed).
+        goals_for: Goals scored in this job (unconfirmed).
+        goals_against: Goals conceded in this job (unconfirmed).
+        games: Games managed in this job (unconfirmed).
+        wins: Games won (unconfirmed).
+        draws: Games drawn: `games - wins - losses`, since the record stores no draw
+            count (unconfirmed).
+        losses: Games lost (unconfirmed).
+        cups: Cups won (unconfirmed).
+        league_titles: League titles won (unconfirmed).
+        awards: Awards won (unconfirmed).
+        players_bought: Players bought (unconfirmed).
+        players_sold: Players sold (unconfirmed).
+        players_released: Players released (unconfirmed).
+    """
+
+    team_id: int
+    start_date: date | None
+    highest_fee_paid: ManagerFee | None
+    highest_fee_received: ManagerFee | None
+    money_spent: int
+    money_received: int
+    goals_for: int
+    goals_against: int
+    games: int
+    wins: int
+    draws: int
+    losses: int
+    cups: int
+    league_titles: int
+    awards: int
+    players_bought: int
+    players_sold: int
+    players_released: int
+
+
+@dataclass(frozen=True, slots=True)
+class ManagerCareerRecord:
+    """One manager's career statistics record from `person_record_manager`.
+
+    The section keeps one fixed 367-byte record for every person who has managed in
+    the game world (11,945 on the ground-truth save), keyed by the person's history
+    reference — the same id `history_person_reference` finds for a staff uid. The
+    record holds the "Managerial Stats" profile screen: whole-career totals, the
+    career's record transfer fees, the longest and shortest club and national spells,
+    and a current-job block. Draws are not stored; `draws` is derived. Every field was
+    calibrated on the ground-truth save's human manager and is unconfirmed.
+
+    Attributes:
+        reference: The manager's history reference (unconfirmed).
+        highest_fee_paid: The career's highest fee paid, or None.
+        highest_fee_received: The career's highest fee received, or None.
+        longest_club_spell: The longest club job, or None.
+        shortest_club_spell: The shortest club job, or None when the manager has had
+            one club job only (the game then shows 0 days).
+        longest_national_spell: The longest national-team job, or None.
+        shortest_national_spell: The shortest national-team job, or None.
+        money_spent: Total transfer fees paid over the career, whole pounds
+            (unconfirmed).
+        money_received: The stored career total of fees received, whole pounds; on the
+            ground-truth save the game's "Total Sold Transfer Value" shows £0 while this
+            holds £97.7M, so its meaning is open (unconfirmed).
+        agent_fees: Total fees paid to agents, whole pounds (unconfirmed).
+        goals_for: Goals scored over the career (unconfirmed).
+        goals_against: Goals conceded over the career (unconfirmed).
+        games: Games managed over the career (unconfirmed).
+        wins: Games won (unconfirmed).
+        draws: Games drawn: `games - wins - losses` (unconfirmed).
+        losses: Games lost (unconfirmed).
+        cups: Cups won (unconfirmed).
+        league_titles: League titles won (unconfirmed).
+        awards: Awards won (unconfirmed).
+        players_bought: Players bought (unconfirmed).
+        players_sold: Players sold (unconfirmed).
+        players_released: Players released (unconfirmed).
+        club_jobs: Number of club manager jobs (unconfirmed).
+        national_jobs: Number of national manager jobs (unconfirmed).
+        current_job: The current-job block, or None when the manager holds no job.
+        unknown: Counters the record stores whose meaning is not pinned, keyed
+            `word_<offset>` by their byte offset in the record (unconfirmed).
+    """
+
+    reference: int
+    highest_fee_paid: ManagerFee | None
+    highest_fee_received: ManagerFee | None
+    longest_club_spell: ManagerSpellWindow | None
+    shortest_club_spell: ManagerSpellWindow | None
+    longest_national_spell: ManagerSpellWindow | None
+    shortest_national_spell: ManagerSpellWindow | None
+    money_spent: int
+    money_received: int
+    agent_fees: int
+    goals_for: int
+    goals_against: int
+    games: int
+    wins: int
+    draws: int
+    losses: int
+    cups: int
+    league_titles: int
+    awards: int
+    players_bought: int
+    players_sold: int
+    players_released: int
+    club_jobs: int
+    national_jobs: int
+    current_job: ManagerCurrentJob | None
+    unknown: Mapping[str, int]
+
+    UNKNOWN_KEYS: ClassVar[tuple[str, ...]] = (
+        "word_151",
+        "word_153",
+        "word_155",
+        "word_157",
+        "word_159",
+        "word_161",
+        "word_169",
+        "word_171",
+        "word_173",
+        "word_175",
+        "word_177",
+        "word_195",
+        "word_197",
+        "word_318",
+        "word_340",
+    )
+
+
+register_field_statuses(
+    ManagerFee,
+    unconfirmed=("player_reference", "transfer_date", "fee", "from_team_id", "to_team_id"),
+)
+register_field_statuses(
+    ManagerSpellWindow,
+    unconfirmed=("team_id", "start_date", "end_date"),
+)
+register_field_statuses(
+    ManagerCurrentJob,
+    unconfirmed=(
+        "team_id",
+        "start_date",
+        "money_spent",
+        "money_received",
+        "goals_for",
+        "goals_against",
+        "games",
+        "wins",
+        "draws",
+        "losses",
+        "cups",
+        "league_titles",
+        "awards",
+        "players_bought",
+        "players_sold",
+        "players_released",
+    ),
+)
+register_field_statuses(
+    ManagerCareerRecord,
+    unconfirmed=(
+        "reference",
+        "money_spent",
+        "money_received",
+        "agent_fees",
+        "goals_for",
+        "goals_against",
+        "games",
+        "wins",
+        "draws",
+        "losses",
+        "cups",
+        "league_titles",
+        "awards",
+        "players_bought",
+        "players_sold",
+        "players_released",
+        "club_jobs",
+        "national_jobs",
+        "unknown",
     ),
 )

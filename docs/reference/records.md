@@ -99,14 +99,16 @@ only for the club the save's human manager runs.
 ## Career history
 
 `career_persons()`, `career_honours()`, `career_cup_entries()`, `career_manager_spells()`,
-`career_awards()`, `career_league_history()`, `career_best_eleven()` and `history_people()`: rows
+`career_awards()`, `career_league_history()`, `career_best_eleven()`, `history_people()` and
+`career_manager_records()`: rows
 the save's history sections keep (see the reader module's notes; competition ids name nothing yet
 and the spells table covers open spells only). The league-history rows carry no club
 identity, so `career_league_history()` holds every club's readable rows rather than one
 club's career. Cup-history rows are per team list too (`history_index`, opponents as team
 ids); `club_cup_history(uid)` gives one club's rows when its cup honours pin its list.
 `career_awards()` rows are award placings (winner, runner-up, third); monthly awards are
-not stored in the yearly award history.
+not stored in the yearly award history. `career_manager_records()` holds every manager's
+"Managerial Stats" record (`manager_career(staff_uid)` picks one).
 
 ```{eval-rst}
 .. autoclass:: fmsave.PersonHistory
@@ -117,4 +119,8 @@ not stored in the yearly award history.
 .. autoclass:: fmsave.LeagueHistorySeason
 .. autoclass:: fmsave.BestElevenEntry
 .. autoclass:: fmsave.HistoryPerson
+.. autoclass:: fmsave.ManagerCareerRecord
+.. autoclass:: fmsave.ManagerCurrentJob
+.. autoclass:: fmsave.ManagerFee
+.. autoclass:: fmsave.ManagerSpellWindow
 ```

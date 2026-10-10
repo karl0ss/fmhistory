@@ -40,7 +40,11 @@ Joined St. Albans 18/7/2023; never left; 1 club job.
   Manager of the Season; Sky Bet League One Manager of the Season; Sky Bet
   Championship Manager of the Season (twice).
 - Highest fee spent £23M (Corentin Dumas, 10/8/2036); highest received £32.5M
-  (Ben Young-Thomas, 9/8/2036?); 127 players bought (£101M), 39 sold, 50 released.
+  (Ben Young-Thomas, 9/8/20.. — year cut off on screen; the save says 2037); 127
+  players bought (£101M), 39 sold, 50 released.
+- Managerial Stats screen also shows: 1 club manager job, 0 national jobs, longest
+  time at club 5253 days, shortest 0 days, Total Sold Transfer Value £0 (sic), total
+  fees paid to agents £2.4M, Cups 1, League Wins 3 (rows below were not captured).
 
 ## Club (St. Albans City, db unique_id 717, save uid 716)
 - Founded 1908, professional, The Saints, St. Albans Stadium. Rivals: Boreham

@@ -7,7 +7,11 @@ from fmsave.models.career_history import (
     HistoryPerson,
     Honour,
     LeagueHistorySeason,
+    ManagerCareerRecord,
+    ManagerCurrentJob,
+    ManagerFee,
     ManagerSpell,
+    ManagerSpellWindow,
     PersonHistory,
 )
 from fmsave.models.clubs import Club, Team
@@ -112,7 +116,11 @@ __all__ = [
     "LeagueTableRow",
     "LeagueTableSplit",
     "ManagedClub",
+    "ManagerCareerRecord",
+    "ManagerCurrentJob",
+    "ManagerFee",
     "ManagerSpell",
+    "ManagerSpellWindow",
     "MatchOutcome",
     "MatchPosition",
     "MatchSide",
