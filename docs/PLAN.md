@@ -66,6 +66,13 @@ validated against the k-world yearly reports (seasons 1–9) and screenshots.
       391-131-219, 1589-1059, 127 bought/£101M, 39 sold, 50 released, 19 awards,
       £23M Dumas, £32.5M Young-Thomas, £2.4M agents, 5,253-day spell). Open:
       per-season Job History award counts, licence/formations/tactical style.
+- [x] **Manager event log (2026-10-10).** The human manager's log at the head of
+      `person_record_manager` (141 top-level / 186 entries; type-18 groups nest
+      children; fixed per-type payloads) → `Save.manager_events(staff_uid)`.
+      Every St Albans fee move with player, clubs, date and fee (17 distinct;
+      15 same-day matches with `club_player_moves`), record-fee entries, honours
+      (counter = `Honour.count`), promotions, manager and player awards (match
+      `career_awards`). Open: types 3/7/11/13/16/17 payloads, head pair at +2.
 - [ ] **D2. Award names.** Map `career_awards`' `award_id` to award names from
       `award_man` (`tad.`, 842,938 B, partially mapped).
 - [ ] **D3. Competition names.** Resolve competition_id → name for honours,

@@ -797,3 +797,142 @@ register_field_statuses(
         "unknown",
     ),
 )
+
+
+@dataclass(frozen=True, slots=True)
+class ManagerEvent:
+    """One entry of a human manager's event log in `person_record_manager`.
+
+    The section opens with one log per human manager: the career events the game keeps
+    for him (signings and sales with their fees, record fees, honours, promotions,
+    awards he and his players won, notable matches, milestones), each with a date, a
+    sub-type and an importance. The log is pruned by importance: on the ground-truth
+    save it holds one of the manager's monthly awards and every season award he won,
+    so it is a highlights log, not a complete history. Type 18 entries group the
+    entries that follow them (`child_count`; the children carry the group's `index`
+    as `group_index`).
+
+    Types and sub-types seen on the ground-truth save. The decoded fields were
+    checked against other tables there; the sub-type readings are what the entries
+    of that save suggest and are not proven:
+
+    - 1: honour or season result; sub 1 = honour won, `value` = the honour's counter
+      (it equals `Honour.count` of the matching `career_honours()` row), sub 17 =
+      apparently season points (111 for the 2024/25 title), sub 10/33 also seen.
+    - 2: player or staff move; sub 3 = signing agreed (`effective_date` set when the
+      move takes effect later), sub 12 = signing in a group of loan/young signings,
+      sub 4 = new club record fee paid, sub 58 = new club record fee received,
+      sub 15 = player left, sub 11/57 = staff appointed, sub 30 = a season-end
+      entry naming an earlier signing (the date is the entry's, not the transfer's).
+    - 3: club milestones (sub 5 job start, 42 job anniversary, 86/14 money values).
+    - 4: promotion (sub 2): `competition_id` from, `to_competition_id` to.
+    - 5: award won by the manager (`award_index`; sub 22 season, 23 monthly).
+    - 6: award won by one of his players (`award_index`, `player_reference`,
+      `value` = the award's statistic, e.g. goals).
+    - 8: notable match (`opponent_team_id`, `goals_for`, `goals_against`; sub 7 =
+      apparently a milestone match (every 100th game), 45 a tie against a
+      higher-league side, 97 a late winner).
+    - 9: player milestone (`player_reference`, `value`).
+    - 7, 11, 13, 16, 17: decoded head only; see `payload`.
+    - 18: group of the next `child_count` entries (sub 90 signings, 88 young signings).
+
+    Attributes:
+        reference: History reference of the manager whose log holds the entry
+            (unconfirmed).
+        index: The entry's position in its log, file order, groups before their
+            children (unconfirmed).
+        group_index: `index` of the type-18 group entry that holds this entry, or
+            None for a top-level entry (unconfirmed).
+        event_type: The entry's type byte (unconfirmed).
+        sub_type: The entry's sub-type within its type (unconfirmed).
+        importance: The importance the game gave the entry, 25..100 (unconfirmed).
+        team_id: `Team.team_id` of the manager's team (unconfirmed).
+        event_date: The day of the event; for a transfer the day it was agreed
+            (unconfirmed).
+        season: The year the season the event belongs to starts, e.g. 2025 for
+            2025/26 (unconfirmed).
+        child_count: For a group entry, how many entries it holds; None otherwise
+            (unconfirmed).
+        player_reference: History reference of the player (types 2, 6, 9);
+            `history_player_references()` or `history_people()` names him
+            (unconfirmed).
+        from_team_id: `Team.team_id` the person moves from, None when unset (type 2)
+            (unconfirmed).
+        to_team_id: `Team.team_id` the person moves to (type 2) (unconfirmed).
+        fee: The fee in whole pounds; 0 for a free or loan move (type 2)
+            (unconfirmed).
+        effective_date: The day an agreed move takes effect, None when it took
+            effect at once (type 2) (unconfirmed).
+        award_index: Award index, as `Award.award_id` (types 5, 6) (unconfirmed).
+        value: The type's number: honour counter or season points (type 1), the
+            award's statistic (type 6), the milestone count (type 9) (unconfirmed).
+        competition_id: Save-internal competition id (types 1, 4) (unconfirmed).
+        to_competition_id: Competition promoted to (type 4) (unconfirmed).
+        opponent_team_id: `Team.team_id` of the opponent (type 8) (unconfirmed).
+        goals_for: Goals the manager's team scored (type 8) (unconfirmed).
+        goals_against: Goals the manager's team conceded (type 8) (unconfirmed).
+        payload: The type-specific bytes after the 31-byte head, as ints; for a
+            group, the u32 child count and the closing byte (unconfirmed).
+        unknown: Head fields whose meaning is open: `head_u16`, `head_u32` (the
+            pair at head offset 2, unset 0xffff / 0xffffffff on most entries),
+            `byte_26`, and for a group `group_tail` (its closing byte)
+            (unconfirmed).
+    """
+
+    reference: int
+    index: int
+    group_index: int | None
+    event_type: int
+    sub_type: int
+    importance: int
+    team_id: int | None
+    event_date: date | None
+    season: int
+    child_count: int | None
+    player_reference: int | None
+    from_team_id: int | None
+    to_team_id: int | None
+    fee: int | None
+    effective_date: date | None
+    award_index: int | None
+    value: int | None
+    competition_id: int | None
+    to_competition_id: int | None
+    opponent_team_id: int | None
+    goals_for: int | None
+    goals_against: int | None
+    payload: tuple[int, ...]
+    unknown: Mapping[str, int]
+
+    UNKNOWN_KEYS: ClassVar[tuple[str, ...]] = ("head_u16", "head_u32", "byte_26", "group_tail")
+
+
+register_field_statuses(
+    ManagerEvent,
+    unconfirmed=(
+        "reference",
+        "index",
+        "group_index",
+        "event_type",
+        "sub_type",
+        "importance",
+        "team_id",
+        "event_date",
+        "season",
+        "child_count",
+        "player_reference",
+        "from_team_id",
+        "to_team_id",
+        "fee",
+        "effective_date",
+        "award_index",
+        "value",
+        "competition_id",
+        "to_competition_id",
+        "opponent_team_id",
+        "goals_for",
+        "goals_against",
+        "payload",
+        "unknown",
+    ),
+)

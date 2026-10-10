@@ -37,6 +37,7 @@ from fmsave.models.career_history import (
     LeagueHistoryClub,
     LeagueHistorySeason,
     ManagerCareerRecord,
+    ManagerEvent,
     ManagerSpell,
     PersonHistory,
 )
@@ -126,7 +127,9 @@ from fmsave.readers.managed import (
 from fmsave.readers.manager_career import (
     PERSON_RECORD_MANAGER_SECTION,
     decode_manager_career_records,
+    locate_manager_career_records,
 )
+from fmsave.readers.manager_events import decode_manager_event_logs
 from fmsave.readers.match_summaries import (
     MatchSummaryScores,
     find_match_summary_layout,
@@ -238,6 +241,7 @@ HISTORY_PEOPLE_TABLE_CACHE_KEY = "table:history_people"
 STATS_HISTORY_INDEX_CACHE_KEY = "player_stats_history_index"
 STATS_HISTORY_LISTS_CACHE_KEY = "player_stats_history_lists"
 CAREER_MANAGER_RECORDS_TABLE_CACHE_KEY = "table:career_manager_records"
+MANAGER_EVENTS_TABLE_CACHE_KEY = "table:manager_events"
 TRANSFER_MAN_SEASON_RECORDS_TABLE_CACHE_KEY = "table:transfer_man_season_records"
 TRANSFER_MAN_WAGE_LEDGER_TABLE_CACHE_KEY = "table:transfer_man_wage_ledger"
 JOB_VACANCIES_TABLE_CACHE_KEY = "table:job_vacancies"
@@ -1267,6 +1271,42 @@ class Save:
             if record.reference == reference:
                 return record
         return None
+
+    def manager_events(self, staff_uid: int) -> Table[ManagerEvent]:
+        """One human manager's event log, in the order the save keeps it.
+
+        `person_record_manager` opens with an event log per human manager: signings
+        and sales with their fees and the day the move takes effect, club record fees,
+        honours (with the counter `career_honours()` rows carry), promotions, the
+        awards he and his players won, notable matches and milestones, each with a
+        date, a sub-type and an importance. The game prunes the log by importance, so
+        it is a highlights log, not a complete history. Group entries (type 18) come
+        before the entries they hold, which carry the group's `index` as
+        `group_index`. See `ManagerEvent` for the types.
+
+        Finds his history reference (`history_person_reference`); an empty table when
+        the reference is not found or he keeps no log (computer managers keep none).
+
+        On the ground-truth save the log holds 186 entries; every fee-carrying move's
+        player, clubs and date agree with `club_player_moves()`, the award entries
+        name the five season awards `career_awards()` holds, and the honour entries'
+        counters match the four `career_honours()` rows.
+
+        Args:
+            staff_uid: Uid of the person, as `staff()` reports it.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written, or the log
+                cannot be walked to the start of the career records (an entry type
+                whose length is unknown).
+        """
+        reference = self.history_person_reference(staff_uid)
+        events = self._context.cached(MANAGER_EVENTS_TABLE_CACHE_KEY, self._read_manager_events)
+        if reference is None:
+            return Table([], ManagerEvent)
+        return Table([event for event in events if event.reference == reference], ManagerEvent)
 
     def transfer_man_player_seasons(self) -> Table[PlayerSeasonRecord]:
         """Every readable 73-byte move-grid row the `transfer_man` section stores.
@@ -2911,6 +2951,12 @@ class Save:
         with self._context.section(PERSON_RECORD_MANAGER_SECTION) as section_data:
             records = decode_manager_career_records(section_data)
         return Table(records, ManagerCareerRecord)
+
+    def _read_manager_events(self) -> Table[ManagerEvent]:
+        with self._context.section(PERSON_RECORD_MANAGER_SECTION) as section_data:
+            records = locate_manager_career_records(section_data)
+            events = decode_manager_event_logs(section_data, records.start)
+        return Table(events, ManagerEvent)
 
     def _read_history_people(self) -> Table[HistoryPerson]:
         context = self._context

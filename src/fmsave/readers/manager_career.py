@@ -3,7 +3,7 @@
 The section (`03 01 'tad.'`, version 30 on the ground-truth save) holds two parts:
 
 - the human managers' event logs (entries `[u8 type] 15 ff ff ff ff ff ff [u32 reference]
-  00 [u32 team] [date] ...`, variable length), not decoded here;
+  00 [u32 team] [date] ...`, variable length), decoded by `readers/manager_events.py`;
 - then, butted to the section's end, one fixed 367-byte record per person who has
   managed in the game world, in ascending reference order, and a 4-byte `ff ff ff ff`
   trailer.

@@ -14,7 +14,7 @@ longest and shortest club and national spells, job counts, and a current-job blo
 ```
 03 01 'tad.' 1e 00 ...      head (version 30 on the ground-truth save)
 human event logs            [u8 type] 15 ff×6 [u32 reference] 00 [u32 team] [date] ...
-                            (variable length, not decoded here)
+                            (variable length; `Save.manager_events`, see manager_events.md)
 N × 367-byte records        ascending reference, butted to the trailer
 ff ff ff ff                 trailer
 ```
