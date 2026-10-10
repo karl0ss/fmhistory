@@ -447,12 +447,11 @@ anchors — not integrated (misses promoted clubs; Brazilian state + national
 leagues make llp ambiguous). The honours docstring claim "competition id
 joins to the stage id space" was wrong; corrected.
 
-**Next steps:** (1) integrate the exact part: decode lists into
-`history_index` per row + per-club chains (done in this checkpoint's
-commit); (2) resolve the managed club's index from save data alone
-(candidates: llp + current live comp + nation; or another section carrying
-the same club ordering with an explicit uid — try `tc_history_ls` /
-`tc_cup_history_ls`, which share the grammar); (3) then D2/D3.
+**Next steps (after checkpoint 6):** (1) validate St Albans' chain against
+the k-world yearly reports; (2) optional: pin untitled clubs (other
+`tc_*_ls` sections share the grammar and may share the club ordering — the
+cup history rows carry explicit club uids); (3) D2 award names, D3
+competition names.
 
 ### transfer_man (`tad.`) — structure 80% mapped (checkpoint 1, 2026-10-09)
 
