@@ -67,6 +67,8 @@ validated against the k-world yearly reports (seasons 1–9) and screenshots.
       T/kind/id3 head closes its record) and ls decoded with the league
       delta grammar: one list per club, every record in exactly one list
       (St Albans = list 685, 2023–2036). **Next:** pin list → club uid.
+      Retired players named via `Save.history_people()` → best-eleven
+      `player_name` (98.1% of refs not in `players()`; history-re.md).
 
 ## Phase 3 — identities (names)
 

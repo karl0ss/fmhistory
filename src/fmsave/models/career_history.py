@@ -333,6 +333,10 @@ class BestElevenEntry:
         player_uid: Uid of the player in `players()`, joined through
             `Save.history_player_references()`. None for a player no longer in
             `players()`, which covers most retired players (unconfirmed).
+        player_name: Name of a player no longer in `players()`, from
+            `Save.history_people()`. None when `player_uid` is set (join `players()`
+            for his name) or when the save keeps no readable name for him
+            (unconfirmed).
     """
 
     record_index: int
@@ -351,6 +355,7 @@ class BestElevenEntry:
     table_position: int
     history_index: int | None = None
     player_uid: int | None = None
+    player_name: str | None = None
 
 
 register_field_statuses(
@@ -372,5 +377,65 @@ register_field_statuses(
         "table_position",
         "history_index",
         "player_uid",
+        "player_name",
+    ),
+)
+
+
+@dataclass(frozen=True, slots=True)
+class HistoryPerson:
+    """A person history sections name by reference who is not among `players()`.
+
+    History sections (best elevens, award winners, transfer and person-record rows)
+    name people by a save-wide history reference. A person's `game_db` object closes
+    with the header `[u32 reference][u32 unique_id][u32 unique_id]`, and objects sit
+    in ascending reference order, so a header between two players' closing headers,
+    with a reference and a unique id between theirs, closes a person who is not a
+    current player: a retired or released player, a staff member, any other person.
+    The name is read from the bytes just before that header, in one of three forms:
+
+    - `"stub"`: an 18-byte remnant `10 00 [u32 first-name id][u32 surname id]
+      [4 flag bytes][u32 small]`, the form most retired players keep;
+    - `"common_name_stub"`: a 14-byte remnant `10 01 [u32 common-name id][4 flag
+      bytes][u32 small]`, for players known by one name;
+    - `"object"`: a full person object, named by the last person block that
+      validates between the previous header and this one.
+
+    On the ground-truth save 131 of these people also hold a hall-of-fame record
+    whose `person_uid` equals `unique_id`, and all 131 names agree.
+
+    Attributes:
+        reference: The history reference id history rows name the person by
+            (unconfirmed).
+        unique_id: The doubled id of the closing header; the hall of fame's
+            `person_uid` (unconfirmed).
+        form: Which of the three forms the name was read from (unconfirmed).
+        name: Display name: the common name when there is one, else first name and
+            surname. None when the object's person block does not validate
+            (unconfirmed).
+        first_name: First name, None for a common-name stub (unconfirmed).
+        last_name: Surname, None for a common-name stub (unconfirmed).
+        common_name: Common name, when the person has one (unconfirmed).
+    """
+
+    reference: int
+    unique_id: int
+    form: str
+    name: str | None
+    first_name: str | None
+    last_name: str | None
+    common_name: str | None
+
+
+register_field_statuses(
+    HistoryPerson,
+    unconfirmed=(
+        "reference",
+        "unique_id",
+        "form",
+        "name",
+        "first_name",
+        "last_name",
+        "common_name",
     ),
 )

@@ -32,6 +32,7 @@ from fmsave.models.career_history import (
     Award,
     BestElevenEntry,
     CupEntry,
+    HistoryPerson,
     Honour,
     LeagueHistorySeason,
     ManagerSpell,
@@ -100,6 +101,7 @@ from fmsave.readers.career_history import (
 from fmsave.readers.facilities import find_facility_layout, read_club_facilities
 from fmsave.readers.finances import find_finance_layouts, read_club_finances
 from fmsave.readers.fixtures import build_fixtures_with_offsets
+from fmsave.readers.history_people import decode_history_people
 from fmsave.readers.injuries import (
     build_injury_records,
     find_injury_manager_layout,
@@ -124,6 +126,7 @@ from fmsave.readers.matches import (
     find_match_record_layout,
     locate_match_records,
 )
+from fmsave.readers.persons import build_person_block_decoder
 from fmsave.readers.player_scan import window_end
 from fmsave.readers.players import build_player_decoder, collect_player_stats
 from fmsave.readers.results import (
@@ -210,6 +213,7 @@ CAREER_AWARDS_TABLE_CACHE_KEY = "table:career_awards"
 CAREER_LEAGUE_HISTORY_TABLE_CACHE_KEY = "table:career_league_history"
 LEAGUE_HISTORY_INDEXES_CACHE_KEY = "league_history_indexes"
 CAREER_BEST_ELEVEN_TABLE_CACHE_KEY = "table:career_best_eleven"
+HISTORY_PEOPLE_TABLE_CACHE_KEY = "table:history_people"
 TRANSFER_MAN_SEASON_RECORDS_TABLE_CACHE_KEY = "table:transfer_man_season_records"
 TRANSFER_MAN_WAGE_LEDGER_TABLE_CACHE_KEY = "table:transfer_man_wage_ledger"
 JOB_VACANCIES_TABLE_CACHE_KEY = "table:job_vacancies"
@@ -858,13 +862,14 @@ class Save:
         the number of its club's list as `history_index`, so filtering on one index
         gives one club's best elevens across seasons; the index does not store club
         uids. Players are named by their history reference, and `player_uid` joins it
-        to `players()` through `history_player_references()`: players who have left
-        `players()`, most retired players among them, keep None.
+        to `players()` through `history_player_references()`. Players who have left
+        `players()`, most retired players among them, keep a None `player_uid` and
+        carry `player_name` from `history_people()` instead.
 
         Returns one record per filled slot with the record number, season year, the
         table's identity head (type, kind, id), slot, player reference, appearances,
         goals, rating total and average rating, the three position bitmasks, history
-        index and player uid.
+        index, player uid and (for a player not in `players()`) player name.
 
         Raises:
             SaveClosedError: The save is closed.
@@ -873,6 +878,33 @@ class Save:
         """
         context = self._context
         return context.cached(CAREER_BEST_ELEVEN_TABLE_CACHE_KEY, self._read_career_best_eleven)
+
+    def history_people(self) -> Table[HistoryPerson]:
+        """Every person history rows can name who is not among `players()`, with his name.
+
+        History sections name people by reference (`history_player_references()`), and
+        a player who has retired or been released leaves `players()` but keeps his
+        reference in every best eleven, award and transfer row. His `game_db` object, or
+        what remains of it, still closes with `[reference][unique_id][unique_id]`
+        between two players' closing headers; this table finds those headers and reads
+        the name kept before each: a small first-name/surname stub, a common-name stub,
+        or a full person object's person block. Staff and other non-player people
+        appear too. The headers are found by search between players' headers, so a
+        person can be missed, and `name` is None where no form reads.
+
+        On the ground-truth save the table names 98.3% of the best-eleven references
+        `players()` does not cover, and the 131 people who also hold a hall-of-fame
+        record (`career_persons().person_uid` equals `unique_id`) all agree by name.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written.
+            ReaderCheckError: The save's in-game date is unreadable, so person blocks
+                cannot be validated.
+        """
+        context = self._context
+        return context.cached(HISTORY_PEOPLE_TABLE_CACHE_KEY, self._read_history_people)
 
     def club_league_history(self, club_uid: int) -> Table[LeagueHistorySeason]:
         """One club's past league seasons, in season order, when the save pins its list.
@@ -2523,13 +2555,42 @@ class Save:
         ):
             entries = decode_best_eleven(dt_data, ls_data)
         references = self.history_player_references()
-        return Table(
-            [
-                replace(entry, player_uid=references.get(entry.player_reference))
-                for entry in entries
-            ],
-            BestElevenEntry,
-        )
+        names = {person.reference: person.name for person in self.history_people()}
+        rows: list[BestElevenEntry] = []
+        for entry in entries:
+            player_uid = references.get(entry.player_reference)
+            player_name = None if player_uid is not None else names.get(entry.player_reference)
+            rows.append(replace(entry, player_uid=player_uid, player_name=player_name))
+        return Table(rows, BestElevenEntry)
+
+    def _read_history_people(self) -> Table[HistoryPerson]:
+        context = self._context
+        save_info = context.info
+        clock = save_info.game_date
+        if clock is None:
+            raise ReaderCheckError(
+                f"{save_info.file_name}: the save's in-game date is unreadable, so person "
+                "blocks cannot be validated"
+            )
+        game_db_schema = save_info.section_schemas.get(GAME_DB_SECTION)
+        with context.section(GAME_DB_SECTION) as game_db:
+            records = context.player_records()
+            name_pools = context.name_pools()
+            person_layout = find_layout(
+                PersonBlockLayout, GAME_DB_SECTION, game_db_schema, save_info.build
+            ).layout
+            person_decoder = build_person_block_decoder(
+                person_layout, name_pools, context.club_index(), clock, save_info.file_name
+            )
+            people = decode_history_people(
+                game_db,
+                records.record_offsets,
+                records.pindexes,
+                records.uids,
+                name_pools,
+                person_decoder,
+            )
+        return Table(people, HistoryPerson)
 
     def _league_history_indexes(self) -> dict[int, int]:
         return self._context.cached(

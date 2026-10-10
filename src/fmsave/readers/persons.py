@@ -270,6 +270,29 @@ class PersonBlockDecoder:
                 return person
         return None
 
+    def decode_last(self, game_db: bytes, window_start: int, window_end: int) -> PersonTuple | None:
+        """The last validated person block in `[window_start, window_end)`, or None.
+
+        For a window that runs from one person object's closing header to the next, the
+        last block is that next object's own: an earlier one belongs to an object between
+        them whose header the caller did not find. A candidate that fails to decode (a
+        relation list running past window_end, a legal name that is not UTF-8) is skipped
+        rather than raised, since a later one may still be the object's own block.
+        """
+        search_start = window_start + self.zero_offset_from_birth
+        found: PersonTuple | None = None
+        for zero_position in iter_marker_run_starts(
+            game_db, search_start, window_end, self.marker_table, self.marker_needle
+        ):
+            birth_date_offset = zero_position - self.zero_offset_from_birth
+            try:
+                person = self._try_candidate(game_db, birth_date_offset, window_end)
+            except CorruptSaveError:
+                continue
+            if person is not None:
+                found = person
+        return found
+
     def _try_candidate(
         self, game_db: bytes, birth_date_offset: int, window_end: int
     ) -> PersonTuple | None:

@@ -4,6 +4,7 @@ from fmsave.models.affiliates import AffiliateGroup
 from fmsave.models.career_history import (
     BestElevenEntry,
     CupEntry,
+    HistoryPerson,
     Honour,
     LeagueHistorySeason,
     ManagerSpell,
@@ -97,6 +98,7 @@ __all__ = [
     "CupEntry",
     "FinanceMonth",
     "Fixture",
+    "HistoryPerson",
     "Honour",
     "InjuryCause",
     "InjuryRecord",
