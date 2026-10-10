@@ -42,6 +42,8 @@ from tests.fixtures.container import (
     section_body,
 )
 from tests.fixtures.game_db import (
+    DEFAULT_PERSON_BLOCK_CLUTTER,
+    PERSON_BLOCK_UNIDENTIFIED_DATE,
     STUB_STATUS_KIND,
     club_record_bytes,
     game_db_body,
@@ -333,6 +335,27 @@ def test_player_a_names_birth_nation_relations_personality_and_traits() -> None:
         Trait.UNKNOWN,
     ]
     assert person.traits[1].raw == 40
+
+
+@pytest.mark.parametrize(
+    "block", [PLAYER_A_BLOCK, PLAYER_B_BLOCK], ids=["no-legal-name", "legal-name"]
+)
+def test_block_start_is_where_the_first_name_id_sits(block: bytes) -> None:
+    prefix = game_db_prefix()
+    game_db = prefix + block
+    decoder = build_decoder(game_db)
+    # Clutter, the unidentified date, one byte and the eight trait-bit bytes come first.
+    expected = (
+        len(prefix) + len(DEFAULT_PERSON_BLOCK_CLUTTER) + len(PERSON_BLOCK_UNIDENTIFIED_DATE) + 9
+    )
+    assert decoder.block_start(game_db, len(prefix), len(game_db)) == expected
+
+
+def test_block_start_is_none_without_a_block() -> None:
+    prefix = game_db_prefix()
+    game_db = prefix + bytes(200)
+    decoder = build_decoder(game_db)
+    assert decoder.block_start(game_db, len(prefix), len(game_db)) is None
 
 
 def test_player_b_common_name_wins_and_legal_name_and_age() -> None:

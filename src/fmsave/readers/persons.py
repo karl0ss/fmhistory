@@ -270,6 +270,33 @@ class PersonBlockDecoder:
                 return person
         return None
 
+    def block_start(self, game_db: bytes, window_start: int, window_end: int) -> int | None:
+        """The start offset of the block `decode` would return for this window, or None.
+
+        The block start is where the first-name id sits. Readers that read a field stored a
+        fixed distance before the block use it. Like `decode`, it adds to the decoder's
+        relation counts, so build a decoder of its own for it.
+
+        Raises:
+            CorruptSaveError: As `decode`.
+        """
+        search_start = window_start + self.zero_offset_from_birth
+        for zero_position in iter_marker_run_starts(
+            game_db, search_start, window_end, self.marker_table, self.marker_needle
+        ):
+            birth_date_offset = zero_position - self.zero_offset_from_birth
+            if self._try_candidate(game_db, birth_date_offset, window_end) is None:
+                continue
+            if _UINT32_STRUCT.unpack_from(game_db, birth_date_offset - 4)[0] == 0:
+                legal_name_length = 0
+            else:
+                found_length = self._find_legal_name_length(game_db, birth_date_offset)
+                if found_length is None:
+                    continue
+                legal_name_length = found_length
+            return birth_date_offset - self.legal_name_offset_from_block_start - legal_name_length
+        return None
+
     def decode_last(self, game_db: bytes, window_start: int, window_end: int) -> PersonTuple | None:
         """The last validated person block in `[window_start, window_end)`, or None.
 

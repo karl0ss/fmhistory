@@ -16,7 +16,7 @@ readers we write own this grammar.
 
 | section | bytes | likely meaning |
 |---|---:|---|
-| player_stats_hist_dt | 876,453,136 | per-player statistical history |
+| player_stats_hist_dt | 876,453,136 | per-player statistical history — INTEGRATED (`Save.player_season_history`) |
 | person_record_history_dt | 131,338,838 | per-person career records |
 | injury_histories_dt | 42,729,512 | injury history arrays |
 | tc_extended_club_records_history_dt | 30,306,680 | club records |
@@ -1438,9 +1438,62 @@ minutes-class/performance bucket, NOT a person key. u16@+38 likewise byte@+39
    the mission list (league positions/honours/cups/awards/transfers) does not
    strictly require per-player stats; player pages can come later.
 
-Status: **decode-parked** (head grammar + squad-level semantics usable;
-per-player binding open). Priority check before more binding work: item 5
+Status: **SUPERSEDED by checkpoint 2 below** (binding solved; the offsets in this
+section are framed from 0x139/9 — one byte off the true rows at offset 8). Priority check before more binding work: item 5
 (news) and tc_best_eleven may unlock career features faster.
+
+### player_stats_hist_dt checkpoint 2: binding SOLVED, INTEGRATED (2026-10-10; scans `tmp_pstats/q1–q38`)
+
+**Integrated** as `Save.player_season_history(player_uids)` → `Table[PlayerHistoryStats]`
+(`readers/player_stats_history.py`, `models/player_stats_history.py`,
+`docs/reference/player_stats_history.md`; `PersonBlockDecoder.block_start` added).
+
+**What solved it (three facts):**
+1. **Framing.** Rows start at offset **8** (not 9/0x139): 8-byte head
+   `03 01 'tmc.' 06 00` + 5,766,139 x 152 B exactly, byte +0 always 00. The old
+   "+12 minutes" is the rating total (+13), "+14" is minutes (+15).
+2. **There is an `_ls` after all — unlisted.** No `player_stats_hist_ls` is in the
+   directory, but the span region (`unlisted_after_non_pl_hist_ls`) holds a 24 MB frame
+   `03 01 'tad.' 04 00 | u32 76,091 free | free offsets | u32 239,790 lists | lists
+   (delta-encoded, league-history grammar) | u32 4,507 empty-list numbers | u32 152 u16 6`.
+   Found by scanning unlisted frame heads for the `tad. 04 00` tag (q26/q27). Free +
+   listed rows = every dt row once. `pl_hist_ls` uses the same per-person grammar (free
+   list first, empty-list numbers last) for `pl_hist_dt`'s 40-B pre-career rows.
+3. **List → player:** the u32 21 bytes before the person block start (first-name id) in
+   each player's `game_db` object. 217,876 distinct in-range values over 223,569 records,
+   5,693 = 0xffffffff, 0 collisions. Found by locating the list number (from 2037 rows
+   matched to `player_season_stats()` lines) inside the player records (q31/q32).
+
+**Row fields** pinned against `player_season_stats()` on 340 same-snapshot lines (q36):
+every mapped field 99-100%; line words at line offset k >= 27 sit at row offset k + 13;
+small counts reordered (+17 goals allowed, +18/+19 pens, +20 red, +21 yellow, +22 clean
+sheets, +24 starts, +25 subs, +26 rated apps, +27 goals, +28 assists, +29 PoM). +31 kind
+= slot order (0 friendly, 1 league, 2 cup, 3 continental, 4 international); k2 (+5) = the
+team's league competition, same on all a team's rows in a season.
+
+**Validation:** best-eleven slots of bound players: per-team sum of kinds 1-3 equals
+(appearances = rated appearances, goals) for 198,217/228,335 (86.8%); misses ~10%/season,
+concentrated in calendar-year leagues (best-eleven year = history year + 1, spot-checked).
+St Albans 2036/37 exact incl. rating total: Tshongo 45/0/3119, Gumbs 34/16/2391, Robinho
+41/12/2852, Young-Thomas 37/10/2591, Hodges 26/4/1794, Dumas 37/11/2501.
+Timing: index 2.6 s + binding 5.8 s once; each call ~3 s (dt decompress); RSS ~3 GB with
+`players()` (54 s) loaded.
+
+**Ruled out on the way (do not redo):** player refs/uids anywhere in the rows (the
+Tshongo "+141 hit" is `37 00 c9 ff 06 00` = u16 55, i16 -55 — coincidence); row indices or
+byte offsets as plain u32 in `game_db` or any listed section (St Albans rows vs random
+control: equal hit rates); count-prefixed offset lists in `game_db`; `match_stats_cfg`
+(a compressed per-match archive, `pks_0` table of (id, offset, size)) and
+`used_player_data` as key arrays; the hash-table / per-team-block theories (pool order is
+allocation order: blocks per team-season written at season end, holes reused).
+
+**Open:** (a) retired players' lists (~21.9k non-empty lists unbound; their objects are
+mostly stubs — test the q-21 rule on `history_people` full-object forms); (b) +7 u32
+(fee-like on last-season rows: Tshongo 8,250,000, Dumas 22,937,564 vs GT £23M — not equal,
+undecoded); +30 byte (1 on loan spells seen); (c) 0.53% field-for-field repeated rows in
+lists (29,965; 2,561 with minutes) — cause unknown; (d) the u32 after the list number in
+the person object (e.g. 269,669) — maybe another per-person index (injury/person-record);
+(e) 2037 rows lag the live season.
 
 ### tc_best_eleven_history_dt/ls — cell grammar pinned, owner/club identity OPEN (2026-10-10; scans b1–b31, tmp_besteleven/)
 
@@ -1803,12 +1856,10 @@ for league positions, honours, cup runs, awards, manager spells exist):
 2. ~~Validation backlog~~ **DONE (checkpoint 4)**: anchors verified, reader bugs
    fixed, pytest pinned. The club-threading question is solved by the ls
    decode (checkpoint 5): St Albans = list 351, all seasons attributed.
-3. **player_stats_hist_dt (876 MB)** — per-player statistical history
-   (appearances/goals per season); needed for player pages. Status:
-   **decode-parked (2026-10-10)** — head grammar pinned (152-B grid,
-   club/comp/year key), squad-level semantics usable, per-player binding
-   UNSOLVED (see the player_stats_hist_dt checkpoint for ruled-out arcs and
-   next leads).
+3. ~~player_stats_hist_dt (876 MB)~~ **INTEGRATED (2026-10-10)** —
+   `Save.player_season_history(uids)`; binding via the unlisted pool index +
+   the list number before each person block (checkpoint 2). Open: retired
+   players' lists, the +7 fee-like u32.
 4. **tc_best_eleven_history_dt (13 MB)** — best XI per season.
 5. ~~news (40 MB)~~ **DEAD END (2026-10-10)** — only a 12-day rolling
    buffer (23 Nov – 4 Dec 2037); no season summaries or transfer fees

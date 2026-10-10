@@ -99,8 +99,8 @@ only for the club the save's human manager runs.
 ## Career history
 
 `career_persons()`, `career_honours()`, `career_cup_entries()`, `career_manager_spells()`,
-`career_awards()`, `career_league_history()`, `career_best_eleven()`, `history_people()` and
-`career_manager_records()`: rows
+`career_awards()`, `career_league_history()`, `career_best_eleven()`, `history_people()`,
+`player_season_history(uids)` and `career_manager_records()`: rows
 the save's history sections keep (see the reader module's notes; competition ids name nothing yet
 and the spells table covers open spells only). The league-history rows carry no club
 identity, so `career_league_history()` holds every club's readable rows rather than one
@@ -123,6 +123,7 @@ not stored in the yearly award history. `career_manager_records()` holds every m
 .. autoclass:: fmsave.LeagueHistoryClub
 .. autoclass:: fmsave.BestElevenEntry
 .. autoclass:: fmsave.HistoryPerson
+.. autoclass:: fmsave.PlayerHistoryStats
 .. autoclass:: fmsave.ManagerCareerRecord
 .. autoclass:: fmsave.ManagerCurrentJob
 .. autoclass:: fmsave.ManagerFee

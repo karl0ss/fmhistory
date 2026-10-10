@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import replace
 from types import TracebackType
 from typing import NamedTuple, Self
@@ -52,6 +52,7 @@ from fmsave.models.league_tables import LeagueTable
 from fmsave.models.managed import ManagedClub
 from fmsave.models.matches import PlayerMatchStats
 from fmsave.models.meta import SaveInfo
+from fmsave.models.player_stats_history import PlayerHistoryStats
 from fmsave.models.players import Player
 from fmsave.models.rules import CompetitionRules, TransferWindow
 from fmsave.models.season_stats import PlayerSeasonStats
@@ -138,6 +139,13 @@ from fmsave.readers.matches import (
 )
 from fmsave.readers.persons import build_person_block_decoder
 from fmsave.readers.player_scan import window_end
+from fmsave.readers.player_stats_history import (
+    PLAYER_STATS_HISTORY_DT_SECTION,
+    StatsHistoryIndex,
+    decode_player_rows,
+    find_stats_history_index,
+    player_list_numbers,
+)
 from fmsave.readers.players import build_player_decoder, collect_player_stats
 from fmsave.readers.results import (
     apply_results,
@@ -227,6 +235,8 @@ LEAGUE_HISTORY_INDEXES_CACHE_KEY = "league_history_indexes"
 LEAGUE_HISTORY_CLUBS_TABLE_CACHE_KEY = "table:league_history_clubs"
 CAREER_BEST_ELEVEN_TABLE_CACHE_KEY = "table:career_best_eleven"
 HISTORY_PEOPLE_TABLE_CACHE_KEY = "table:history_people"
+STATS_HISTORY_INDEX_CACHE_KEY = "player_stats_history_index"
+STATS_HISTORY_LISTS_CACHE_KEY = "player_stats_history_lists"
 CAREER_MANAGER_RECORDS_TABLE_CACHE_KEY = "table:career_manager_records"
 TRANSFER_MAN_SEASON_RECORDS_TABLE_CACHE_KEY = "table:transfer_man_season_records"
 TRANSFER_MAN_WAGE_LEDGER_TABLE_CACHE_KEY = "table:transfer_man_wage_ledger"
@@ -1094,6 +1104,117 @@ class Save:
         """
         records = self._context.player_records()
         return player_references(records.pindexes, records.uids)
+
+    def player_season_history(self, player_uids: int | Iterable[int]) -> Table[PlayerHistoryStats]:
+        """Past statistics of one or more players: a row per team, season and competition type.
+
+        `player_stats_hist_dt` keeps a pool of 152-byte statistics rows that name no player;
+        an unlisted pool index holds one list of rows per player, and each player's
+        `game_db` object stores the number of his list. Rows run in the order his list
+        stores them (season order), players in the order given. A uid not in `players()`,
+        or a player with no history list, gives no rows. Retired players are not covered.
+
+        The first call reads the pool index and binds every player's list (about 8 s on the
+        ground-truth save, kept for later calls) and needs `players()` for who is a
+        goalkeeper. Every call then decompresses the 876 MB statistics section once for all
+        the players asked for (about 3 s), so ask for many players in one call rather than
+        one call each.
+
+        Args:
+            player_uids: A player uid, as `players()` reports it, or several.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written.
+            ReaderCheckError: The save has no pool index matching the statistics section.
+        """
+        wanted = [player_uids] if isinstance(player_uids, int) else list(player_uids)
+        lists = self._stats_history_lists()
+        index = self._stats_history_index()
+        records = self._context.player_records()
+        team_to_club = self._context.club_index().team_to_club
+        goalkeepers = {player.uid for player in self.players() if "GK" in player.natural_positions}
+        requested: list[tuple[int, int, int]] = []
+        for uid in wanted:
+            position = records.position_by_uid.get(uid)
+            if position is None:
+                continue
+            reference = records.pindexes[position] + 1
+            list_number = lists.get(reference)
+            if list_number is not None:
+                requested.append((uid, reference, list_number))
+        rows: list[PlayerHistoryStats] = []
+        if not requested:
+            return Table(rows, PlayerHistoryStats)
+        with self._context.section(PLAYER_STATS_HISTORY_DT_SECTION) as dt_data:
+            for uid, reference, list_number in requested:
+                for row in decode_player_rows(
+                    dt_data, index, list_number, reference, goalkeeper=uid in goalkeepers
+                ):
+                    located = None if row.team_id is None else team_to_club.get(row.team_id)
+                    rows.append(
+                        replace(
+                            row,
+                            player_uid=uid,
+                            club_uid=None if located is None else located[0],
+                        )
+                    )
+        return Table(rows, PlayerHistoryStats)
+
+    def _stats_history_index(self) -> StatsHistoryIndex:
+        return self._context.cached(STATS_HISTORY_INDEX_CACHE_KEY, self._read_stats_history_index)
+
+    def _read_stats_history_index(self) -> StatsHistoryIndex:
+        info = self._context.info
+        section = self._require_open().sections.get(PLAYER_STATS_HISTORY_DT_SECTION)
+        if section is None:
+            raise ReaderCheckError(
+                f"{info.file_name}: the save has no {PLAYER_STATS_HISTORY_DT_SECTION!r} section"
+            )
+        index = find_stats_history_index(self._container_index, section.decompressed_size)
+        if index is None:
+            raise ReaderCheckError(
+                f"{info.file_name}: no unlisted frame holds exactly one pool index covering "
+                f"{PLAYER_STATS_HISTORY_DT_SECTION!r}"
+            )
+        return index
+
+    def _stats_history_lists(self) -> dict[int, int]:
+        return self._context.cached(STATS_HISTORY_LISTS_CACHE_KEY, self._read_stats_history_lists)
+
+    def _read_stats_history_lists(self) -> dict[int, int]:
+        context = self._context
+        save_info = context.info
+        clock = save_info.game_date
+        if clock is None:
+            raise ReaderCheckError(
+                f"{save_info.file_name}: the save's in-game date is unreadable, so person "
+                "blocks cannot be validated"
+            )
+        list_count = self._stats_history_index().list_count
+        game_db_schema = save_info.section_schemas.get(GAME_DB_SECTION)
+        with context.section(GAME_DB_SECTION) as game_db:
+            records = context.player_records()
+            person_layout = find_layout(
+                PersonBlockLayout, GAME_DB_SECTION, game_db_schema, save_info.build
+            ).layout
+            # A decoder of its own: locating blocks adds to a decoder's relation counts.
+            person_decoder = build_person_block_decoder(
+                person_layout,
+                context.name_pools(),
+                context.club_index(),
+                clock,
+                save_info.file_name,
+            )
+            return player_list_numbers(
+                game_db,
+                records.record_offsets,
+                records.pindexes,
+                person_decoder,
+                person_layout.window_start_offset,
+                list_count,
+            )
 
     def career_manager_records(self) -> Table[ManagerCareerRecord]:
         """Every manager's career statistics record, in history-reference order.

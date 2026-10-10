@@ -49,6 +49,7 @@ from fmsave.models.league_tables import (
 from fmsave.models.managed import ManagedClub
 from fmsave.models.matches import MatchPosition, PlayerMatchStats
 from fmsave.models.meta import SaveInfo, SectionInfo
+from fmsave.models.player_stats_history import PlayerHistoryStats
 from fmsave.models.players import (
     Ability,
     Attributes,
@@ -133,6 +134,7 @@ __all__ = [
     "PersonHistory",
     "Personality",
     "Player",
+    "PlayerHistoryStats",
     "PlayerMatchStats",
     "PlayerSeasonStats",
     "PlayerSuspension",
