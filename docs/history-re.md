@@ -998,6 +998,77 @@ value anchoring in every section (this checkpoint + 4 + 5); fee narrative
 strings in news; `03 13 00`-prefixed family-A row pattern (wrong — rows
 are detected by `13 00` preceded by a kind byte 02–0b with ff×4 @+30).
 
+### player_stats_hist_dt — head grammar pinned, per-player binding UNSOLVED (2026-10-10; scans ~p1–p13, tmp_xfer/s1–s14 + heredocs)
+
+Extract: `/home/karl/fm26-career/tmp_pstats/player_stats_hist_dt.bin`
+(876,453,136 B). Scripts `tmp_xfer/s1..s14.py` + one-off heredocs.
+
+**What is solid.** After the 0x139-byte section head, records are a uniform
+152-B grid: `on_grid(i) = (i - 0x139) % 152 == 0`. ~5.76M rows. Head (offsets
+into the row):
+
+| off | field | notes |
+|-----|-------|-------|
+| +0  | u32 key1 | club or team uid — **every** sampled value resolves via `club_index().club_by_uid` / `.team_to_club` (716=St. Albans City, 853=Istres, 866=OM, 36586=Sport Clube Tarouca, big uids like 91855 → team→club 47070350) |
+| +4  | u16 key2 | competition id or 0xffff=null; resolves as `Competition` (5254/5284/5287/20/22/45/122/171/…) |
+| +6  | u16 x    | 0xffff or 0 (placeholder/qualifier) |
+| +8  | u16 flag | 0xffff or 0 |
+| +10 | u16 year | season year 2023–2036 in GT (accepted filter 1990–2038) |
+| +12 | u16 minutes | squad-wide distribution 0–3081; when a fringe player keeps not playing this is CONSTANT across years for the same series (62 spanning 2028–2036) |
+| +14 | u16 | second minutes-like value (~45/90 on tiny rows, ~1.2–1.4× minutes on regulars) — semantics unresolved |
+| +23/+25 | u8 | twin-byte pattern (33,33); u8@+23 ≈ appearances (563 min/7 apps, 2289/33) |
+
+Head-family census (whole file, every 7th row): (k2≠ffff, x=ffff, fl=ffff)
+≈2.63M rows; (k2=ffff, x=ffff, fl=ffff) ≈2.58M; (k2≠ffff, x=0, fl=0) 264k;
+(k1hi≠0, k2=ffff, x=0, fl=0) 194k — the k1hi family's u32 key1 values are
+0xffffffff-null + big team uids. Rows for the same head key collide in
+contiguous non-grid runs (hash-table-with-linear-probe write pattern);
+file order is neither per-club, per-person, nor chronological. Rows keyed
+(k1, k2, year) are not unique — many rows share the same (716, year).
+
+**St. Albans block analysis (441 rows, u32 key1=716):** 2023 rows are
+zero-placeholder rows (pw=0, payload 0, u32@+30=1) allocated at career start;
+per-year row counts grow 2023:5 → 2036:47 like squad growth; per-year +12 sums
+track minutes played. All 441 rows have k2=ffff (null comp) — the comp-keyed
+asymmetry vs other clubs' k2≠ffff rows is UNEXPLAINED. Payload field census:
+u16@+36 is actually a byte field at +37 (low byte always 0 here): values
+0x00–0x11 correlate with minutes magnitude (big buckets 100/100/57 rows at
+0x00/0x100/0x200 for small minutes; single-digit buckets for 2000+ min) — a
+minutes-class/performance bucket, NOT a person key. u16@+38 likewise byte@+39
+(0x08–0xde, 191 distinct, group sizes ≤6) — not a key either.
+
+**Ruled out (do not redo):**
+- Person refs from person_record_history's id space do NOT appear in the
+  rows: u16/u32 0x8eea (YT ref 36586, here a *club* uid collision: Sport
+  Clube Tarouca) → 0 hits in 716-row payloads; 0xb604 (Dumas) → 0 rows on
+  grid under the year filter at all (both as u16@0 head and in payloads).
+- Rows are NOT per-person contiguous blocks; no person field pinned in
+  payload offsets 0–148 at u8/u16/u32 const-across-series granularity.
+- pl_hist_dt is league-hierarchy history, not the player binding; used_player_data ('tad.', 44 MB, delta-coded per-person attribute blobs) contains u16 0x8eea 3× but is otherwise a candidate index, unresolved.
+- Constant-field grouping by +12 across years: works only for a few series
+  (62/59/61/127); +12 value groups mix different players (small minutes recur
+  for many players), so those "series" are not proven single-player.
+
+**Working hypothesis for the binding (next steps):**
+1. The row is per (team, comp, year, player-slot) where player-slot is an
+   index into an external table — test whether row *file order* near the
+   section head (first N thousand rows) correlates with used_player_data
+   blob order, or whether a parallel (grid-pitch ≠ 152) structure in another
+   section carries (club, person) pairs.
+2. sim_stats.bin (151 KB 'tad.') — tiny; survey its record grammar for a
+   person→slot map before assuming the slot theory has no source.
+3. Diff test: pick two 716 rows with identical (k1, k2, year) and compare
+   payloads byte-by-byte at u8 granularity for a differing small field —
+   twin-byte (u8@23:u8@25) suggests byte-granular fields the u16-scan missed.
+4. If the slot theory fails, decode rows at the *squad aggregate* level
+   (minutes distribution per club-year) and mark player binding unconfirmed —
+   the mission list (league positions/honours/cups/awards/transfers) does not
+   strictly require per-player stats; player pages can come later.
+
+Status: **decode-parked** (head grammar + squad-level semantics usable;
+per-player binding open). Priority check before more binding work: item 5
+(news) and tc_best_eleven may unlock career features faster.
+
 ### Remaining plan (owner priority, 2026-10-09: DECODERS FIRST)
 
 Standing direction from the owner: the priority is **finishing the missing
@@ -1034,7 +1105,11 @@ for league positions, honours, cup runs, awards, manager spells exist):
    and 0x30bc0 the 2029/30 row; the (ptr, ptr) butted runs on either side are
    per-season region indexes, not club chains).
 3. **player_stats_hist_dt (876 MB)** — per-player statistical history
-   (appearances/goals per season); needed for player pages.
+   (appearances/goals per season); needed for player pages. Status:
+   **decode-parked (2026-10-10)** — head grammar pinned (152-B grid,
+   club/comp/year key), squad-level semantics usable, per-player binding
+   UNSOLVED (see the player_stats_hist_dt checkpoint for ruled-out arcs and
+   next leads).
 4. **tc_best_eleven_history_dt (13 MB)** — best XI per season.
 5. **news (40 MB)** — season-summary news items (e.g. 6 May 2025 champions
    item) carry narrative + stats strings; good filler and cross-checks.
