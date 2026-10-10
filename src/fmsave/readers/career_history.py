@@ -79,6 +79,8 @@ from __future__ import annotations
 
 import re
 import struct
+from collections import Counter
+from collections.abc import Mapping, Sequence
 
 from fmsave._errors import CorruptSaveError
 from fmsave.models.career_history import (
@@ -416,6 +418,8 @@ _LS_HEAD = 16
 _LS_TRAILER = 10
 _LEAGUE_ROW = 24
 _LEAGUE_DT_HEAD = 8
+# The games byte of a table that was never played.
+_UNPLAYED = 0xFF
 
 
 def _is_valid_league_history_row(dt_data: bytes, offset: int) -> bool:
@@ -456,6 +460,7 @@ def _decode_league_history_row(
         goals_for=goals_for,
         goals_against=goals_against,
         points=points,
+        imported=dt_data[offset + 13] == 0 and dt_data[offset + 12] != _UNPLAYED,
         history_index=history_index,
     )
 
@@ -523,3 +528,39 @@ def decode_league_history(dt_data: bytes, ls_data: bytes) -> tuple[LeagueHistory
         for offset in range(_LEAGUE_DT_HEAD, len(dt_data) - _LEAGUE_ROW + 1, _LEAGUE_ROW)
         if _is_valid_league_history_row(dt_data, offset)
     )
+
+
+def resolve_league_history_indexes(
+    seasons: Sequence[LeagueHistorySeason],
+    honours: Sequence[Honour],
+    competition_by_database_id: Mapping[int, int],
+) -> dict[int, int]:
+    """The league-history list number of every club a league title pins down.
+
+    An honours row names its competition by editor database id, so it first maps to
+    the save-internal id the league rows use. A league title then has exactly one
+    first-place row for that season and competition among the rows the save itself
+    wrote (imported rows can repeat a table, so they are left out); that row's list is
+    the club's. A club is resolved only when every title it has that matches such a
+    row names the same list, and a list claimed by two clubs is dropped for both, so
+    clubs without a post-import league title stay unresolved rather than guessed.
+
+    Returns:
+        Club uid to list number, for the clubs the titles pin down.
+    """
+    champions: dict[tuple[int, int], set[int]] = {}
+    for season in seasons:
+        if season.position == 0 and season.history_index is not None and not season.imported:
+            key = (season.season_year, season.competition_id)
+            champions.setdefault(key, set()).add(season.history_index)
+    claims: dict[int, set[int]] = {}
+    for honour in honours:
+        competition_id = competition_by_database_id.get(honour.competition_id)
+        if competition_id is None:
+            continue
+        owners = champions.get((honour.season, competition_id), set())
+        if len(owners) == 1:
+            claims.setdefault(honour.club_uid, set()).update(owners)
+    resolved = {club: next(iter(lists)) for club, lists in claims.items() if len(lists) == 1}
+    holders = Counter(resolved.values())
+    return {club: index for club, index in resolved.items() if holders[index] == 1}

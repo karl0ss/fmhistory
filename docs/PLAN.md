@@ -43,9 +43,10 @@ validated against the k-world yearly reports (seasons 1–9) and screenshots.
       **Status (2026-10-10, checkpoint 5):** ls CRACKED and integrated — rows
       carry `history_index` (delta-encoded per-club lists, every row threaded).
       St Albans = list 351, every GT-pinned season matches; fills 2029/30 9th,
-      2030/31 3rd. **Open:** uid → list number is not stored (uid order among
-      clubs with history; membership unknown) — next: resolve the managed
-      club's number from save data alone, then validate vs k-world.
+      2030/31 3rd. **Checkpoint 6:** `Save.club_league_history(uid)` pins a
+      club's list from its league titles (honours → database id → title row);
+      St Albans resolves from the save alone. Clubs without a post-import
+      title stay unresolved. **Next:** validate vs k-world, then D2.
 - [ ] **D2. Award names.** Map `career_awards`' `award_id` to award names from
       `award_man` (`tad.`, 842,938 B, partially mapped).
 - [ ] **D3. Competition names.** Resolve competition_id → name for honours,

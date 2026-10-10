@@ -56,8 +56,13 @@ The index stores no club uid. Lists run in club uid order among clubs that have
 league history (clubs with none get no list), and clubs whose first league
 season came after an imported career are appended at the end in the order they
 first appeared. On the ground-truth save St Albans City (uid 716) is list 351.
-Which clubs have a list is not stored, so a club's list number has to be found
-from known rows: see `docs/history-re.md`, checkpoint 5.
+Which clubs have a list is not stored, so a club's list number is found from its
+league titles: `resolve_league_history_indexes` maps each hall-of-fame honour's
+competition (an editor database id) to the internal id, finds the single
+first-place row the game wrote for that season and competition, and takes its
+list. Clubs with no post-import league title stay unresolved. On the ground-truth
+save this pins 63 clubs with no conflicts, matches uid order, and agrees 18/18 with
+an independent live-table check.
 
 ## Decoder Implementation
 
@@ -68,7 +73,11 @@ from known rows: see `docs/history-re.md`, checkpoint 5.
 - `decode_league_history(dt_data, ls_data)` walks the dt grid (offsets ≡ 8 mod 24),
   keeps rows that pass the sanity bounds (season 1900–2100, position < team count,
   2–100 teams, results block not all 255), and sets each row's `history_index`
-  to its list number (None when the index does not cover it).
+  to its list number (None when the index does not cover it) and flags
+  `imported` rows (second games byte 0 on a played table).
+- `resolve_league_history_indexes(seasons, honours, competition_by_database_id)`
+  pins club uids to list numbers through league titles; `Save.club_league_history`
+  uses it and returns an empty table for a club it cannot pin.
 
 ## Usage
 
@@ -80,8 +89,7 @@ import fmsave
 save = fmsave.open("my-career.fm")
 league_history = save.career_league_history()
 
-st_albans = [s for s in league_history if s.history_index == 351]  # ground-truth save
-for season in st_albans:
+for season in save.club_league_history(716):  # St Albans City on the ground-truth save
     print(f"{season.season_year}: Position {season.position + 1}/{season.total_teams}")
     print(f"  Record: {season.wins}-{season.draws}-{season.losses} ({season.points} pts)")
     print(f"  Goals: {season.goals_for}-{season.goals_against}")

@@ -229,6 +229,10 @@ class LeagueHistorySeason:
         goals_against: Goals conceded (unconfirmed).
         points: Points; rows of an imported older save may carry the 2-point-era
             value 2 x wins + draws (unconfirmed).
+        imported: Whether the row was carried over from an imported older save: its
+            second games byte is 0 although the table was played. Rows the game
+            wrote itself repeat games played there; an imported career can hold
+            both kinds for the same club and season (unconfirmed).
         history_index: Number of the `tc_league_history_ls` list holding the row:
             one list per club with league history, in club uid order, with clubs
             whose first league season came after an imported career appended at
@@ -247,6 +251,7 @@ class LeagueHistorySeason:
     goals_for: int
     goals_against: int
     points: int
+    imported: bool = False
     history_index: int | None = None
 
 
@@ -264,6 +269,7 @@ register_field_statuses(
         "goals_for",
         "goals_against",
         "points",
+        "imported",
         "history_index",
     ),
 )

@@ -431,6 +431,22 @@ aligned, wrong.) The raw values looked like two interleaved monotone streams
   anchors — but the held-out set is all live clubs, so this is **not** a
   basis for naming historical-only clubs. Not integrated.
 
+**Checkpoint 6 (2026-10-10, scans d2_*): uid → list number solved for titled
+clubs, integrated as `Save.club_league_history(uid)`.** Hall-of-fame honours
+store the competition's **editor database id** (L1 = 13 → internal 9; National
+109201 → 150; VNS 5123055 → 708), so `competitions()`' database_id maps them to
+the league-row id space. Each post-import league title has exactly one
+first-place row → its list = the club's. GT: 63 clubs pinned, 0 conflicts, 0
+lists claimed twice, 0 uid-order inversions, 18/18 agreement with the
+live-table resolver; St Albans → 351 from three titles (2025, 2026, 2029).
+Including imported (byte+13 = 0) title rows breaks it (11 inversions, 8
+conflicts: imported tables repeat), hence the `imported` flag. The
+live-table resolver (llp ↔ last season's row in the club's largest live
+table, season chosen per comp by uid-order consistency) gets 38/39 diff
+anchors — not integrated (misses promoted clubs; Brazilian state + national
+leagues make llp ambiguous). The honours docstring claim "competition id
+joins to the stage id space" was wrong; corrected.
+
 **Next steps:** (1) integrate the exact part: decode lists into
 `history_index` per row + per-club chains (done in this checkpoint's
 commit); (2) resolve the managed club's index from save data alone

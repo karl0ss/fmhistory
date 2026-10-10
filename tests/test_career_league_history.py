@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import struct
 
+from fmsave.models.career_history import Honour, LeagueHistorySeason
 from fmsave.readers.career_history import (
     LEAGUE_HISTORY_DT_SECTION,
     LEAGUE_HISTORY_LS_SECTION,
     decode_league_history,
     decode_league_history_lists,
+    resolve_league_history_indexes,
 )
 
 # The dt section opens with an 8-byte tag header, so every row starts at an offset
@@ -202,3 +204,58 @@ def test_an_index_that_does_not_parse_leaves_rows_unthreaded() -> None:
 def test_an_empty_dt_section_yields_no_rows() -> None:
     assert decode_league_history(_HEADER, b"") == ()
     assert decode_league_history(b"", b"") == ()
+
+
+def title(
+    season: int, comp: int, history_index: int, *, imported: bool = False
+) -> LeagueHistorySeason:
+    """A first-place row the resolver treats as a league title."""
+    return LeagueHistorySeason(
+        season_year=season,
+        competition_id=comp,
+        position=0,
+        total_teams=20,
+        games_played=38,
+        wins=25,
+        draws=8,
+        losses=5,
+        goals_for=70,
+        goals_against=30,
+        points=83,
+        imported=imported,
+        history_index=history_index,
+    )
+
+
+def test_a_league_title_pins_the_clubs_list() -> None:
+    # Honours name competitions by database id: 13 is the internal competition 9.
+    seasons = [title(2029, 9, 351), title(2026, 150, 351), title(2029, 8, 40)]
+    honours = [Honour(716, 13, 2029, 1), Honour(716, 109201, 2026, 1)]
+    assert resolve_league_history_indexes(seasons, honours, {13: 9, 109201: 150}) == {716: 351}
+
+
+def test_imported_rows_conflicts_and_shared_lists_resolve_nothing() -> None:
+    imported_only = resolve_league_history_indexes(
+        [title(2020, 9, 5, imported=True)], [Honour(1, 13, 2020, 1)], {13: 9}
+    )
+    assert imported_only == {}
+    conflicting = resolve_league_history_indexes(
+        [title(2029, 9, 351), title(2030, 9, 352)],
+        [Honour(716, 13, 2029, 1), Honour(716, 13, 2030, 1)],
+        {13: 9},
+    )
+    assert conflicting == {}
+    shared = resolve_league_history_indexes(
+        [title(2029, 9, 351)], [Honour(716, 13, 2029, 1), Honour(717, 13, 2029, 1)], {13: 9}
+    )
+    assert shared == {}
+    unmapped = resolve_league_history_indexes([title(2029, 9, 351)], [Honour(716, 99, 2029, 1)], {})
+    assert unmapped == {}
+
+
+def test_the_second_games_byte_marks_imported_rows() -> None:
+    written = row(2031)
+    carried = written[:13] + b"\x00" + written[14:]
+    unplayed = row(2031, played=255)[:13] + b"\x00" + row(2031, played=255)[14:]
+    seasons = decode_league_history(dt_blob(written, carried, unplayed), b"")
+    assert [s.imported for s in seasons] == [False, True, False]

@@ -87,6 +87,7 @@ from fmsave.readers.career_history import (
     decode_cup_entries,
     decode_hall_of_fame,
     decode_league_history,
+    resolve_league_history_indexes,
     decode_manager_spells,
 )
 from fmsave.readers.transfer_history import (
@@ -201,6 +202,7 @@ CAREER_CUP_ENTRIES_TABLE_CACHE_KEY = "table:career_cup_entries"
 CAREER_MANAGER_SPELLS_TABLE_CACHE_KEY = "table:career_manager_spells"
 CAREER_AWARDS_TABLE_CACHE_KEY = "table:career_awards"
 CAREER_LEAGUE_HISTORY_TABLE_CACHE_KEY = "table:career_league_history"
+LEAGUE_HISTORY_INDEXES_CACHE_KEY = "league_history_indexes"
 TRANSFER_MAN_SEASON_RECORDS_TABLE_CACHE_KEY = "table:transfer_man_season_records"
 TRANSFER_MAN_WAGE_LEDGER_TABLE_CACHE_KEY = "table:transfer_man_wage_ledger"
 JOB_VACANCIES_TABLE_CACHE_KEY = "table:job_vacancies"
@@ -740,10 +742,11 @@ class Save:
     def career_honours(self) -> Table[Honour]:
         """Every honours row the hall of fame stores, as one competition won by a club.
 
-        A row carries the club uid, the save-internal competition id and the season the
-        honour was won, which for a cup is its final year. The competition id joins to
-        the stage id space, but rebuilt and import-created competitions may not surface
-        in `competitions()`, so a row's competition cannot always be named. The scan
+        A row carries the club uid, the competition's editor database id (the
+        `database_id` of a `competitions()` row, not its save-internal id) and the
+        season the honour was won, which for a cup is its final year. Rebuilt and
+        import-created competitions may not surface in `competitions()`, so a row's
+        competition cannot always be joined. The scan
         keys rows on the hall of fame's section-wide node id and can miss a row the
         pattern does not cover.
 
@@ -837,6 +840,37 @@ class Save:
         return context.cached(
             CAREER_LEAGUE_HISTORY_TABLE_CACHE_KEY, self._read_career_league_history
         )
+
+    def club_league_history(self, club_uid: int) -> Table[LeagueHistorySeason]:
+        """One club's past league seasons, in season order, when the save pins its list.
+
+        League-history rows name no club; the `tc_league_history_ls` list a row
+        belongs to does (`history_index`), but no section stores which club uid a list
+        is. A club's list is found from its league titles: each honour the hall of
+        fame records has exactly one first-place row the game wrote for that season
+        and competition, and that row's list is the club's. A club with no league
+        title since the career began (or an imported career's import) cannot be
+        pinned this way and gets an empty table rather than a guess.
+
+        Args:
+            club_uid: Uid of the club, as `clubs()` reports it.
+
+        Returns:
+            Every readable row of the club's list, in season order (imported rows
+            included, flagged `imported`), or an empty table.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written.
+        """
+        index = self._league_history_indexes().get(club_uid)
+        rows = [
+            season
+            for season in self.career_league_history()
+            if index is not None and season.history_index == index
+        ]
+        return Table(sorted(rows, key=lambda season: season.season_year), LeagueHistorySeason)
 
     def transfer_man_player_seasons(self) -> Table[PlayerSeasonRecord]:
         """Every readable 73-byte season-record row the `transfer_man` section stores.
@@ -2409,6 +2443,23 @@ class Save:
         ):
             entries = decode_league_history(dt_data, ls_data)
         return Table(entries, LeagueHistorySeason)
+
+    def _league_history_indexes(self) -> dict[int, int]:
+        return self._context.cached(
+            LEAGUE_HISTORY_INDEXES_CACHE_KEY, self._read_league_history_indexes
+        )
+
+    def _read_league_history_indexes(self) -> dict[int, int]:
+        competition_by_database_id = {
+            competition.database_id: competition.id
+            for competition in self.competitions()
+            if competition.database_id is not None
+        }
+        return resolve_league_history_indexes(
+            tuple(self.career_league_history()),
+            tuple(self.career_honours()),
+            competition_by_database_id,
+        )
 
     def _read_transfer_man_player_seasons(self) -> Table[PlayerSeasonRecord]:
         with self._context.section(TRANSFER_MAN_SECTION) as transfer_data:
