@@ -1109,6 +1109,100 @@ Status: **decode-parked** (head grammar + squad-level semantics usable;
 per-player binding open). Priority check before more binding work: item 5
 (news) and tc_best_eleven may unlock career features faster.
 
+### tc_best_eleven_history_dt/ls — cell grammar pinned, owner/club identity OPEN (2026-10-10; scans b1–b31, tmp_besteleven/)
+
+Extract: `/home/karl/fm26-career/tmp_besteleven/tc_best_eleven_history_{dt,ls}.bin`
+(dt 13,466,112 B, ls 116,746 B). Section magic is `03 01 'tmc.' 02 00` — the
+**tmc. family (same magic+version as tc_manager_history_dt)**, not tad. — so it
+belongs to the manager-history domain, not the `tc_*_history` tad family.
+Scripts `tmp_besteleven/b1..b31*.py`.
+
+**What is solid (verified numerically, all on the GT save):**
+
+- **dt = a grid of 509-byte cells**, `k*509`, k = 0…26,455 (26,456 cells)
+  plus a final 8-byte dangling head exactly at 26,456×509. The ls file's own
+  tail stores `[u32 509][u16 02 00]` — the cell size confirmed by the ls
+  itself. Cell 0 doubles as the section head: `03 01 'tmc.' 02 00` + a small
+  table (`ff 33 01 00 1d 00 00 00 f2 07 00 00 02 01 00 00 …` — includes the
+  ids 307/29/2034/258; undecoded).
+- **Every cell**: `[u8 T @+0][u8 kind @+1][00 @+2][u32 id3 @+3][04 @+7][u16
+  year @+8]` + **18 units × 27 B at +10+27j** + 13 B tail. T ∈
+  {0,1,2,3,4,7,9,10,11,12,13,15,16,18,19,20,21,22,27,255} (byte 7 = 04 on all
+  26,455 cells; the single exception is cell 0). year@+8 census on cells:
+  2022–2037, 16 values. Tag bytes (02) at unit-relative +12/+17/+22 verified
+  36,000/36,000.
+  - id3 = u32@+3: 20,960 distinct over all cells, p10/p50/p90 =
+    9.1k/26.0k/53.9k, max 36.6M. id2 (= u32@+2) is **always id3 << 8** (the
+    +2 byte is the head's 00) — do not read the id at +2.
+- **Unit grammar**: `[u32 pid][u16 apps][u16 b][u32 rating-sum][02 u32 f1][02
+  u32 f2][02 u32 f3]`. `apps` 12–49 on XI cells; `rating-sum / apps` ≈
+  avg rating × 10 (6.3–7.0 typical); `b` small 0–5. Unit j=0 is special:
+  f1=1, f2=0, f3=1 on every cell (reads like a manager/captain row or GK row).
+- **ls**: header `03 01 'tad.' 04 00 | u32 0 | u32 2,724` + 2,724 groups
+  `[u32 n (1–16)][n × u32 cell offsets]` + terminator `u32 0` + tail
+  `fd 01 00 00 02 00` (0x1fd = 509 — the cell size). Entries ≡ 0 (mod 509);
+  26,456 entries total; only **12,298 distinct** offsets — cells are shared
+  across groups; 14,158 cells are referenced by no group. Reference counts
+  per shared cell: 2–15.
+- **Group shape**: n 1–16; ≤8 distinct seasons per group (histogram
+  7×1118, 8×494, 6×295, 1×241, 5×158…); NO group spans 2023–2037 dense, so
+  no group is a 15-season club or the manager's 15-season career. Group
+  entries are dt-offset-ascending; years inside a group can interleave
+  (e.g. 2023,2023,2025,2023,2026,… in group 25 — adjacent duplicate entries
+  exist: the same cell twice, once per XI kind).
+
+**Cell semantics (high confidence):** a cell is a **best-XI table** for one
+(id3, season, kind): 18 player slots (11 XI + 7 subs). Evidence:
+**same-id3 cell pairs share 14.85 of 18 unit pids on average (n=48,085);
+different-id3 cells share ~0 (n=3,000)** — a squad-stable entity across its
+cells. The 18 units cluster tightly per cell (consecutive-ish small-id
+allocation = one squad's players). rating-sum/apps = real FM avg ratings.
+
+**OPEN / ruled out (do not redo):**
+
+- id3 is NOT `Club.uid`: club 716/717 appear **nowhere** as a head id (0 hits
+  as u32@+3 on any cell), while Club.uid space has 33,001 clubs. id3 is NOT
+  player uid (0 of 20,960 in fmsave player uids), NOT team_id (only 3,239 of
+  10,879 ls-referenced id3 values hit team_id — above random but partial),
+  NOT the person_uid space.
+- id3 spans ≤7 distinct seasons, mostly ONE (16,834 of 20,960 id3 values
+  appear in exactly 1 season, 3,356 in 2, only 770 in ≥3) — so id3 is
+  season-scoped, not a persistent club: **id3 identity unresolved** (a
+  season-scoped club/team handle in the tmc. registry).
+- **ls group owner unresolved.** Groups are 1–16 cells over ≤8 seasons, cells
+  shared across groups (up to 15 groups per cell), and the candidate "owner
+  pid appears in its group's cells" test FAILS: only 224 groups (exactly the
+  n=1 singletons) have any unit pid common to all their cells. So a group is
+  NOT a player listing the XIs he was picked in (his own pid would have to be
+  in all of them), NOT a club (ids/units change within it), NOT a manager.
+  Groups look like per-entity season lists pointing at (id3, season) cells
+  owned by *someone else* — e.g. a player's per-season pointer to the XI page
+  of the club he played at (owner need not be among the 18).
+- unit pids: 123,638 distinct, all < 0xdfe41 (913,729), median 155,736 — a
+  **third id space** (not Club.uid, not player uids, not person_uid, not
+  team_id; 468 hits against non_pl_hist_dt ids ≈ below random). pid ↔ name
+  mapping unresolved (used_player_data is the next candidate: 44.4 MB, tad.
+  v0x23, per-person blobs).
+
+**Remaining plan for this section:**
+
+1. Pin id3: find the entity whose cells chain over years by squad overlap
+   (union-find over ≥10/18 pid overlap, cells within ±2 seasons — b31 draft
+   crashed before printing merges; rerun). A 2023→2037 chain = St Albans
+   (career club). Then reconcile id3 against tc_manager_history_dt (same
+   tmc. magic — its spell rows carry `<u32 club>` in Club.uid space — a
+   cross-section id bridge may exist there) and against the 94 real id3↔staff
+   uid hits found (managers: Paulo Fonseca = 1333).
+2. Decode the 13-B cell tail + the small table in cell 0 (ids 307/29/2034/258).
+3. Pin `b` (0–5: goals? clean sheets?) and f1/f2/f3 (position-class? awards?)
+   via cross-cell consistency of the same pid.
+4. Resolve unit pid→player: chain pids through shared cells into squads, then
+   align squad-tenure patterns against fmsave players' club_membership years
+   (join/leave) — no name registry needed for a first decode; names last.
+5. Integration per the checklist, then the owner-requested **blind career
+   report** (decoded data only, no screenshot/GT facts).
+
+
 ### Remaining plan (owner priority, 2026-10-09: DECODERS FIRST)
 
 Standing direction from the owner: the priority is **finishing the missing
