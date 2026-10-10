@@ -1,21 +1,25 @@
-"""Decoding the `transfer_man` section's season-record grid.
+"""Decoding the `transfer_man` section's season-record grid and wage ledger.
 
 The section (a `tad.` container, one per save) holds the transfer and contract
-ledgers the game's transfer screens read. Its tail is the slice this module
-reads: a store of 73-byte rows keyed per (club, squad slot) and grouped per
-season — per-player-per-club season snapshots whose money fields sit on the raw-£
-weekly-wage scale. The rows sit in a clear region after the section's other
-record families, followed by one zstd-compressed block per older season, oldest
-first and the newest clear.
+ledgers the game's transfer screens read. Two slices are decoded here:
 
-The rest of the section — the transfer-registration families, the wage ledger
-and the negotiation offers — is byte-mapped in the project's notes but not
-decoded here: the section carries no transfer fee, and a fee-shaped money field
-read anywhere in it is a wage or record-constant coincidence.
+- the tail's season-record grid: a store of 73-byte rows keyed per (club, squad
+  slot) and grouped per season — per-player-per-club season snapshots whose
+  money fields sit on the raw-£ weekly-wage scale. The rows sit in a clear
+  region after the section's other record families, followed by one
+  zstd-compressed block per older season, oldest first and the newest clear.
+- the clear zone's wage ledger: uniform 28-byte money records interleaved in
+  file order with 69-byte negotiation records, forming one global chronological
+  log.
+
+The rest of the section — the transfer-registration families and the
+negotiation offers — is byte-mapped in the project's notes but not decoded
+here: the section carries no transfer fee, and a fee-shaped money field read
+anywhere in it is a wage or record-constant coincidence.
 
 Layouts here were reverse-engineered on one save (`Karl Hudgell -
 UnemployedNew.fm`, build 26.3.2, an FM24 career imported into FM26) and are not
-verified across builds. The row reads are a pattern scan, so rows a changed
+verified across builds. The row reads are a pattern scan, so records a changed
 build does not cover are missed rather than misread.
 """
 
@@ -26,7 +30,7 @@ import struct
 import sys
 
 from fmsave._errors import CorruptSaveError
-from fmsave.models.transfer_history import PlayerSeasonRecord
+from fmsave.models.transfer_history import PlayerSeasonRecord, WageLedgerRecord
 
 if sys.version_info >= (3, 14):
     from compression import zstd
@@ -63,6 +67,22 @@ _NULL_YEAR = 1900
 # not decoded: the compressed tail carries a one-byte block terminator the final
 # block alone sits in, and a build may widen that tail a little.
 _MAX_TAIL_DROP = 8
+
+_WAGE_RECORD_LENGTH = 28
+# The two tag bytes the wage ledger opens each record with.
+_WAGE_MAGIC = b"\x11\x00"
+# One wage-ledger record after the tag: the 32-bit handle, the kind byte, two
+# money u32s each padded by a zero u32, a flag byte and the tail word.
+_WAGE_FORMAT = struct.Struct("<IBIIIIBI")
+assert _WAGE_FORMAT.size == _WAGE_RECORD_LENGTH - len(_WAGE_MAGIC)
+
+# A wage record's kind byte is small; the ground-truth kinds are 2-8 and 17.
+_WAGE_KIND_MAX = 32
+
+# A wage record's money fields sit below one six-figure pound value each; the
+# ground-truth maxima are ~301k and ~333k on the weekly-wage scale.
+_WAGE_VALUE_A_MAX = 1_000_000
+_WAGE_VALUE_B_MAX = 100_000_000
 
 
 def _head_variant(head: bytes) -> tuple[int, int]:
@@ -199,4 +219,74 @@ def raise_when_unreadable(rows: int, data: bytes) -> None:
     if rows == 0:
         raise CorruptSaveError(
             f"transfer_man with {len(data)} bytes holds no readable season-record rows"
+        )
+
+
+def _wage_record(data: bytes, offset: int) -> WageLedgerRecord | None:
+    """The wage-ledger record the 28 bytes at `offset` hold, or None it holds none.
+
+    A record is the `11 00` tag, a handle below 16 in its club-high byte, the
+    kind byte below 32, two money u32s each padded by a zero u32, a flag byte
+    and the tail word. The money bound also drops one tagged-record family that
+    interleaves in the same clear zone and whose money positions carry a
+    different grammar: its first money u32 reads with the bytes `01 02` in the
+    middle.
+    """
+    handle, kind, value_a, pad_a, value_b, pad_b, flags, tail_flags = _WAGE_FORMAT.unpack_from(
+        data, offset + 2
+    )
+    if handle >> 24 >= 0x10 or kind >= _WAGE_KIND_MAX:
+        return None
+    if pad_a != 0 or pad_b != 0:
+        return None
+    if (value_a >> 8) & 0xFFFF == 0x0201:
+        return None
+    if value_a >= _WAGE_VALUE_A_MAX or value_b >= _WAGE_VALUE_B_MAX:
+        return None
+    return WageLedgerRecord(
+        club_uid=handle >> 8,
+        slot=handle & 0xFF,
+        kind=kind,
+        value_a=value_a,
+        value_b=value_b,
+        flags=flags,
+        tail_flags=tail_flags,
+    )
+
+
+def decode_wage_ledger_records(data: bytes) -> tuple[WageLedgerRecord, ...]:
+    """Every readable wage-ledger record the section's clear zone keeps, in file order.
+
+    The clear zone runs from the header to the section's first zstd frame magic;
+    every wage-ledger record the save logs sits there, interleaved in file order
+    with the negotiation records it shares the chronological log with. The scan
+    re-anchors on every tag's own position, and 28-byte records embedded inside
+    a negotiation record's body read as standalone ones because the scan cannot
+    tell them apart.
+    """
+    zone_limit = len(data)
+    first_frame = data.find(_ZSTD_MAGIC, _HEADER_SIZE)
+    if first_frame != -1:
+        zone_limit = first_frame
+
+    records_by_position: dict[int, WageLedgerRecord] = {}
+    position = data.find(_WAGE_MAGIC, _HEADER_SIZE, zone_limit)
+    while position != -1:
+        record = _wage_record(data, position)
+        if record is not None:
+            records_by_position[position] = record
+        position = data.find(_WAGE_MAGIC, position + 2, zone_limit)
+    return tuple(records_by_position[position] for position in sorted(records_by_position))
+
+
+def raise_when_ledger_unreadable(rows: int, data: bytes) -> None:
+    """A gate that keeps a wholly different section's bytes from reading as ledger rows.
+
+    The section always carries the wage ledger the world's contract writes feed on
+    a save the game wrote; if no record parses, the section's layout is not the one
+    this decoder reads.
+    """
+    if rows == 0:
+        raise CorruptSaveError(
+            f"transfer_man with {len(data)} bytes holds no readable wage-ledger records"
         )

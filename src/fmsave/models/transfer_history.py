@@ -2,14 +2,18 @@
 
 The `transfer_man` section is a record store reverse-engineered on one save
 (`Karl Hudgell - UnemployedNew.fm`, build 26.3.2, an FM24 career imported into FM26).
-Its season-record grid is the slice of the section proven to be 73-byte rows:
-per (club, squad slot) rows grouped per season, holding money fields on the
-raw-£ weekly-wage scale. The section's other families (transfer registrations,
-wage ledger, negotiation offers) are mapped in the project notes but not decoded
-here, so this model reads no transfer fees.
+Two of its slices are decoded here:
 
-The row layout is not verified across builds, and no field's meaning is confirmed,
-so every field of the model is registered unconfirmed in the reader.
+- the season-record grid, 73-byte rows per (club, squad slot) grouped per season,
+  holding money fields on the raw-£ weekly-wage scale;
+- the wage ledger, uniform 28-byte records from the section's first (clear)
+  zone: per (club, squad slot) money records in one global chronological log,
+  interleaved in file with 69-byte negotiation records.
+
+The section carries no transfer fee, so this model reads no transfer fees.
+
+The layouts are not verified across builds, and no field's meaning is
+confirmed, so every field of the models is registered unconfirmed in the reader.
 """
 
 from __future__ import annotations
@@ -111,5 +115,74 @@ register_field_statuses(
         "count",
         "value_f",
         "value_g",
+    ),
+)
+
+
+@dataclass(frozen=True, slots=True)
+class WageLedgerRecord:
+    """One 28-byte wage-ledger record from the `transfer_man` section's clear zone.
+
+    The section's clear zone interleaves two append streams in chronological
+    order: this uniform 28-byte record, here read as the per-player wage and
+    contract ledger, and 69-byte negotiation records (not decoded). A record
+    keys a player through the club uid and club-internal squad slot in its 32-bit
+    handle — the same handle the season-record grid's head id carries — and
+    carries two money fields on the raw-£ weekly-wage scale: on the ground-truth
+    save the first money field spans 1.1k-301k and the second 440-333k, and the
+    second field is often a small multiple of the first but not predictably so,
+    so the pair is stored raw. A handful of records carry the same handle at two
+    clubs with identical money, which reads as the two clubs' registrations of
+    one shared/loan spell.
+
+    The stream the records sit in is structurally interleaved with the
+    negotiation records, and 28-byte records also appear embedded inside those
+    negotiation records' bodies; the reader's pattern scan cannot tell an
+    embedded copy apart from a standalone one, so both are read.
+
+    Attributes:
+        club_uid: Save-internal club uid the record keys on — the handle's high
+            24 bits, matching `Club.uid` (one less than the editor's unique id)
+            (unconfirmed).
+        slot: The handle's low byte — the squad slot, the same value the
+            season-record grid's head id carries for the same player
+            (unconfirmed).
+        kind: The record's kind byte. On the ground-truth save kinds 4, 7, 5,
+            2, 3, 8 and 17 occur, by descending frequency; kind 4 alone is two
+            thirds of all records. Kinds may be money kinds (raw wage vs
+            contract total etc.) rather than record types (unconfirmed).
+        value_a: The record's first money field, on the raw-£ weekly-wage scale
+            (unconfirmed).
+        value_b: The record's second money field, same scale; often a small
+            integer multiple of `value_a` (unconfirmed).
+        flags: The record's flag byte between the money fields and the tail —
+            0 on 97% of the ground-truth records; on every remaining record the
+            second money field is exactly five times the first, so the flag and
+            the ×5 pair probably switch between two money-unit forms
+            (unconfirmed).
+        tail_flags: The record's trailing 32-bit word, a bitfield; set bit
+            values on the ground-truth save are 4, 8, 64, 128, 1024, 2048,
+            4096 and 32768 (unconfirmed).
+    """
+
+    club_uid: int
+    slot: int
+    kind: int
+    value_a: int
+    value_b: int
+    flags: int
+    tail_flags: int
+
+
+register_field_statuses(
+    WageLedgerRecord,
+    unconfirmed=(
+        "club_uid",
+        "slot",
+        "kind",
+        "value_a",
+        "value_b",
+        "flags",
+        "tail_flags",
     ),
 )

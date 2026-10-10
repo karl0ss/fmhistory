@@ -743,6 +743,46 @@ Decoder design (proven on GT, scan100–scan109):
 - **Header is 12 bytes**, not 13: `03 01 'tad.' <u16 0x23> <u32 0xb06500>` —
   the u32 sits at offset 8 and the section content starts at 12.
 
+### transfer_man checkpoint 7 (2026-10-10): wage-ledger reader INTEGRATED
+
+`Save.transfer_man_wage_ledger()` → `Table[WageLedgerRecord]` (same model/
+reader modules as the 73B grid, cache key
+`table:transfer_man_wage_ledger`, tests in `tests/test_transfer_history.py`).
+
+Scans `wl_verify.py..wl_verify5.py` re-derived the layout before writing:
+checkpoint 2's `u64 V1 | u64 V2` reading is **equivalent but not exact** —
+the record is `11 00 | u32 handle | u8 kind | u32 V1 | u32 0 | u32 V2 | u32 0
+| u8 flags | u32 tail_flags` (28 B); reading the values as u64s only worked
+because the pads are zero. Corrections to checkpoint 2:
+
+- **V2 = V1 × n does NOT hold generally**: integer ratios cover only ~36%
+  (n=1: 5,492 / n=3: 4,142 / n=2: 1,707). But **flags ≠ 0 (788 records,
+  flags ∈ {2,3,4,5,6,7}) ⇔ V2 = V1 × 5 exactly** — the flag switches a ×5
+  money-unit form. flags=0 records are the mixed-ratio population.
+- kinds in the ledger band: 4 (66%), 7, 5, 2, 3, 8, 17 (+ a junk family
+  `kind 0, value 0/8` mostly outside the band). The rare-kind set extends
+  checkpoint 2's (3..10): kind 2 (232), 17 (14) are real.
+- **The zone-1 stream is one chronological log**: every gap between
+  consecutive ledger records is a multiple of 69 — the 28-B wage records and
+  the 69-B negotiation records butt each other. 28-B records also sit
+  embedded inside negotiation-record bodies (811 outside the ledger band);
+  the reader cannot tell embeds from standalone ones and reads both.
+- A tagged interleave family (first money word's bytes 1–2 = `01 02`) is
+  rejected explicitly in `_wage_record`; kind/zero-pad/value bounds and the
+  club-high-byte < 0x10 check are the rest of the fingerprint.
+
+GT: **32,235 records, 2,011 clubs; club 716: 28 records**, led by the
+dual-club pair (716 slot 0x21 / 2536 slot 86) both 20,680/62,040 (the
+registration-pair anchor). value_a 0–301,424 p50 22,440; value_b 0–332,640.
+Dumas (716,7) and Y-T (716,172) have **0 wage-ledger records** — the ledger
+does not cover every player; nothing is lost vs checkpoint 2 (those "wage
+histories" used other slots).
+
+Still open in zone1 (unchanged): 0b negotiation TLV walking + ref→club/player
+attribution, family-A `03` integration (its `person` id space was later
+reinterpreted as (X-tick, year) date packs — DO NOT integrate as a person
+registry without re-checking), date anchors.
+
 GT validation: 1,428,558 rows, year histogram 2022:39, 2023:32,213,
 2024:124,931, 2025:109,561, 2026:93,730, 2027:94,208, 2028:102,511,
 2029:103,068, 2030:99,120, 2031:98,263, 2032:98,407, 2033:97,736, 2034:97,100,
@@ -1094,8 +1134,10 @@ for league positions, honours, cup runs, awards, manager spells exist):
    Transfer *fees*: the fee hunt is CLOSED (see "Fee hunt CLOSED"
    checkpoint) — no per-transfer fee store exists in the container; the
    site shows fee-less transfer rows with 73B money fields flagged
-   unconfirmed. Remaining in transfer_man: **zone1 compact families to
-   integrate** (family-A, `11 00` wage ledger, `03`, `0b` — maps in
+   unconfirmed. **Wage ledger: INTEGRATED (checkpoint 7, 2026-10-10) —
+   `Save.transfer_man_wage_ledger()`**, 32,235 GT records. Remaining in
+   transfer_man: zone1 negotiation (`0b`) records and family-A (the `03`
+   family's "person" id space needs re-checking before integration — maps in
    checkpoints 1/3).
 2. ~~Validation backlog~~ **DONE (checkpoint 4)**: anchors verified, reader bugs
    fixed, pytest pinned. Still open inside league history: identifying the

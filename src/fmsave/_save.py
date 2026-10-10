@@ -40,7 +40,7 @@ from fmsave.models.competitions import Competition, Stage
 from fmsave.models.contracts import Contract
 from fmsave.models.facilities import ClubFacilities
 from fmsave.models.finances import FinanceMonth, Sponsorship
-from fmsave.models.transfer_history import PlayerSeasonRecord
+from fmsave.models.transfer_history import PlayerSeasonRecord, WageLedgerRecord
 from fmsave.models.fixtures import Fixture
 from fmsave.models.injuries import InjuryRecord, InjuryType
 from fmsave.models.jobs import JobVacancy
@@ -92,6 +92,8 @@ from fmsave.readers.career_history import (
 from fmsave.readers.transfer_history import (
     TRANSFER_MAN_SECTION,
     decode_player_season_records,
+    decode_wage_ledger_records,
+    raise_when_ledger_unreadable,
     raise_when_unreadable,
 )
 from fmsave.readers.facilities import find_facility_layout, read_club_facilities
@@ -200,6 +202,7 @@ CAREER_MANAGER_SPELLS_TABLE_CACHE_KEY = "table:career_manager_spells"
 CAREER_AWARDS_TABLE_CACHE_KEY = "table:career_awards"
 CAREER_LEAGUE_HISTORY_TABLE_CACHE_KEY = "table:career_league_history"
 TRANSFER_MAN_SEASON_RECORDS_TABLE_CACHE_KEY = "table:transfer_man_season_records"
+TRANSFER_MAN_WAGE_LEDGER_TABLE_CACHE_KEY = "table:transfer_man_wage_ledger"
 JOB_VACANCIES_TABLE_CACHE_KEY = "table:job_vacancies"
 STADIUMS_TABLE_CACHE_KEY = "table:stadiums"
 STAFF_TABLE_CACHE_KEY = "table:staff"
@@ -859,6 +862,32 @@ class Save:
         context = self._context
         return context.cached(
             TRANSFER_MAN_SEASON_RECORDS_TABLE_CACHE_KEY, self._read_transfer_man_player_seasons
+        )
+
+    def transfer_man_wage_ledger(self) -> Table[WageLedgerRecord]:
+        """Every readable wage-ledger record the `transfer_man` section's clear zone stores.
+
+        The clear zone is one chronological append log whose wage-ledger records — a
+        uniform 28-byte format keyed by club uid and squad slot, with two money fields
+        on the raw-£ weekly-wage scale — sit interleaved with the negotiation records
+        it is logged alongside. The money fields are stored raw: the second is often a
+        small multiple of the first, but not predictably so, and neither maps to a
+        transfer fee. The reader pattern-scans the zone, so records a layout the scan
+        misses are skipped rather than misread, and records embedded inside a
+        negotiation record's body are read as standalone ones. Row semantics are
+        unconfirmed on the ground-truth save and are not verified across builds.
+
+        Returns one record per readable row with the club uid, squad slot, kind byte,
+        the two money fields, the flag byte and the tail word.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written.
+        """
+        context = self._context
+        return context.cached(
+            TRANSFER_MAN_WAGE_LEDGER_TABLE_CACHE_KEY, self._read_transfer_man_wage_ledger
         )
 
     def stadiums(self) -> Table[Stadium]:
@@ -2385,6 +2414,12 @@ class Save:
             records = decode_player_season_records(transfer_data)
         raise_when_unreadable(len(records), transfer_data)
         return Table(records, PlayerSeasonRecord)
+
+    def _read_transfer_man_wage_ledger(self) -> Table[WageLedgerRecord]:
+        with self._context.section(TRANSFER_MAN_SECTION) as transfer_data:
+            records = decode_wage_ledger_records(transfer_data)
+        raise_when_ledger_unreadable(len(records), transfer_data)
+        return Table(records, WageLedgerRecord)
 
     def _read_stages(self) -> Table[Stage]:
         context = self._context

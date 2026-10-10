@@ -2,10 +2,11 @@
 
 ## Overview
 The `transfer_man` section (53 MB on the ground-truth save) stores the transfer
-and contract ledgers the game's transfer screens read. Its tail is a store of
-73-byte per-season rows — one row per (club, squad slot) per season — which this
-reference describes. The section's earlier record families (transfer
-registrations, wage ledger, negotiation offers) are byte-mapped in
+and contract ledgers the game's transfer screens read. Two slices of it are
+decoded: the tail's 73-byte per-season rows — one row per (club, squad slot) per
+season — described below, and the clear zone's 28-byte wage-ledger records
+(`Save.transfer_man_wage_ledger()`). The section's remaining record families
+(transfer registrations, negotiation offers) are byte-mapped in
 `docs/history-re.md` but not decoded here: **the section carries no transfer
 fee**, and every fee-shaped money value read anywhere in it is a wage or
 record-constant coincidence (see `docs/history-re.md`, checkpoints 4 and 5).
@@ -21,6 +22,31 @@ squad slot, with three to six money fields on the raw-£ weekly-wage scale
 (20k–40k on league-standard players), a row-type byte, a tick word and the
 season year.
 
+### WageLedgerRecord Dataclass
+`Save.transfer_man_wage_ledger()` reads the section's first (clear) zone: one
+global chronological log whose wage-ledger records — `fmsave.WageLedgerRecord`,
+all fields `unconfirmed` — sit interleaved in file order with 69-byte
+negotiation records. Each 28-byte record:
+
+- `11 00` tag
+- `handle` (u32) — the club uid in the high 24 bits, the club's squad slot in
+  the low byte; the same handle the season rows key on
+- `kind` (u8) — ground-truth kinds 4 (two thirds of records), 7, 5, 2, 3, 8 and
+  17
+- `value_a` (u32) — money field on the raw-£ weekly-wage scale
+- zero u32
+- `value_b` (u32) — second money field, same scale; often a small multiple of
+  `value_a`
+- zero u32
+- `flags` (u8) — 0 on 97% of records; on every remaining record `value_b` is
+  exactly five times `value_a`
+- `tail_flags` (u32) — trailing bitfield (ground-truth set bits: 4, 8, 64,
+  128, 1024, 2048, 4096, 32768)
+
+Ground truth: 32,235 records across 2,011 club uids; the manager's club (716)
+carries 28, led by the dual-club registration pair (716 slot 33 / club 2536
+slot 86) both carrying 20,680/62,040.
+
 ## Section Structure
 
 ### transfer_man
@@ -29,7 +55,8 @@ The section opens with a 12-byte header: `03 01 'tad.' <u16 version>` then a
 u32 byte count. On the ground-truth save the u32 is 11,560,192 and the section
 then spans:
 
-- a clear region of record families (zone 1, ~17.7 MB — not decoded here),
+- a clear region of record families (zone 1, ~17.7 MB — the wage ledger here
+  is decoded, the transfer-registration and negotiation families are not),
 - the clear season-record region: 73-byte rows in runs at stride 73, with
   ~1 KB story/TLV chunks (plain-text and base64 strings) interleaved between
   runs,
@@ -60,9 +87,9 @@ Each 73-byte row contains (all little-endian):
 
 ## Decoder Implementation
 
-`decode_player_season_records` in `src/fmsave/readers/transfer_history.py`
-implements a pattern scan (not a layout walk — rows a changed build does not
-cover are missed rather than misread):
+`decode_player_season_records` and `decode_wage_ledger_records` in
+`src/fmsave/readers/transfer_history.py` implement pattern scans (not layout
+walks — records a changed build does not cover are missed rather than misread):
 
 1. Splits the section at the zstd frame magics; the clear region runs from the
    header to the first magic, and each segment is one frame. A false magic
@@ -76,9 +103,17 @@ cover are missed rather than misread):
    1900 null year. Rows whose year is 0xffff parse as one uniform junk family
    (club 0, type 1, flags 0x01ff) and are dropped.
 
-`raise_when_unreadable` gates the `Save.` method: a section that yields no
-rows raises `CorruptSaveError`, keeping a wholly different section's bytes
+`raise_when_unreadable` gates the `Save.` method for the season rows, and
+`raise_when_ledger_unreadable` the wage-ledger one: a section that yields no
+records raises `CorruptSaveError`, keeping a wholly different section's bytes
 from reading as an empty table.
+
+The wage-ledger scan reads the clear zone only (header to the first zstd frame
+magic) and validates each candidate on: the `11 00` tag, the handle's club-high
+byte below 16, the kind byte below 32, two zero pad words around the money
+fields, both money fields under their scale bounds, and the absence of an
+interleaved tagged family's `01 02` marker inside the first money field's
+middle bytes.
 
 ## Usage
 
@@ -91,6 +126,8 @@ save = fmsave.open("my-career.fm")
 for record in save.transfer_man_player_seasons():
     if record.record_type == 4:
         print(record.season_year, record.club_uid, record.value_a)
+for record in save.transfer_man_wage_ledger():
+    print(record.club_uid, record.slot, record.value_a, record.value_b)
 ```
 
 ## Ground-Truth Numbers
@@ -105,7 +142,12 @@ club 716 slot 7) carries 23,972 in `value_a` and `value_c` in season 2036, and
 the companion club row (slot 172) carries 32,604 in `value_b` and `value_c`,
 matching the values decoded from the wage-ledger families in checkpoint 4.
 
+The wage ledger decodes to **32,235 records across 2,011 club uids**; the
+manager's club (716) carries 28, and the kind-4 share is 66%. `value_a` spans
+0–301,424 (p50 22,440), `value_b` 0–332,640, on the raw-£ weekly-wage scale.
+
 ## Field Status
 
-All fields in `PlayerSeasonRecord` are marked unconfirmed: reverse-engineered
-from a single ground-truth save, pending validation across saves and builds.
+All fields in `PlayerSeasonRecord` and `WageLedgerRecord` are marked
+unconfirmed: reverse-engineered from a single ground-truth save, pending
+validation across saves and builds.

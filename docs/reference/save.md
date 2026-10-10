@@ -19,7 +19,7 @@ runs every reader at once and reports how each fared, without raising or warning
        player_season_stats, finances, sponsorships, facilities, staff, staff_lists, tactics,
        set_pieces, training, mentoring, career_persons, career_honours, career_cup_entries,
        career_manager_spells, career_awards, career_league_history,
-       transfer_man_player_seasons, close
+       transfer_man_player_seasons, transfer_man_wage_ledger, close
 ```
 
 ## Save metadata
