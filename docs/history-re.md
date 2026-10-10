@@ -649,8 +649,10 @@ Scripts `scan78–98`. Goal: locate the per-transfer fee store using GT anchors
 anchoring in ANY section — the exact-value collisions everywhere are
 coincidences with per-club record constants (attendance/capacity) and wage
 values.** A structurally-decoded transfer/fee section remains the only viable
-path; candidates left: `person_record_history_dt` (131 MB, unprobed),
-`person_db_changes` (21 MB), `non_pl_hist_dt` item grammar.
+path; candidates left: `person_db_changes` (21 MB, unprobed),
+`non_pl_hist_dt` item grammar, club-finance monthly records
+(`person_record_history_dt` probed and parked — checkpoints 7–9: grammar +
+person refs pinned, no fee store).
 
 1. **`tc_record_man` 23,000/32,500 sites = attendance records** (7 of 9): shape
    `01 ff 01 | u32 | 01 <u8> | <u8> <u16 year>` with years 0x079b=1947 …
@@ -860,6 +862,85 @@ c1/c2 per person and for money u32s in tails; (3) decode the YT low16 family
 record with an Aug tick matching his 9/8/2036 sale; (4) same for Dumas (in
 10/8/2036, £23M) — if his fee appears here, the fee log is found and the
 integration follows.
+
+### person_record_history_dt — person refs pinned, fee hunt closed for this section (checkpoint 9, 2026-10-10; scans 123–129)
+
+**Robust head parser built** (scan123, `/tmp_xfer/scan123.py`): anchor every
+record on its (tick, year) pair — candidate heads = `dt[p+6]==0` with u16
+year@p+13 in 2018–2045 and tick≤40,000 → **2,780,215 candidate heads**.
+ls binding on the first 300k in-range ptrs: **ptr-to-head distance
+dominantly 3** (ls entries point at head+3, not the head start), 235k/300k
+binding within ≤12 B. 42-B stride between consecutive bound heads.
+
+**Person reference = refC, u32 @h+7** (scans 125–126; the 125 result
+`refC = person<<8` was an `<IHI` off-by-one — the third u32 read at +6, raw
+bytes `ea 8e 00 00` at +7 decode directly):
+
+- **Dumas = 0xb604** (low16 + 1; matches `player_scan`'s sound-header
+  person_id+1 convention) → **12 records** (2023×2, 2027, 2029×2, 2031,
+  2033×3, 2037×3 — *no 2036 record at all*: his 10/8/2036 IN-transfer does
+  not surface in this parse of the section). Dumas variants ±1
+  (0xb602/0xb603/0xb605) → 0 records.
+- **Y-T = 0x8eea → 120 records** (2018–2037; year 2027+ dumped in
+  scan126/127) plus **0x8ee9 → 2** and **0x8eeb → 1** — adjacent refs,
+  0x8ee9 records share the exact tick of a 0x8eea neighbour (pair rows).
+- **refB (u16@+4) = a second small-ref space**: 5249 / 5254 / 5284 / 5287
+  seen on Y-T records, 65535 (null) on most; never a person-ref target
+  value. Candidate = club/small-entity ref (semantics open).
+
+**42-B frame field map final** (values at +42/+46/+50/+54 belong to the
+NEXT record — earlier "+46 money" readings were next-record refA):
+
+```
++0  u32 refA (0xffffffff = none; real values ≈ 76k–823k, NOT dt pointers —
+    verified: no head exists at refA offsets)
++4  u16 refB          +6  pad 00      +7  u32 refC (person ref)
++11 u16 tick          +13 u16 year
++15 u32 f15 (0 or bitfield: 0x8000 family, 0x80000002, 0x40)
++19 u16 f19 — often the year echo (0x7eb=2027, 0x7f3=2035, 0x7f4=2036,
+              0x7f5=2037); 0xffff sentinel on one sub-family (f15=0x40,
+              f21=0xffffffff, f35=1)
++21 u32 f21 (0 / bitfield / 0xffffffff)
++27 u32 f27 (small counter: 0/1/12/16/44/50)
++31 u32 f31 (0 or ref-scale: 5262/3294/27901/59116 — club/second-ref scale?)
++35 u8  f35 (0x1e/0x20/0x21/0x24/0x3c/0x3d/0x3e/0x3f/0x41/0x47/0x6f/0x7a …)
++36 u16 f36 (0 seen)  +38 u32 f38 — tail value
+```
+
+f38: sometimes **echoes refC** (0x8eea on Y-T rows), sometimes a second
+person-scale ref (0x12e3d = 77,629), sometimes a small value
+(404/934/1481/1486/11963/20667), sometimes 23,000 (see below). Pairs of
+records sharing one tick (42 B apart) are common (Dumas 12508×2, 32499×2;
+Y-T 11473×2) — first-of-pair carries refA ref + small f38, second carries
+ff refA + bigger f38.
+
+**tick semantics OPEN** (blocked guesses, all refuted): not day-of-year,
+not days-since-any-epoch (5814/5815 recur in 2024/2025/2026; tick=0 rows at
+2018 AND 2022), not an ls index (scan128: ls[tick] binds no better than
+base density). A tick≈6804–6810 family recurs across half the years holding
+identical values — template/constant records (cf. tc_extended per-season
+constants), suggesting ticks are family-relative counters. Year field
+itself is solid (u16, 2020–2037 coverage rising toward 2037).
+
+**Fee hunt closed for this section** (scans 126–129): raw-£
+23,000,000/32,500,000/2,300,000/3,250,000 → **0 hits**. The £k-scale hits
+are all coincidences: 23,000 ×14 = (a) f38=23,000 on ~10 tick≈6805
+template records across unrelated years/seasons, (b) f19 AND f31 both
+23,000 inside tick=11277/2034 records (wage-snapshot rows, cf. checkpoint
+4's Y-T ladder analysis); 32,500 ×3 = wage-scale refA/context, not in any
+person-bound transfer-shaped record. **No per-transfer fee record exists in
+`person_record_history_dt` under the person anchors** — extends checkpoint
+5's value-anchoring closure to this section's decoded structure.
+
+**Dead ends this arc (do not redo):** refA as dt pointer; tick as
+ls index / calendar day / epoch offset; "+46 money" field (was next record);
+Dumas ±0/±1 ref variants; fee values by anchor (closed checkpoint 5).
+
+**Concrete next steps (deprioritised — section parked):** family census by
+(f15, f19, f35) signatures + per-family semantic labels; the 84/126-B
+long-record families' tails; what produces a "second id space" in ls.
+Fee hunt moves to `person_db_changes` (21 MB, unprobed) and
+`non_pl_hist_dt` item grammar (checkpoint 4 pointer).
 
 ### Remaining plan (owner priority, 2026-10-09: DECODERS FIRST)
 
