@@ -591,3 +591,14 @@ def find_person_reference(game_db: bytes, unique_id: int) -> int | None:
             found.add(reference)
         hit = game_db.find(needle, hit + 1)
     return next(iter(found)) if len(found) == 1 else None
+
+
+def player_references(pindexes: Sequence[int], uids: Sequence[int]) -> dict[int, int]:
+    """Each player's history reference id mapped to his uid.
+
+    A player record's header stores his person id (the player scan's pindex), and his
+    object closes with `pindex + 1`, the id every history section uses for him (award
+    winners, best-eleven units, transfer and person-record rows). On the ground-truth
+    save `pindex + 1` equals the closing-header reference for 99.2% of players.
+    """
+    return {pindex + 1: uid for pindex, uid in zip(pindexes, uids, strict=True)}

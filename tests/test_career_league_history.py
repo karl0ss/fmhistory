@@ -11,6 +11,7 @@ from fmsave.readers.career_history import (
     decode_league_history,
     decode_league_history_lists,
     find_person_reference,
+    player_references,
     resolve_league_history_indexes,
 )
 
@@ -270,3 +271,7 @@ def test_a_person_reference_is_the_word_before_his_doubled_unique_id() -> None:
     assert find_person_reference(game_db, 7) is None
     twice = game_db + struct.pack("<III", 5, 2002143423, 2002143423)
     assert find_person_reference(twice, 2002143423) is None
+
+
+def test_a_players_history_reference_is_one_past_his_pindex() -> None:
+    assert player_references([189607, 280835], [9001, 9002]) == {189608: 9001, 280836: 9002}

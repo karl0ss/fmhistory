@@ -1359,6 +1359,31 @@ chain is claimed by a *different* single group (438, 450, 490, …), and group
 4. Then integration per the checklist and the blind career report.
 
 
+### Player identity SOLVED: unit pid = history reference = pindex + 1 (checkpoint 3, 2026-10-10; scans d4_*)
+
+- A person's `game_db` object closes with `[u32 ref][u32 unique_id][u32
+  unique_id]` (unique_id = uid + 1). For players `ref = pindex + 1`, the
+  same id `player_scan.closing_unique_id` searches for (99.2% agreement with
+  a full header scan: 206,125 / 207,801). Integrated as
+  `Save.history_player_references()` (ref → player uid) and
+  `Save.history_person_reference(uid)` (any person, header search).
+- **Best-eleven unit pid = that reference, exactly**: cell id3 75245 (2036,
+  T0 kind18) holds Dumas 189608, Young-Thomas 280836, Tshongo 458697, Gumbs
+  493490 and Hodges 537474 at ref+0; ±1 hits scatter over unrelated cells.
+  Named, it is St Albans' 2036 best-18 (17/18 resolve; apps 14–45, ratings
+  6.5–7.2). The old "pid→player dead" entry tested `uid`, not the reference.
+- Coverage of all unit pids by current players: 2037 88%, 2036 85%, falling
+  to ~6–15% for 2023–2026 (players retired out of `players()`); 52,412 of
+  123,639 pids named. Retired players need another name source (hall-of-fame
+  persons, or their surviving non-player objects) — next probe.
+- The same reference space appears in `transfer_man`, `person_record_history_dt`
+  and `manager_manager` (5/5 test players hit 2–11×; random values in the same
+  range: median 0 hits). NOT the same space as person_record's refC in the
+  checkpoint 9 notes? — re-check: refC Dumas = 0xb604, reference = 189608.
+
+**Next:** integrate best-eleven cells (model + reader + `Save.` method,
+units carrying `player_uid` via the reference map), then retired-player names.
+
 ### Remaining plan (owner priority, 2026-10-09: DECODERS FIRST)
 
 **Superseded: the working roadmap now lives in `docs/PLAN.md` — every session

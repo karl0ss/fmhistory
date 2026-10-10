@@ -88,6 +88,7 @@ from fmsave.readers.career_history import (
     decode_hall_of_fame,
     decode_league_history,
     find_person_reference,
+    player_references,
     resolve_league_history_indexes,
     decode_manager_spells,
 )
@@ -893,6 +894,24 @@ class Save:
         """
         with self._context.section(GAME_DB_SECTION) as game_db:
             return find_person_reference(game_db, person_uid + 1)
+
+    def history_player_references(self) -> dict[int, int]:
+        """Every player's history reference id mapped to his uid.
+
+        History sections name players by a save-wide reference id, not by uid: the
+        winner of an award row, the units of a best-eleven table, the people in
+        transfer and person-record rows. A player's reference is one past the person
+        id his record header stores, so this joins those rows to `players()` without
+        a search. Retired players no longer in `players()` are not covered; for staff,
+        use `history_person_reference`.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written.
+        """
+        records = self._context.player_records()
+        return player_references(records.pindexes, records.uids)
 
     def transfer_man_player_seasons(self) -> Table[PlayerSeasonRecord]:
         """Every readable 73-byte season-record row the `transfer_man` section stores.

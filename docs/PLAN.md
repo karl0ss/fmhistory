@@ -78,7 +78,8 @@ validated against the k-world yearly reports (seasons 1–9) and screenshots.
   container (fee-hunt elimination arc, checkpoint 5 in history-re.md).
 - `tc_best_eleven` id3=club: **dead** (checkpoint 2 corrects d8253b1).
 - Within-group (ls) cell overlap models: **dead** — the WALL measurement.
-- Best-eleven pid→player via `players().uid`: **dead** (0/123,638 hits, b58).
+- Best-eleven pid→player via `players().uid`: dead — but pid = history
+  reference = pindex + 1 (SOLVED 2026-10-10, `Save.history_player_references()`).
 
 ## Validation assets
 
