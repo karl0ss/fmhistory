@@ -30,7 +30,7 @@ readers we write own this grammar.
 | award_year_hist_dt | 2,579,646 | awards by year (29 St. Albans hits) |
 | tc_extended_nation_records_history_dt | 2,256,752 | nation records |
 | hall_of_fame | 951,133 | hall of fame |
-| award_man / award_club_hist_dt | 842,684 / 23,984 | award definitions / club awards |
+| award_man / award_club_hist_dt | 842,684 / 23,984 | current award shortlists / club awards |
 | tc_manager_history_dt | 799,746 | manager career history (all managers) |
 | news | 40,657,499 | news items, contains readable strings |
 | transfer_man | 53,306,010 | transfers |
@@ -202,26 +202,49 @@ note had it.
 - Inline names exist here (`04 00 00 00`="Karl", `07 00 00 00`="Hudgell"), so person
   blocks in "tad." sections can embed names directly; other sections reference by uid.
 
-### tc_cup_history_dt — FULL TABLE DECODED (18-byte rows)
-- INTEGRATED (`Save.career_cup_entries()`, `fmsave career-history`): `03 01 'tmc.' 01 00`,
-  then a flat 18-byte row array from offset 4:
-  `[u32 club][u32 comp][u16 y1][u16 y2] 02 01 ff ff` — 165,490 rows, 99.95% with
-  y2 in y1..y1+2 (same-year rows common, two-year spans rare). 61,034 rows carry
-  club 0xffffffff = competition records without a club.
-- **The `comp` u32 is NOT a competition id (2026-10-10):** all 20 club-716
-  values (5453/5454/5655/5859) are members of comp 648's stage list — comp
-  648 is the **French Cup** (database 1301407) per both `stages()` and
-  `competitions()` — while St Albans' real cup (FA Trophy, internal 151,
-  database 109202) has stages 246/4342/4465…; the English FA Cup (664) has
-  others. As raw competition ids, 5859 would "name" as a Portuguese league.
-  Field semantics open; `CupEntry.competition_id` must not be named. The FA
-  Trophy win comes through `career_honours()` correctly.
-- Club 716: exactly 20 rows, seasons 2024/25 → 2034/35 (none in 2026/27, 2029/30,
-  2030/31 and none in 2023/24 — that season lives in the FM24 blob):
-  comp 0x154d (5,453) → 13 rows; 0x154e (5,454) → 5; 0x16e3 (5,859) → 1 (2024/25);
-  0x1617 (5,655) → 1 (2031/32). Multiple rows per season = per-round/per-stage
-  entries, ids unresolved (competitions are NOT named in the save — see fmsave note
-  on database_id maps).
+### tc_cup_history_dt / _ls — RE-FRAMED: per-team cup history (2026-10-10, scratch `fm26-career/tmp_cups/a*.py`)
+- **The first reader was misaligned (dead end, do not revive):** it read 18-byte rows
+  from offset 4, so its "club" u32 was the previous row's last field (row 0's "club
+  77411" was the header bytes `'c.' 01 00`) and the "comp" values looked like French
+  Cup stages under St Albans. The head is 8 bytes (`03 01 'tmc.' 01 00`); (len−8) % 18
+  == 0 exactly (165,490 rows) and the ls trailer's record size is 18.
+- **Row (INTEGRATED, `Save.career_cup_entries()`):**
+  `[u32 stage_id][u16 start_year][u16 end_year][u8 result][u8 method][u16 word]
+  [u8 position][u8 0][u32 opponent TEAM id]`.
+  - stage_id: `stages()` id of the stage the campaign ENDED in (proven: Brazilian
+    clubs' lists hold Brazilian Cup / Northeast Regional stages, an African nation's
+    list holds ACON / WC-African-qualifying stages, St Albans' holds FA Trophy/FA Cup/
+    Carabao/Vertu stages).
+  - years: calendar start/end of the season (2024, 2025 for 2024/25; equal for
+    calendar-year comps); end_year = the honours season. 99.95% have end−start ∈ 0..2,
+    62 rows 3, ~20 rows carry a junk/unset end year.
+  - opponent: a **team id** (`Club.teams[].team_id`), not a club uid — team 603 =
+    St Albans' first team, team 716 = FC Gueugnon (that was the "St Albans in the
+    French Cup" illusion). 0xffffffff on league-format rows.
+  - word: 0xffff on 98.7%; 633/637/635/2610… on the rest, open.
+  - byte at +15 is always 0.
+- **Codes (checked against stored fixture scores, 2034/35–2036/37):**
+  result 3 = won the competition (192 W + 50 drawn→pens; row = final, opponent =
+  beaten finalist); 2 = knocked out by opponent (6,020 L); 0 + no opponent =
+  league-format stage, `position` = placing (0 occurs → likely 0-based, unconfirmed);
+  1 = tie won (51 W), meaning open. method 1 = normal time, 2 = extra time, 3 =
+  penalties (940/940 drawn fixture scores), 7 = two legs (Carabao semis, old WC
+  qualifying), 8 = 154 rows open, 255 = league-format.
+- **ls:** shared list grammar (`decode_league_history_lists` works unchanged:
+  absolute offsets = 8 + delta-decoded value). 10,601 lists, **one per team**, every
+  row in exactly one list; lists ordered by their first row, team NOT stored.
+  Verified by fixtures: owner = other side of the fixture at (stage, season,
+  opponent) → single owner for 4,524/5,405 lists with fixtures, owner ≠ opponent.
+- **Club pinning (INTEGRATED, `Save.club_cup_history(uid)`):** hall-of-fame cup
+  honour (club, database comp, season) → internal comp → the unique result-3 row
+  with that competition_id (joined from `stages()`) and end_year → its list. 34 clubs
+  pin on the ground-truth save; **St Albans = list 3643** (54 rows 2023/24–2036/37),
+  FA Trophy 2024/25 = stage 4491 (round 19, final) result 3 vs Bath City ✓; FA Cup
+  exits each season (Enfield, QPR, Cardiff, Norwich, WBA, Leicester, Wrexham,
+  Newcastle, Ipswich, Man UFC (ET), Forest, Brighton, Man UFC).
+- Open: result 1 / method 8 / `word` meaning; position base; mapping lists to teams
+  without a cup honour (fixtures cover only 2034+; a team-record history index in
+  game_db not found).
 
 ### non_pl_hist_dt — manager spells (pre-career chain)
 - Records: `01 0b 00 00 | <u32 subject> | <u16 day1> <u16 year1> | <u16 day2> <u16
@@ -230,60 +253,25 @@ note had it.
   e.g. spells ending 2022 (`f5 00 e0 07 00 00 e6 07` = 272→356 2016, 2022…). This
   section carries the non-league/pre-import manager chains.
 
-### award_year_hist_dt — INTEGRATED (`Save.career_awards()`, tag-bearing records)
-- `03 01 'tmc.' 01 00` header then a stream of 26/30-byte records that sit directly
-  against each other, placeholders between them:
-
-  ```
-  30-byte (winner + club):  [02][u32 flags][u16 tag][u16 year][u16 award][u32 winner]
-                            [u32 club][u8 age][u16 a][u16 b][u16 c][u16 d][u8 e]
-  26-byte no-club:         same minus the club u32, e.g. person-winner (player
-                            award) rows — 2,314 of them, (year, award, winner) keys that
-                            never collide with the club-bearing rows, real-age trailing
-                            blocks (36/34/47/21/20...), award ids 4 and 0 the commonest,
-                            tag 0xffff on 1,341 — and the club-winner history rows (the
-                            winner is the club itself), e.g. (1937, 4, 716)
-  26-byte placeholder:      [02][u32 0][u16 tag ff ff|8b][u32 ff*4][u32 ff*4][00*11]
-                            — ~19,744 in the file
-  ```
-
-  Flags seen: 0x1, 0x40, 0x400, 0x4000. The tag u16 is 0xffff on most records; a
-  minority carry a category value (0x8b, 0xaf, 0x9f...). The tail's first byte is the
-  winner's age: all six manager rows carry 39/40/41/43/45/48 for seasons 2024/25→2033/34
-  (manager born 1986). The tail u16s are unconfirmed (manager rows carry ~46-48 in
-  tail[2], 84-129 in tail[3]; year-less player rows carry a different pattern).
-
-- The (year, award) pairs are unique for 22,749 of the 22,894 club-bearing rows and
-  2,269 of the 2,314 no-club rows; award ids are
-  stable instances (0–7 band ×24–37 rows = monthly instances; 1,000–3,400 bands one
-  row per (award, season); 4 and 405 = old honours running ~146–148 rows each since the
-  1880s). The year is the season-ending year: 2031 = 2030/31, 2034 = 2033/34.
-- The six manager records: winner id 328,408 = the manager in this section's space (also
-  used in manager_manager.bin, person_record_manager.bin, transfer_man.bin). Award ids:
-  144 = Vanarama National League Manager of the Year (2025/26), 103 = League Two MoS
-  (2026/27), 101 = League One MoS (2028/29), 99 = Championship MoS in BOTH 2030/31 and
-  2033/34 — "(twice)" per the biography ✓. Each id also appears exactly once in
-  award_man as a definition record.
-- The 2024/25 NLS MoS runner-up = a HEAD-LESS record (26 bytes: `[02][u32 flags]
-  [u16 tag][u32 winner][u32 club][tail 11]`, no year/award head) — the tag
-  0x8b row with winner 328,408, club 716, age 39. Head-less records stay out of the
-  table because they carry no season year (a year-keyed table cannot place them).
-  Under the reader's bounds they parse cleanly — 20,556 of them — and their age
-  distribution is a textbook player-age curve (peak 27-28, tapering both ways), so
-  these are the section's monthly **player** award rows: winner = player id, club =
-  the winner's club. Tags: 0xffff on 2,099 rows and 178 small category values, the
-  commonest 189 (×2,234), 187 (×878), 143, 131, 137, 170... Club 716 has 12 head-less
-  rows (11 player rows + the manager's NLS row). Exactly ONE head-less row carries
-  the manager id, so the manager's remaining ~12 monthly biography awards are NOT in
-  this section — 19 biography awards vs 6 season rows + 1 monthly row here.
-  (Earlier junk-B fears came from laxer bounds; with winner/club < 2.5M and the age
-  check the parse is clean.)
-- Pre-2023 = the import-time historical block (~1.47 MB, not year-ordered, no 2023+
-  records), 2006/2023 = a pre-career player-award row; 2023+ = appended chronologically
-  (club 716's rows: 2023:1, 2024:2, 2026:1×2..., all decoded).
-- (2378, 4, 716) = the second club-history row; 2378 is above the reader's year bounds
-  so that row is left out (the twin (1937, 4, 716) row is read). (2023, 1147, 716, 871)
-  is read with tag 0x83 and club 871 — 871's meaning unresolved.
+### award_year_hist_dt — RE-FRAMED: 82-byte records, 3 placing slots (2026-10-10, scratch `fm26-career/tmp_cups/b*.py`)
+- **The 26/30-byte streaming model was a misread (dead end):** the section is
+  `03 01 'tmc.' 01 00` + 31,459 × 82-byte records exactly (ls trailer record size
+  82). Record = `[u16 year][u16 award_index]` + 3 × 26-byte slots
+  `[u32 winner][u32 club][u8 age][10 B][02][u32 flags][u16 tag]`; slot 0 = winner,
+  1 = runner-up, 2 = third; empty slot = winner 0xffffffff (filled-slot counts per
+  record: 1:16,274, 3:14,155, 2:594, 0:436). The old "[02][flags][tag]" head was the
+  PREVIOUS record's last slot tail; the old "head-less monthly rows" were slots 1/2;
+  the old "(1937, 4, 716)" club-history row was a misread winner u32 (0x00040791) of
+  a slot whose club is 716 — no such record exists.
+- INTEGRATED (`Save.career_awards()`): one `Award` per filled slot with `placing`;
+  59,927 rows (31,023 / 14,748 / 14,156 by placing). Tag = slot's own closing u16,
+  0x8b (139, England's nation id) on every manager slot.
+- Manager (ref 328408) slots: 2025 award 2177 (NLS Manager of the Season) placing 1 =
+  the biography's runner-up ✓; 2026/144, 2027/103, 2029/101, 2031/99, 2034/99 placing
+  0; ages 39/40/41/43/45/48.
+- `award_year_hist_ls`: 1,029 lists, **one per award index** (no list mixes ids).
+- **Monthly awards are NOT in this section:** zero records for every Manager of the
+  Month index (98/100/102/104/142/2181).
 
 - **Winner → person join SOLVED (2026-10-10, scan d3_*), integrated as
   `Save.history_person_reference(uid)`.** A person's `game_db` object closes
@@ -296,13 +284,30 @@ note had it.
   too (Dumas → 189608, one award row). Note this award-section reference
   space is NOT person_record_history's refC (Dumas 0xb604 there).
 
-### award_man (tad., 842,938 B) — award definitions, partially read
-- `03 01 'tad.' 0d 00` header; records `[6×00 01][u16 award id][u8 01][u32 count]
-  [(u16 day, u16 year) presentation events...]` with (227, 2037)/(128, 2038) dates and
-  `6c 07` (1900) null-year sentinels; ids up to ~3,400. The ids the award rows carry
-  (99/101/103/144) each appear exactly once here as a record id — this joins the two
-  sections. Award names are NOT stored: like competition names, they need an
-  out-of-save map, here keyed on the award_man record id.
+### Monthly manager awards — location OPEN (2026-10-10)
+The manager has 19 awards in-game; the yearly history holds 6 placings. Ruled out:
+- award_year_hist_dt (see above: no monthly award index at all).
+- **award_man** (`tad.`, 842,938 B) is NOT award definitions/history: it holds
+  current-period voting shortlists (records with ~10 candidates and float ratings,
+  e.g. 0x417cee2f ≈ 15.8) — no 328408 anywhere in it.
+- u32 328408 across all 80 sections: hits in game_db (2,489, mostly relationship
+  tables `… 06 00 03 01 64 00 00 ff <ref>` and staff-permission tables), news,
+  transfer_man, manager_manager (staff-search rows), interaction/press-conference,
+  scout_man, player_stats_hist_dt, edit_session_man — none in an award shape.
+- u32 award database ids (107386/107388/107390/114797/29023490): noise-level counts.
+- award index adjacent to year 2023–2037 in game_db: no cluster matching even the
+  known season awards. tc_manager_history_dt / non_pl_hist_dt: no award fields.
+- person_record_history_dt: no records for the manager's refC (0x48bf).
+- **person_record_manager** = the human manager's event log (170 entries, all
+  his): `[u8 type] 15 ff×6 [u32 328408] 00 [u32 team 603] [u16 packed date: low 9
+  bits = day-of-year][u16 year][u16 sub][u16 importance] … [u16 season @+30]
+  [u16 award_index @+32]`. Type 5 = award won: 2181 NLS Manager of the Month (2023,
+  sub 0x17, importance 35) and the 5 season awards (sub 0x16, importance 85). Only
+  ONE monthly award is in the log, so it is filtered/pruned, not complete.
+Next: decode the manager's game_db staff object (closing triple
+`328408, uid+1, uid+1` at game_db offset 248,297,587; object start unknown) and the
+per-season job-history stats (the Job History screen's per-season award counts
+1,2,2,2,1,2,1,?,1,1,2 must live somewhere).
 
 ### award_club_hist_dt (23,984 B) — structure seen, not decoded
 - Uniform ~37-byte records `[u16 year][u16 award][00][u16 club][ff-padded tail]`,
@@ -468,8 +473,9 @@ joins to the stage id space" was wrong; corrected.
 
 **Next steps (after checkpoint 6):** (1) validate St Albans' chain against
 the k-world yearly reports; (2) optional: pin untitled clubs (other
-`tc_*_ls` sections share the grammar and may share the club ordering — the
-cup history rows carry explicit club uids); (3) D2 award names, D3
+`tc_*_ls` sections share the grammar, but the cup ls is per TEAM, ordered by
+first row, and its rows carry opponent team ids, not their own club — see the
+re-framed cup section); (3) D2 award names, D3
 competition names.
 
 ### transfer_man (`tad.`) — structure 80% mapped (checkpoint 1, 2026-10-09)

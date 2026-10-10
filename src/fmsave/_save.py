@@ -82,6 +82,7 @@ from fmsave.readers.career_history import (
     AWARD_SECTION,
     BEST_ELEVEN_DT_SECTION,
     BEST_ELEVEN_LS_SECTION,
+    CUP_HISTORY_LS_SECTION,
     CUP_HISTORY_SECTION,
     HALL_OF_FAME_SECTION,
     LEAGUE_HISTORY_DT_SECTION,
@@ -95,6 +96,7 @@ from fmsave.readers.career_history import (
     decode_manager_spells,
     find_person_reference,
     player_references,
+    resolve_cup_history_indexes,
     resolve_league_history_indexes,
 )
 from fmsave.readers.facilities import find_facility_layout, read_club_facilities
@@ -206,6 +208,7 @@ AFFILIATES_TABLE_CACHE_KEY = "table:affiliates"
 CAREER_PERSONS_TABLE_CACHE_KEY = "table:career_persons"
 CAREER_HONOURS_TABLE_CACHE_KEY = "table:career_honours"
 CAREER_CUP_ENTRIES_TABLE_CACHE_KEY = "table:career_cup_entries"
+CUP_HISTORY_INDEXES_CACHE_KEY = "cup_history_indexes"
 CAREER_MANAGER_SPELLS_TABLE_CACHE_KEY = "table:career_manager_spells"
 CAREER_AWARDS_TABLE_CACHE_KEY = "table:career_awards"
 CAREER_LEAGUE_HISTORY_TABLE_CACHE_KEY = "table:career_league_history"
@@ -767,13 +770,16 @@ class Save:
         return context.cached(CAREER_HONOURS_TABLE_CACHE_KEY, self._read_career_honours)
 
     def career_cup_entries(self) -> Table[CupEntry]:
-        """Every cup campaign of every club, one row per (club, competition, stage).
+        """Every cup campaign of every team, one row per (team, competition, season).
 
-        The cup history section is a flat 18-byte row array, one row per cup campaign
-        per stage, so a club's cup run of one season may hold several rows. The
-        section's rows are checked as they are read: fewer than nine rows in ten whose
-        end season is the start season plus one raises, because then the row layout has
-        moved and none of the rows can be trusted.
+        The `tc_cup_history_dt` section is a flat 18-byte row array: the stage a
+        campaign ended in, its season span, how it ended (won, knocked out, or a
+        league-format placing) and the team that ended it. The `tc_cup_history_ls`
+        index lists each team's rows, and every row carries the number of its team's
+        list as `history_index`; which team a list is goes unstored, so use
+        `club_cup_history` for one club. `competition_id` is joined from `stages()`.
+        Fewer than 99 rows in 100 with a plausible season span raises, because then
+        the row layout has moved and none of the rows can be trusted.
 
         Raises:
             SaveClosedError: The save is closed.
@@ -805,20 +811,20 @@ class Save:
         )
 
     def career_awards(self) -> Table[Award]:
-        """Every award row the yearly award history stores, one per (award, season, winner).
+        """Every placing the yearly award history stores, one per (award, season, placing).
 
-        A row names the season year, the award instance id, the winner and — for a
-        person winner — the club uid the award is recorded against, plus the
-        winner's age and the row's trailing data. Award ids are the ids the game's
-        award-definitions section keys its records on, but no save stores an award
-        name, so an id cannot be named from the save alone. The scan reads records
-        with the season/award head only. The section's monthly-award rows carry no
-        season year, so they cannot sit in a year-keyed table and are kept out.
+        The section stores one record per award per season with three placing slots
+        (winner, runner-up, third); every filled slot is one row, with the season
+        year, the award index, the placing, the winner, the club the placing is
+        recorded against, the winner's age and the slot's trailing data. Award
+        indexes are positions in the game's award table, which no save names, so a
+        name needs an out-of-save map. Monthly awards are not in this section.
 
         Raises:
             SaveClosedError: The save is closed.
             SaveChangedError: The file changed on disk after it was opened.
-            CorruptSaveError: The save is damaged or was being written.
+            CorruptSaveError: The save is damaged or was being written, or the award
+                history section no longer holds the 82-byte record layout.
         """
         context = self._context
         return context.cached(CAREER_AWARDS_TABLE_CACHE_KEY, self._read_career_awards)
@@ -905,6 +911,36 @@ class Save:
             if index is not None and season.history_index == index
         ]
         return Table(sorted(rows, key=lambda season: season.season_year), LeagueHistorySeason)
+
+    def club_cup_history(self, club_uid: int) -> Table[CupEntry]:
+        """One club's cup campaigns, in season order, when the save pins its list.
+
+        Cup-history rows name no team; the `tc_cup_history_ls` list a row belongs to
+        does (`history_index`), but no section stores which team a list is. A club's
+        list is found from its cup honours: each cup the hall of fame records the club
+        winning has exactly one winning row (`result` 3) the history holds for that
+        competition and year, and that row's list is the club's. A club with no such
+        cup win cannot be pinned this way and gets an empty table rather than a guess.
+
+        Args:
+            club_uid: Uid of the club, as `clubs()` reports it.
+
+        Returns:
+            Every row of the club's list, ordered by season span (file order within
+            one season), or an empty table.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written.
+        """
+        index = self._cup_history_indexes().get(club_uid)
+        rows = [
+            entry
+            for entry in self.career_cup_entries()
+            if index is not None and entry.history_index == index
+        ]
+        return Table(sorted(rows, key=lambda entry: (entry.start_year, entry.end_year)), CupEntry)
 
     def history_person_reference(self, person_uid: int) -> int | None:
         """The id history sections use for a person, from his uid, or None.
@@ -2537,9 +2573,19 @@ class Save:
         return Table(honours, Honour)
 
     def _read_career_cup_entries(self) -> Table[CupEntry]:
-        with self._context.section(CUP_HISTORY_SECTION) as cup_data:
-            entries = decode_cup_entries(cup_data)
-        return Table(entries, CupEntry)
+        with (
+            self._context.section(CUP_HISTORY_SECTION) as dt_data,
+            self._context.section(CUP_HISTORY_LS_SECTION) as ls_data,
+        ):
+            entries = decode_cup_entries(dt_data, ls_data)
+        competition_by_stage = {stage.id: stage.competition_id for stage in self.stages()}
+        return Table(
+            [
+                replace(entry, competition_id=competition_by_stage.get(entry.stage_id))
+                for entry in entries
+            ],
+            CupEntry,
+        )
 
     def _read_career_manager_spells(self) -> Table[ManagerSpell]:
         with self._context.section(MANAGER_HISTORY_SECTION) as manager_data:
@@ -2587,6 +2633,21 @@ class Save:
         }
         return resolve_league_history_indexes(
             tuple(self.career_league_history()),
+            tuple(self.career_honours()),
+            competition_by_database_id,
+        )
+
+    def _cup_history_indexes(self) -> dict[int, int]:
+        return self._context.cached(CUP_HISTORY_INDEXES_CACHE_KEY, self._read_cup_history_indexes)
+
+    def _read_cup_history_indexes(self) -> dict[int, int]:
+        competition_by_database_id = {
+            competition.database_id: competition.id
+            for competition in self.competitions()
+            if competition.database_id is not None
+        }
+        return resolve_cup_history_indexes(
+            tuple(self.career_cup_entries()),
             tuple(self.career_honours()),
             competition_by_database_id,
         )

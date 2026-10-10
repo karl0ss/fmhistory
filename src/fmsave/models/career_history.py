@@ -81,66 +81,102 @@ class Honour:
 
 @dataclass(frozen=True, slots=True)
 class CupEntry:
-    """One cup-history row: a (club, competition, season span) record.
+    """One cup-history row: how one team's campaign in one competition ended.
 
-    The section is a flat array of 18-byte rows, one per club cup campaign where the
-    club is set; a club's cup run can hold several rows per season (per stage). A row
-    with the club sentinel 0xffffffff is a competition record without a club. A span
-    usually covers one season (`end_season` = `start_season` plus one), but same-year
-    rows exist and a few spans cover two years, so nothing narrower is claimed.
+    `tc_cup_history_dt` holds one 18-byte row per team per competition per season,
+    and `tc_cup_history_ls` holds one list of row offsets per team, so a team's
+    list is its cup history: the stage each campaign ended in, the team that ended
+    it (or the beaten finalist, for a winner) and how. Rows name no team of their
+    own; the list a row belongs to is `history_index`, and which team a list is
+    goes unstored (`Save.club_cup_history` pins a club's list from its cup
+    honours). Knockout stages and league-format stages (group stages, and youth
+    leagues the game files under the same history) both appear.
+
+    Codes as observed on the ground-truth save, checked against the scores of the
+    fixtures still stored for 2034/35 to 2036/37 (all unconfirmed across builds):
+
+    - `result`: 3 = won the competition (the row is the final and
+      `opponent_team_id` the beaten finalist); 2 = knocked out by
+      `opponent_team_id`; 0 with no opponent = finished a league-format stage at
+      `position`; 1 = a tie the team won, meaning open; 0 with an opponent is rare
+      and open.
+    - `method`: 1 = decided in normal time; 2 = in extra time; 3 = on penalties
+      (the stored fixture score is always a draw); 7 = over two legs; 8 (154 rows)
+      open; 255 on league-format rows.
 
     Attributes:
-        club_uid: Uid of the club the row's campaign is for; 0xffffffff for a
-            competition record without a club (unconfirmed).
-        competition_id: The row's second u32, read as a cup competition id; on the
-            ground-truth save every value under the managed club falls in one foreign
-            cup's stage list, so it is not a competition or stage id and must not be
-            joined to `competitions()` or named (unconfirmed).
-        start_season: Season-ending year the span starts on (unconfirmed).
-        end_season: Season-ending year the span ends on; usually `start_season` plus
-            one (unconfirmed).
+        stage_id: Id of the stage the campaign ended in, in the `stages()` id space
+            (unconfirmed).
+        start_year: Calendar year the campaign's season starts, e.g. 2024 for
+            2024/25; equal to `end_year` for a calendar-year competition
+            (unconfirmed).
+        end_year: Calendar year the campaign's season ends, e.g. 2025 for 2024/25:
+            the year a cup honour is filed under (unconfirmed).
+        result: How the campaign ended, see the codes above (unconfirmed).
+        method: How the deciding tie was decided, see the codes above (unconfirmed).
+        unknown_word: The u16 after `method`; None (0xffff) on almost every row, a
+            small value such as 633/637/635/2610 on the rest, meaning open
+            (unconfirmed).
+        position: Placing in a league-format stage, None (0xff) on knockout rows;
+            0 occurs, so most likely 0-based like the league history (unconfirmed).
+        opponent_team_id: Team id (`Club.teams[].team_id`, not a club uid) of the
+            team that ended the campaign, or the beaten finalist on a winning row;
+            None (0xffffffff) on league-format rows (unconfirmed).
+        history_index: Number of the `tc_cup_history_ls` list the row belongs to,
+            one list per team; None when the index does not cover the row
+            (unconfirmed).
+        competition_id: Save-internal id of the competition the stage belongs to,
+            joined from `stages()`; None when the stage is not in the save
+            (unconfirmed).
     """
 
-    club_uid: int
-    competition_id: int
-    start_season: int
-    end_season: int
+    stage_id: int
+    start_year: int
+    end_year: int
+    result: int
+    method: int
+    unknown_word: int | None
+    position: int | None
+    opponent_team_id: int | None
+    history_index: int | None
+    competition_id: int | None
 
 
 @dataclass(frozen=True, slots=True)
 class Award:
-    """One award row the yearly award history stores, one per (award, season, winner).
+    """One placing of one award in one season, from the yearly award history.
 
-    The section streams 26 and 30-byte award records; the reader accepts the records
-    that carry a season and award head, whether they carry a club field or not — the
-    club-less shape carries club-winner rows and person winners (player awards)
-    alike. The section's monthly-award rows carry no season year, so they cannot
-    sit in a year-keyed table and are kept out.
+    `award_year_hist_dt` is a flat array of 82-byte records, one per award per
+    season: the season year and award id, then three 26-byte placing slots (winner,
+    runner-up, third). Every filled slot becomes one row; empty slots (winner unset)
+    are left out. Monthly awards are not in this section at all.
 
-    `award_id` is an award instance id that the game's award-definition section keys
-    its records on; award names are not stored in a save, so an id cannot be named
-    from the save alone.
+    `award_id` is the award's position in the game's English award table (ordered
+    by editor database id), so names come from an out-of-save map.
 
     Attributes:
         season_year: Season-ending year the award belongs to, e.g. 2031 for 2030/31
             (unconfirmed).
-        award_id: Award instance id the row names; the ids an award-definition
-            section keys its records on (unconfirmed).
-        tag: The record's leading category word, 0xffff on most rows (unconfirmed).
-        winner_id: Winner the row records, a person or club id in this section's
-            reference space, which joins to no table fmsave reads (unconfirmed).
-        club_uid: Uid of the club the row is under, or None on the records that
-            store no club field — the club-winner rows and the person winners alike
+        award_id: Award index the record names (unconfirmed).
+        placing: 0 for the winner, 1 for the runner-up, 2 for third; the
+            ground-truth manager's biography runner-up award sits in slot 1
             (unconfirmed).
-        winner_age: The winner's age at the award, read off the row's trailing
-            block; the value the ground-truth save's manager rows carry is their
-            real age (unconfirmed).
-        tail: The row's trailing bytes as ints, the season and winner data the
-            section stores around the award row; their meaning is unconfirmed.
+        tag: The slot's closing u16: 0xffff on many slots, a small value on the
+            rest (0x8b on every English manager slot of the ground-truth save, most
+            likely a nation id) (unconfirmed).
+        winner_id: The placed person or club; a person is named in the history
+            reference space (`Save.history_person_reference`) (unconfirmed).
+        club_uid: Uid of the club the placing is recorded against, or None when the
+            slot stores no club (unconfirmed).
+        winner_age: The winner's age at the award, the slot's ninth byte; the
+            ground-truth manager's slots carry his real age (unconfirmed).
+        tail: The slot's 11 bytes from the age on, as ints; meaning beyond the age
+            unconfirmed.
     """
 
     season_year: int
     award_id: int
+    placing: int
     tag: int
     winner_id: int
     club_uid: int | None
@@ -181,11 +217,31 @@ register_field_statuses(
 )
 register_field_statuses(
     CupEntry,
-    unconfirmed=("club_uid", "competition_id", "start_season", "end_season"),
+    unconfirmed=(
+        "stage_id",
+        "start_year",
+        "end_year",
+        "result",
+        "method",
+        "unknown_word",
+        "position",
+        "opponent_team_id",
+        "history_index",
+        "competition_id",
+    ),
 )
 register_field_statuses(
     Award,
-    unconfirmed=("season_year", "award_id", "tag", "winner_id", "club_uid", "winner_age", "tail"),
+    unconfirmed=(
+        "season_year",
+        "award_id",
+        "placing",
+        "tag",
+        "winner_id",
+        "club_uid",
+        "winner_age",
+        "tail",
+    ),
 )
 register_field_statuses(
     ManagerSpell,

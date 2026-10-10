@@ -354,7 +354,8 @@ def _build_parser() -> _CommandLineParser:
         "--club",
         metavar="UID",
         type=int,
-        help="only rows for one club, given as its save club uid",
+        help="only rows for one club, given as its save club uid (its cup rows are the "
+        "cup-history list its cup honours pin, empty when none does)",
     )
     career_parser.add_argument("--json", action="store_true", help="print JSON instead of text")
     return parser
@@ -1217,12 +1218,15 @@ def _run_career_history(arguments: argparse.Namespace) -> int:
     with fmsave.open(Path(arguments.save_path)) as career_save:
         persons = career_save.career_persons()
         honours = career_save.career_honours()
-        cup_entries = career_save.career_cup_entries()
+        cup_entries = (
+            career_save.career_cup_entries()
+            if club_uid is None
+            else career_save.club_cup_history(club_uid)
+        )
         spells = career_save.career_manager_spells()
         awards = career_save.career_awards()
     if club_uid is not None:
         honours = tuple(honour for honour in honours if honour.club_uid == club_uid)
-        cup_entries = tuple(entry for entry in cup_entries if entry.club_uid == club_uid)
         spells = tuple(spell for spell in spells if spell.club_uid == club_uid)
         awards = tuple(award for award in awards if award.club_uid == club_uid)
 
@@ -1230,9 +1234,11 @@ def _run_career_history(arguments: argparse.Namespace) -> int:
         # An honour's season ends the year it was won: season 2025 is 2024/25.
         return f"{year - 1}/{year - 2000:02d}"
 
-    def _season_start(year: int) -> str:
-        # A cup entry's span starts on the year it names: season 2024 is 2024/25.
-        return f"{year}/{year % 100 + 1:02d}"
+    def _cup_season(entry: CupEntry) -> str:
+        # A cup entry stores the calendar years its season starts and ends.
+        if entry.end_year == entry.start_year:
+            return str(entry.start_year)
+        return f"{entry.start_year}/{entry.end_year % 100:02d}"
 
     lines: list[str] = []
     lines.append(f"persons in the hall of fame: {len(persons)}")
@@ -1257,30 +1263,33 @@ def _run_career_history(arguments: argparse.Namespace) -> int:
             for row in rows
         )
     lines.append(f"cup campaigns: {len(cup_entries)}")
-    cups_by_club: dict[int, list[CupEntry]] = {}
-    for cup_entry in cup_entries:
-        cups_by_club.setdefault(cup_entry.club_uid, []).append(cup_entry)
-    for entry_club in sorted(cups_by_club):
-        rows = sorted(cups_by_club[entry_club], key=lambda row: row.start_season)
-        by_competition: dict[int, list[int]] = {}
-        for row in rows:
-            by_competition.setdefault(row.competition_id, []).append(row.start_season)
-        lines.append(f"club {entry_club}: {len(rows)} campaign rows")
-        for competition, seasons in sorted(by_competition.items()):
-            season_text = " ".join(_season_start(season) for season in sorted(seasons))
-            lines.append(f"  competition {competition} ({len(seasons)} rows): {season_text}")
+    if club_uid is None:
+        team_lists = {entry.history_index for entry in cup_entries}
+        lines.append(f"  in {len(team_lists)} team lists (pass --club for one club's history)")
+    else:
+        # A club's rows: result 3 won, 2 knocked out, 0 league-format placing.
+        lines.extend(
+            f"  {_cup_season(row)} competition {row.competition_id} stage {row.stage_id} "
+            f"result {row.result} method {row.method}"
+            + (f" position {row.position}" if row.position is not None else "")
+            + (f" vs team {row.opponent_team_id}" if row.opponent_team_id is not None else "")
+            for row in cup_entries
+        )
     lines.append(f"award rows: {len(awards)}")
     awards_by_club: dict[int, list[Award]] = {}
     for award in awards:
         awards_by_club.setdefault(award.club_uid or -1, []).append(award)
     for award_club in sorted(awards_by_club):
-        # A row with club_uid None is a club-winner record; its winner is the club.
+        # A placing with club_uid None is stored without a club.
         club_text = f"club {award_club}" if award_club >= 0 else "records with no club field"
-        rows = sorted(awards_by_club[award_club], key=lambda row: (row.season_year, row.award_id))
+        rows = sorted(
+            awards_by_club[award_club],
+            key=lambda row: (row.season_year, row.award_id, row.placing),
+        )
         lines.append(f"{club_text}:")
         lines.extend(
             f"  {_season_ending(row.season_year)} award {row.award_id} "
-            f"won by {row.winner_id} (age {row.winner_age}, tag {row.tag:#06x})"
+            f"placing {row.placing + 1}: {row.winner_id} (age {row.winner_age}, tag {row.tag:#06x})"
             for row in rows
         )
     if arguments.json:
