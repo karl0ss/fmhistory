@@ -65,10 +65,10 @@ What each section holds:
       u8 games u8 games-again u8 wins u8 draws u8 losses u8 zero
       u16 goals_for  u16 goals_against  u16 points
 
-  A row carries no club identity (a post-import row's team reference is unset), so
-  the decoder returns every readable row of every stored table rather than one
-  club's career; tying rows to clubs is the `tc_league_history_ls` index's job,
-  which is not followed here. The season is the season's ending year.
+  A row carries no club identity (a post-import row's team reference is unset);
+  `tc_league_history_ls` holds one delta-encoded list of row offsets per club, and
+  the decoder stamps each row with its list number (`history_index`). The season
+  is the season's ending year.
 
 Competition ids in the career-history sections are save-internal ids, and no save stores a
 competition name, so none of these records carries a name; naming needs the same
@@ -406,7 +406,16 @@ def decode_manager_spells(data: bytes) -> tuple[ManagerSpell, ...]:
     return tuple(spells)
 
 
-# League history data extraction (simple dump of all readable data)
+# League history: the dt rows, threaded to clubs through the ls index
+
+# The ls index opens with the shared `tad.` tag (03 01 'tad.' + u16 version), a zero
+# word and the list count, and closes with a 10-byte trailer (u32 0, u32 dt record
+# size, u16 dt header version).
+_LS_TAG = b"\x03\x01tad."
+_LS_HEAD = 16
+_LS_TRAILER = 10
+_LEAGUE_ROW = 24
+_LEAGUE_DT_HEAD = 8
 
 
 def _is_valid_league_history_row(dt_data: bytes, offset: int) -> bool:
@@ -418,109 +427,99 @@ def _is_valid_league_history_row(dt_data: bytes, offset: int) -> bool:
     whose played-games byte is unset (a table that was never played) still pass: they
     are part of the section, and separating them is the caller's job.
     """
-    if offset + 24 > len(dt_data):
+    if offset + _LEAGUE_ROW > len(dt_data) or offset % _LEAGUE_ROW != _LEAGUE_DT_HEAD:
         return False
-
-    # Check if offset is valid for a row (should be ≡ 8 mod 24)
-    if offset % 24 != 8:
-        return False
-
-    # Extract the row data
     season = struct.unpack_from("<H", dt_data, offset)[0]
     pos = dt_data[offset + 4]
     size = dt_data[offset + 5]
-
-    # Basic validation: season should be in reasonable range
-    if not (1900 <= season <= 2100):
+    if not (1900 <= season <= 2100) or pos >= size or not (2 <= size <= 100):
         return False
-
-    # Position should be less than size (0-based)
-    if pos >= size:
-        return False
-
-    # Size should be reasonable (at least 2 teams, at most maybe 100?)
-    if not (2 <= size <= 100):
-        return False
-
-    # Skip rows where W/D/L are all 255 (indicates no data)
-    w = dt_data[offset + 14]
-    d = dt_data[offset + 15]
-    l = dt_data[offset + 16]
+    w, d, l = dt_data[offset + 14 : offset + 17]
     return not (w == 255 and d == 255 and l == 255)
 
 
-def _decode_league_history_row(dt_data: bytes, offset: int) -> LeagueHistorySeason:
-    """Decode a league history row at the given offset."""
-    # Extract the 24-byte row data
-    season = struct.unpack_from("<H", dt_data, offset)[0]
-    comp = struct.unpack_from("<H", dt_data, offset + 2)[0]
-    pos = dt_data[offset + 4]
-    size = dt_data[offset + 5]
-    # P is duplicated at offsets 12 and 13 (both should be equal)
-    games_played = dt_data[offset + 12]
-    wins = dt_data[offset + 14]
-    draws = dt_data[offset + 15]
-    losses = dt_data[offset + 16]
-    goals_for = struct.unpack_from("<H", dt_data, offset + 18)[0]
-    goals_against = struct.unpack_from("<H", dt_data, offset + 20)[0]
-    points = struct.unpack_from("<H", dt_data, offset + 22)[0]
-
+def _decode_league_history_row(
+    dt_data: bytes, offset: int, history_index: int | None
+) -> LeagueHistorySeason:
+    """Decode the league-history row at a grid offset."""
+    season, comp, pos, size = struct.unpack_from("<HHBB", dt_data, offset)
+    goals_for, goals_against, points = struct.unpack_from("<3H", dt_data, offset + 18)
     return LeagueHistorySeason(
         season_year=season,
         competition_id=comp,
         position=pos,
         total_teams=size,
-        games_played=games_played,
-        wins=wins,
-        draws=draws,
-        losses=losses,
+        games_played=dt_data[offset + 12],
+        wins=dt_data[offset + 14],
+        draws=dt_data[offset + 15],
+        losses=dt_data[offset + 16],
         goals_for=goals_for,
         goals_against=goals_against,
         points=points,
+        history_index=history_index,
     )
+
+
+def decode_league_history_lists(ls_data: bytes) -> tuple[tuple[int, ...], ...]:
+    """The dt row offsets of every club-history list in `tc_league_history_ls`.
+
+    The index holds one list per club with league history: a u32 count, then that
+    many u32 values. The values are delta-encoded: the m-th row sits at
+    `value[m] + value[m - 1]` bytes past the dt section's 8-byte header (the first
+    at `value[0]`), so each decoded list is one club's rows in season order. On the
+    ground-truth save every dt row belongs to exactly one list. The offsets returned
+    are absolute dt offsets, ready for `decode_league_history`'s grid.
+
+    An index that does not parse exactly (wrong tag, a count running past the end,
+    or bytes left over beyond the trailer) yields no lists rather than a guess.
+    """
+    if len(ls_data) < _LS_HEAD + _LS_TRAILER or not ls_data.startswith(_LS_TAG):
+        return ()
+    list_count = struct.unpack_from("<I", ls_data, 12)[0]
+    end = len(ls_data) - _LS_TRAILER
+    offset = _LS_HEAD
+    lists: list[tuple[int, ...]] = []
+    for _ in range(list_count):
+        if offset + 4 > end:
+            return ()
+        count = struct.unpack_from("<I", ls_data, offset)[0]
+        offset += 4
+        if offset + 4 * count > end:
+            return ()
+        values = struct.unpack_from(f"<{count}I", ls_data, offset)
+        offset += 4 * count
+        rows: list[int] = []
+        previous = 0
+        for value in values:
+            rows.append(_LEAGUE_DT_HEAD + ((value + previous) & 0xFFFF_FFFF))
+            previous = value
+        lists.append(tuple(rows))
+    if offset != end:
+        return ()
+    return tuple(lists)
 
 
 def decode_league_history(dt_data: bytes, ls_data: bytes) -> tuple[LeagueHistorySeason, ...]:
     """Every readable past league-table row the dt section stores, in file order.
 
-    The section holds past league tables as butted 24-byte rows on an offset grid
-    (`offset % 24 == 8`), so the walk stops at every grid offset and keeps the rows
-    that pass the row check. Each row is one club's line of one table of one season:
-    because the grid admits other record families (a row whose results block is
-    unset, tables that were never played) and rows carry no club identity, the table
-    holds every club's rows rather than one career. The `ls_data` argument is the
-    section's linked-list index, which ties rows to clubs; it is accepted but not
-    followed, and can be walked record by record with
-    `decode_league_history_ls_pointers`.
+    The dt section holds past league tables as butted 24-byte rows on an offset grid
+    (`offset % 24 == 8`); the walk stops at every grid offset and keeps the rows that
+    pass the row check. Rows carry no club identity themselves: the ls index ties
+    each row to one club-history list, whose number becomes the row's
+    `history_index` (None when the index does not parse or does not cover the row).
+    List numbers run in club uid order among clubs that have league history, with
+    clubs whose first league season came after an imported career appended at the
+    end; which uid a number belongs to is not stored in either section.
 
     Returns:
         One `LeagueHistorySeason` per readable row, in file order.
     """
-    rows: list[LeagueHistorySeason] = []
-
-    # Extract all valid rows from the dt section
-    # Rows are 24-byte blocks starting at offsets ≡ 8 mod 24
-    for offset in range(8, len(dt_data) - 23, 24):
-        if _is_valid_league_history_row(dt_data, offset):
-            row = _decode_league_history_row(dt_data, offset)
-            rows.append(row)
-
-    return tuple(rows)
-
-
-# Optional: Function to extract LS pointer data for advanced users who want
-# to reconstruct chains themselves
-def decode_league_history_ls_pointers(ls_data: bytes) -> tuple[int, ...]:
-    """Extract all u32 pointer values from the ls section.
-
-    Returns:
-        tuple of all u32 values found in the ls section starting from offset 24.
-        Application logic can interpret these as pointers to dt rows or other ls offsets.
-    """
-    pointers: list[int] = []
-    for offset in range(24, len(ls_data), 4):
-        if offset + 4 > len(ls_data):
-            break
-        value = struct.unpack_from("<I", ls_data, offset)[0]
-        pointers.append(value)
-    return tuple(pointers)
+    owner: dict[int, int] = {}
+    for index, offsets in enumerate(decode_league_history_lists(ls_data)):
+        for row_offset in offsets:
+            owner[row_offset] = index
+    return tuple(
+        _decode_league_history_row(dt_data, offset, owner.get(offset))
+        for offset in range(_LEAGUE_DT_HEAD, len(dt_data) - _LEAGUE_ROW + 1, _LEAGUE_ROW)
+        if _is_valid_league_history_row(dt_data, offset)
+    )

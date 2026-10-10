@@ -385,6 +385,84 @@ Save-derived values are deliberately not committed (CONTRIBUTING guardrail);
 the anchor offsets above are the re-verification recipe on the ground-truth
 save.
 
+### tc_league_history_ls — CRACKED: per-club row lists (checkpoint 5, 2026-10-10; scans d1_*)
+
+Scratch scripts: `/home/karl/fm26-career/tmp_leagues/d1_*.py`; per-save
+extracts in `tmp_leagues/alt/` (v03 → v02 → base/new/bak saves).
+
+**Generic `_ls` grammar (holds for all 12 `*_ls` sections, exact parse):**
+```
+03 01 'tad.' 04 00          8 B
+u32 0
+u32 list_count              (league: 19,514)
+list_count x { u32 n ; n x u32 value }
+u32 0 ; u32 dt_record_size ; u16 dt_header_version     10-B trailer
+```
+Σn equals the paired `_dt` record count in every section checked (league
+348,756 = (len−8)/24; cup 165,490; nation records 3,192; award_club 648).
+
+**Values are delta-encoded:** row offset `y_m = x_m + x_(m−1)` (`y_0 = x_0`),
+relative to the dt payload (byte 8). With that decode **every one of the
+348,756 dt rows is referenced exactly once**, all aligned, and **all 19,514
+lists come out in non-decreasing season order**. (XOR instead of add: 45%
+aligned, wrong.) The raw values looked like two interleaved monotone streams
+— that is purely the alternating-sum artefact; ignore it.
+
+**A list = one club's full league history**, proven three ways:
+- Save diffs (v03→v02 +59 rows, v02→base +162): the dt is append-only, and
+  each appended row adds exactly one value to exactly one list (the decoded
+  new last element = the appended row's offset, every time).
+- TPS (list 385): its 41-row pre-import block is Veikkausliiga comp 171
+  1980–2022, then 2023–2037; the v02 append is its 2037 title row.
+- **St Albans = list 351** on the GT save, chain matches ground truth on
+  every pinned season: 2023/24 VNS 3rd (c708, 86 pts), 2024/25 VNS 1st
+  (111), 2025/26 National 1st (**c150**, 89), 2026/27 L2 3rd (**c10**),
+  2027/28 L1 7th (**c9**), 2028/29 L1 1st (93), 2031/32 Ch 7th (**c8**),
+  2032/33 5th, 2033/34 2nd (87), 2034/35 PL 12th (**c7** = live table comp
+  7), 2035/36 12th, 2036/37 11th. Fills the GT gaps: **2029/30 Ch 9th
+  (68 pts), 2030/31 Ch 3rd (89)**. Pre-import rows 1974–2022 (+ FM24-era
+  2023, 2024 rows with P2 byte = 0) precede them.
+- **Correction:** checkpoint 4's anchors for 2025/26 (comp 707, 109 pts),
+  2027/28 (comp 13), 2028/29 (comp 13, P34), 2029/30 (comp 10, 5th),
+  2031/32 (comp 10) and 2032/33 / 2033/34 (0x7b1628 / 0x7c1360, list 345)
+  were **other clubs' rows** that happened to fit the positions. English
+  comps are VNS 708, National 150, L2 10, L1 9, Ch 8, PL 7.
+- Row byte +13 (the "duplicate P") is 0 on pre-import rows and = P on
+  post-import rows — a clean import-era discriminator. Row +8 (`ref`) is
+  non-null on 12,024 rows (mostly pre-1930 spans, e.g. 15966): an
+  alias/predecessor id, **not** the owning club.
+
+**List index → club (ordering solved, membership OPEN):**
+- Lists 0–19,295 have their first row in the pre-import region; their row
+  blocks sit back-to-back in list order (0 inversions). Lists 19,296–19,513
+  (218) start post-import, appended in first-row order (= clubs whose first
+  league season came after the import).
+- Head lists follow **club uid order** among clubs that have a list: 162 exact
+  anchors from the two save diffs (new row ↔ unique live-table stat match),
+  0 inversions below uid 2e9 (2 inversions are tail lists). Not
+  `club_index` order (2 inversions, and gaps don't fit).
+- Which clubs get a list is NOT derivable yet: 33,001 clubs vs 19,296 head
+  lists. Albania/Angola/Estonia/Faroe have none (13 clubs before Platense
+  = list 12, 6 between St Albans and HJK), but 96 nations are mixed (e.g.
+  Argentina 493 listed / 840 not), with no correlation to
+  last_league_position, parent club, or live-table presence.
+- Ruled out as the membership/pointer source: a list-index field in the club
+  record (u16/u32, fixed offset from start, end or team-list end, ±3 KB);
+  nation-only membership; `last_league_position` (refers to differing
+  seasons per league, e.g. HJK 2 vs 2037 row 5th); live-table membership
+  (only 3,156 clubs).
+- Banded DP alignment (anchors hard, comp→nation from live tables +
+  EM, live-table vs recent-row, llp match) reproduces 76/77 held-out
+  anchors — but the held-out set is all live clubs, so this is **not** a
+  basis for naming historical-only clubs. Not integrated.
+
+**Next steps:** (1) integrate the exact part: decode lists into
+`history_index` per row + per-club chains (done in this checkpoint's
+commit); (2) resolve the managed club's index from save data alone
+(candidates: llp + current live comp + nation; or another section carrying
+the same club ordering with an explicit uid — try `tc_history_ls` /
+`tc_cup_history_ls`, which share the grammar); (3) then D2/D3.
+
 ### transfer_man (`tad.`) — structure 80% mapped (checkpoint 1, 2026-10-09)
 
 Section: 53,306,010 B, 13-byte header `03 01 'tad.' 23 00 | u32@8 = 11,560,192`

@@ -816,16 +816,17 @@ class Save:
         """Every readable past league-table row the save stores, for every club.
 
         The `tc_league_history_dt` section holds one 24-byte row per club per season
-        per table. Rows carry no club identity (imported-career rows store the unset
-        team reference), so this is every club's raw rows, not one club's career: use
-        the season-year/competition grid and the position and results fields, or
-        thread rows to clubs through the `tc_league_history_ls` index (which this
-        reader does not follow). The season a row stores is the season's ending year
-        and the current, unfinished season has no history row at all.
+        per table, and the `tc_league_history_ls` index lists each club's rows; every
+        row carries the number of its club's list as `history_index`, so filtering on
+        one index gives one club's league career in season order. The index does not
+        store club uids: lists run in club uid order among clubs with league history,
+        so a club's number has to be found from known rows. The season a row stores
+        is the season's ending year and the current, unfinished season has no history
+        row at all.
 
         Returns one record per readable row with the season ending year,
         competition id, league position, number of teams, games played,
-        wins, draws, losses, goals for, goals against, and points.
+        wins, draws, losses, goals for, goals against, points, and history index.
 
         Raises:
             SaveClosedError: The save is closed.

@@ -198,11 +198,11 @@ class LeagueHistorySeason:
     [u8 position][u8 team count] [u16 zero][u32 team reference] [u8 games][u8 games
     again][u8 wins][u8 draws][u8 losses][u8 zero] [u16 goals for][u16 goals
     against][u16 points]`. The reader walks the grid and keeps a row whose fields
-    pass sanity bounds, so it holds every readable line of every stored table, not
-    one club's career: rows carry no club identity, because a post-import row stores
-    the unset team reference 0xffffffff (pre-import rows store a team id), and
-    tying rows to a club needs the `tc_league_history_ls` index, which this table
-    does not follow.
+    pass sanity bounds, so it holds every readable line of every stored table. A row
+    carries no club identity itself (a post-import row stores the unset team
+    reference 0xffffffff); the `tc_league_history_ls` index lists each club's rows,
+    and `history_index` is the number of the list a row belongs to, so all of one
+    club's rows share it.
 
     The season a row stores is the season's ending year (a 2024/25 season stores
     2025), the position is 0-based, and on the ground-truth save every readable
@@ -229,6 +229,11 @@ class LeagueHistorySeason:
         goals_against: Goals conceded (unconfirmed).
         points: Points; rows of an imported older save may carry the 2-point-era
             value 2 x wins + draws (unconfirmed).
+        history_index: Number of the `tc_league_history_ls` list holding the row:
+            one list per club with league history, in club uid order, with clubs
+            whose first league season came after an imported career appended at
+            the end. Neither section stores which club uid a list belongs to. None
+            when the index does not cover the row (unconfirmed).
     """
 
     season_year: int
@@ -242,6 +247,7 @@ class LeagueHistorySeason:
     goals_for: int
     goals_against: int
     points: int
+    history_index: int | None = None
 
 
 register_field_statuses(
@@ -258,5 +264,6 @@ register_field_statuses(
         "goals_for",
         "goals_against",
         "points",
+        "history_index",
     ),
 )

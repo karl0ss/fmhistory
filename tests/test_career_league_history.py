@@ -8,7 +8,7 @@ from fmsave.readers.career_history import (
     LEAGUE_HISTORY_DT_SECTION,
     LEAGUE_HISTORY_LS_SECTION,
     decode_league_history,
-    decode_league_history_ls_pointers,
+    decode_league_history_lists,
 )
 
 # The dt section opens with an 8-byte tag header, so every row starts at an offset
@@ -151,21 +151,52 @@ def test_the_unset_team_reference_reads_through() -> None:
     assert len(pre_import) == 1
 
 
-def test_ls_content_is_not_followed() -> None:
-    # The ls index is accepted but not walked: a row decodes the same whatever the
-    # index holds.
-    seasons = decode_league_history(
-        dt_blob(row(2031, 13, 4, 18, 34, 20, 7, 7, 52, 33, 67)), b"\xff" * 64
-    )
-    assert len(seasons) == 1
+def ls_blob(*club_rows: tuple[int, ...]) -> bytes:
+    """An ls index: one delta-encoded list of dt row numbers per club, plus the trailer.
+
+    A list stores `x[0] = y[0]` and `x[m] = y[m] - x[m - 1]`, where `y` are row
+    offsets past the dt section's 8-byte header.
+    """
+    body = b""
+    for rows_ in club_rows:
+        values: list[int] = []
+        previous = 0
+        for number in rows_:
+            value = number * 24 - previous
+            values.append(value)
+            previous = value
+        body += struct.pack(f"<I{len(values)}I", len(values), *values)
+    head = b"\x03\x01tad.\x04\x00" + struct.pack("<II", 0, len(club_rows))
+    return head + body + struct.pack("<IIH", 0, 24, 1)
 
 
-def test_ls_pointers_read_as_words_from_after_the_index_header() -> None:
-    # The real index opens with a 24-byte tag-and-counts header: 03 01 'tad.' 04 00
-    # plus four u32s, so the word walk starts just past it.
-    header = b"\x03\x01tad.\x04\x00" + struct.pack("<4I", 0, 9, 44, 0)
-    words = struct.pack("<4I", 0, 1000, 2000, 0)
-    assert decode_league_history_ls_pointers(header + words) == (0, 1000, 2000, 0)
+def test_ls_lists_decode_as_alternating_sums() -> None:
+    # Club 0 owns rows 0, 1 and 4; club 1 owns rows 2 and 3. The stored words for
+    # club 0 are 0, 24, 72: the third row sits at 72 + 24 = 96 bytes past the header.
+    ls = ls_blob((0, 1, 4), (2, 3))
+    assert struct.unpack_from("<3I", ls, 20) == (0, 24, 72)
+    assert decode_league_history_lists(ls) == ((8, 32, 104), (56, 80))
+
+
+def test_rows_carry_their_club_list_number() -> None:
+    dt = dt_blob(row(2030, pos=0), row(2031, pos=1), row(2030, pos=1), row(2031, pos=0), row(2032))
+    seasons = decode_league_history(dt, ls_blob((0, 1, 4), (2, 3)))
+    assert [(s.season_year, s.history_index) for s in seasons] == [
+        (2030, 0),
+        (2031, 0),
+        (2030, 1),
+        (2031, 1),
+        (2032, 0),
+    ]
+
+
+def test_an_index_that_does_not_parse_leaves_rows_unthreaded() -> None:
+    dt = dt_blob(row(2031, 13, 4, 18, 34, 20, 7, 7, 52, 33, 67))
+    good = ls_blob((0,))
+    for ls in (b"", b"\xff" * 64, good[:-1], good + b"\x00\x00\x00\x00", good[:20]):
+        (season,) = decode_league_history(dt, ls)
+        assert season.history_index is None
+    assert decode_league_history_lists(b"\xff" * 64) == ()
 
 
 def test_an_empty_dt_section_yields_no_rows() -> None:
