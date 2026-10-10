@@ -366,16 +366,51 @@ blocks of ref 328408's record @3,311,605). Full layout: `docs/reference/manager_
   `tc_manager_history_ls` (same list grammar as the league ls?). Positions per season
   already come from `club_league_history(716)`; trophies per season from honours; the
   per-season award counts remain the only Job History column without a source.
-- Event log (first part of person_record_manager): type 1 sub 1 entries at season ends
-  carry title wins (VNS 2025 / FA Trophy 2025 / VNL 2026 / L1 2029), type 5 = awards
-  (5 season + 1 monthly), type 8 = matches, type 2 = transfers with fees. It is
-  importance-pruned (1 of the monthly awards), so it cannot give per-season award counts.
+- Event log (first part of person_record_manager): now INTEGRATED — see "Manager event
+  log" below. It is importance-pruned (1 of the monthly awards), so it cannot give
+  per-season award counts.
 - Profile fields not found yet: coaching licence (Continental B, studying A), preferred
   formations (4-4-2, 4-4-2 2DM), tactical style (Control Possession), reputation (Global).
   Nationality is already `Staff.nation_id` = 139 (England); wage/contract/DOB/personality
   are in `staff()`. Licence etc. probably live in the kind-9 human object; no anchor value
   is known for them (enum ids), so a diff of two saves around a badge/formation change is
   the practical way in.
+
+### Manager event log — INTEGRATED (`Save.manager_events(uid)`; 2026-10-10, scratch `fm26-career/tmp_fees/e*.py`, `p*.py`, `v*.py`)
+**Framing SOLVED** (replaces the head-pattern split, which merged 16 entries whose head
+pair at +2 is set and mis-read type-2 lengths as 58/59): section head `03 01 tad. 1e00`,
+`u8 01`, **u32 log count @9** (1), then per log `u8 01, u32 reference, u32 TOP-LEVEL entry
+count` (141 @18 on GT), entries. Entry = 31-byte head + **payload of fixed length per type**
+(1:18 2:27 3:10 4:13 5:3 6:16 7:12 8:54 9:18 11:20 13:13 16:18 17:21). **Type 18 is a
+group**: `u32 child count`, the children, one closing byte (0..3) — that closing byte is
+the "59th byte" seen on the last child of each signing run. The walk ends exactly at
+10,807 = first career record (ref 7); 186 entries, 45 inside 15 groups.
+- Head: `[u8 type][u8 15][u16][u32]` (the pair is ff on 170 entries, set on 16 match /
+  attendance / record entries, e.g. (82, 271670) twice — meaning open) `[u32 ref] 00
+  [u32 team] [date] [u16 sub] [u16 importance] 00 [u8: 0/5/8/13/23/24] 00 01 [u16 season
+  start year]`.
+- Type 2 payload: `00 [from|ffffffff] 00 [to] [player ref] [u32 fee £] [u16] [date effective
+  | 1/1/1900] 00 00 00`. Long-entry "nonsense refs" in the old scan were neighbouring
+  entries, not other layouts — every type-2 entry is 27 bytes.
+- Validated: 72/77 type-2 entries have a `club_player_moves(716)` row for the player and
+  destination on the entry date or the effective date (rest: 3 sub-30 season-end entries,
+  Kitić's superseded pre-agreement, Zedníček effective 1/1/2038). 17 distinct fee moves
+  (table in `docs/reference/manager_events.md`); sub 4 / 58 = successive club record fees
+  paid / received. Young-Thomas £2.7M "24/6/2035" is a sub-30 entry dated at season end,
+  not the transfer (transfer_man: 3/8/2034). Honours: type 1 sub 1 `u16 @+4` = `Honour.count`
+  (46/53/72/107); sub 17 value 111 = 2024/25 VNS points (ground truth). Awards: type 5 =
+  the 5 `career_awards` winner rows + monthly 2181; type 6 = player awards whose value
+  matches the award row's tail stat (4/4 checkable). Promotions: type 4, comp 10→9→8→7.
+- Competition ids in the log: the match entries' own-league u16 (+46) runs 708 (2023-25)
+  → 150 (2025/26) → 10 → 9 → 8 → 7 with the club's divisions, so 708 = VNS, 150 = VNL,
+  10 L2, 9 L1, 8 CH, 7 PL; 151 (honour won Sunday 11/5/2025) = FA Trophy; 667 (a type-16
+  entry in L2 season 2026/27) unresolved. They are NOT the `career_honours` ids (5123055, 109202, 109201, 13); join by the
+  honour counter instead.
+- Open: payloads of types 3 (milestones/money), 7 (attendance? stadium, old, new), 11,
+  13, 16 (runs? comp, count, two dates), 17; type-1 sub-1 refs @+6/+10 and u16 @+14
+  (e.g. 2025 VNS: Harvey White, Shiloh Remy, 17 — captain/top scorer? unproven); type-8
+  bytes beyond score/opponent (+28 match competition, +42 stadium, +46/+48 own/opponent
+  league, +50 = 100s on milestone matches); several human managers untested.
 
 ### award_club_hist_dt (23,984 B) — structure seen, not decoded
 - Uniform ~37-byte records `[u16 year][u16 award][00][u16 club][ff-padded tail]`,

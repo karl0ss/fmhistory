@@ -111,7 +111,9 @@ club uid order), and `league_history_table(season, competition)` / `club_league_
 return rows named through it.
 `career_awards()` rows are award placings (winner, runner-up, third); monthly awards are
 not stored in the yearly award history. `career_manager_records()` holds every manager's
-"Managerial Stats" record (`manager_career(staff_uid)` picks one).
+"Managerial Stats" record (`manager_career(staff_uid)` picks one); `manager_events(staff_uid)`
+reads a human manager's event log (moves with fees, record fees, honours, promotions, awards,
+notable matches) from the same section.
 
 ```{eval-rst}
 .. autoclass:: fmsave.PersonHistory
@@ -127,4 +129,5 @@ not stored in the yearly award history. `career_manager_records()` holds every m
 .. autoclass:: fmsave.ManagerCurrentJob
 .. autoclass:: fmsave.ManagerFee
 .. autoclass:: fmsave.ManagerSpellWindow
+.. autoclass:: fmsave.ManagerEvent
 ```
