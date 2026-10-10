@@ -46,7 +46,11 @@ validated against the k-world yearly reports (seasons 1–9) and screenshots.
       2030/31 3rd. **Checkpoint 6:** `Save.club_league_history(uid)` pins a
       club's list from its league titles (honours → database id → title row);
       St Albans resolves from the save alone. Clubs without a post-import
-      title stay unresolved. **Next:** validate vs k-world, then D2.
+      title stay unresolved. **Checkpoint 7:** `Save.league_history_clubs()`
+      pins 2,791 lists (fixture-record match 2,077 + uid-order fill 714; all
+      55 usable title pins agree), naming 77-84% of every post-import season's
+      rows (English tiers 90-100%); `Save.league_history_table(season, comp)`
+      gives a named past table. **Next:** validate vs k-world, then D2.
 - [x] **Cup history + award placings re-framed (2026-10-10).** Both readers
       were misaligned: `tc_cup_history_dt` rows start at offset 8 (stage id,
       years, result, method, position, opponent team id), threaded to team lists

@@ -34,6 +34,7 @@ from fmsave.models.career_history import (
     CupEntry,
     HistoryPerson,
     Honour,
+    LeagueHistoryClub,
     LeagueHistorySeason,
     ManagerCareerRecord,
     ManagerSpell,
@@ -97,8 +98,10 @@ from fmsave.readers.career_history import (
     decode_league_history,
     decode_manager_spells,
     find_person_reference,
+    league_history_fixture_pins,
     player_references,
     resolve_cup_history_indexes,
+    resolve_league_history_clubs,
     resolve_league_history_indexes,
 )
 from fmsave.readers.facilities import find_facility_layout, read_club_facilities
@@ -221,6 +224,7 @@ CAREER_MANAGER_SPELLS_TABLE_CACHE_KEY = "table:career_manager_spells"
 CAREER_AWARDS_TABLE_CACHE_KEY = "table:career_awards"
 CAREER_LEAGUE_HISTORY_TABLE_CACHE_KEY = "table:career_league_history"
 LEAGUE_HISTORY_INDEXES_CACHE_KEY = "league_history_indexes"
+LEAGUE_HISTORY_CLUBS_TABLE_CACHE_KEY = "table:league_history_clubs"
 CAREER_BEST_ELEVEN_TABLE_CACHE_KEY = "table:career_best_eleven"
 HISTORY_PEOPLE_TABLE_CACHE_KEY = "table:history_people"
 CAREER_MANAGER_RECORDS_TABLE_CACHE_KEY = "table:career_manager_records"
@@ -919,16 +923,84 @@ class Save:
         context = self._context
         return context.cached(HISTORY_PEOPLE_TABLE_CACHE_KEY, self._read_history_people)
 
+    def league_history_clubs(self) -> Table[LeagueHistoryClub]:
+        """Every league-history list the save pins to a club, with how it was pinned.
+
+        League-history rows name no club and the `tc_league_history_ls` index stores
+        no club uid, so each list (`LeagueHistorySeason.history_index`) is pinned from
+        evidence elsewhere, strongest first:
+
+        - fixtures: a team's league fixtures of a season the save still holds sum to
+          exactly one history row of that season and competition (played, won, drawn,
+          lost, goals for and against), and to no other team's;
+        - title: a league title the hall of fame records has exactly one first-place
+          row the game wrote for that season and competition;
+        - uid order: the lists holding imported rows run in club uid order, so a run
+          of unpinned lists between two pinned ones takes the clubs between those two
+          in uid order when they are exactly as many and their first-team ids leave
+          no room for a club the save does not list.
+
+        A list claimed by two clubs, or a club by two lists, is left out, and a list no
+        evidence pins has no record rather than a guess. On the ground-truth save this
+        pins 2,791 of 19,514 lists (2,077 by fixtures, 714 by uid order; every title
+        pin agrees with them) and names 77-84% of each season's rows since 2023/24,
+        90-100% of the English tiers'. It reads `fixtures()` and `clubs()`, so it
+        takes as long as they do.
+
+        Returns one record per pinned list with the list number, club uid and name,
+        method and, for a fixtures pin, the team id.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written.
+        """
+        context = self._context
+        return context.cached(LEAGUE_HISTORY_CLUBS_TABLE_CACHE_KEY, self._read_league_history_clubs)
+
+    def league_history_table(
+        self, season_year: int, competition_id: int
+    ) -> Table[LeagueHistorySeason]:
+        """One past league table, in finishing order, with every club the save pins.
+
+        Reads the rows of `career_league_history()` for one season and competition
+        and names each through `league_history_clubs()`: `club_uid`, `club_name` and
+        `club_method` are set on a row whose list is pinned and None otherwise.
+        Imported rows are left out, since an imported career can repeat a table. A
+        competition id that carried more than one division that season returns all
+        of their rows.
+
+        Args:
+            season_year: Season-ending year, e.g. 2025 for the 2024/25 season.
+            competition_id: Save-internal competition id, as the rows carry it.
+
+        Returns:
+            The table's rows ordered by position, or an empty table.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written.
+        """
+        rows = [
+            season
+            for season in self.career_league_history()
+            if season.season_year == season_year
+            and season.competition_id == competition_id
+            and not season.imported
+        ]
+        named = self._name_league_history_rows(rows)
+        return Table(sorted(named, key=lambda season: season.position), LeagueHistorySeason)
+
     def club_league_history(self, club_uid: int) -> Table[LeagueHistorySeason]:
         """One club's past league seasons, in season order, when the save pins its list.
 
         League-history rows name no club; the `tc_league_history_ls` list a row
         belongs to does (`history_index`), but no section stores which club uid a list
-        is. A club's list is found from its league titles: each honour the hall of
-        fame records has exactly one first-place row the game wrote for that season
-        and competition, and that row's list is the club's. A club with no league
-        title since the career began (or an imported career's import) cannot be
-        pinned this way and gets an empty table rather than a guess.
+        is. The club's list comes from `league_history_clubs()` (fixtures, league
+        titles or uid order; see there), and the rows carry `club_uid`, `club_name`
+        and `club_method`. A club no evidence pins gets an empty table rather than a
+        guess.
 
         Args:
             club_uid: Uid of the club, as `clubs()` reports it.
@@ -942,13 +1014,17 @@ class Save:
             SaveChangedError: The file changed on disk after it was opened.
             CorruptSaveError: The save is damaged or was being written.
         """
-        index = self._league_history_indexes().get(club_uid)
+        index = next(
+            (pin.history_index for pin in self.league_history_clubs() if pin.club_uid == club_uid),
+            None,
+        )
         rows = [
             season
             for season in self.career_league_history()
             if index is not None and season.history_index == index
         ]
-        return Table(sorted(rows, key=lambda season: season.season_year), LeagueHistorySeason)
+        named = self._name_league_history_rows(rows)
+        return Table(sorted(named, key=lambda season: season.season_year), LeagueHistorySeason)
 
     def club_cup_history(self, club_uid: int) -> Table[CupEntry]:
         """One club's cup campaigns, in season order, when the save pins its list.
@@ -2760,6 +2836,36 @@ class Save:
             tuple(self.career_honours()),
             competition_by_database_id,
         )
+
+    def _read_league_history_clubs(self) -> Table[LeagueHistoryClub]:
+        seasons = tuple(self.career_league_history())
+        pins = resolve_league_history_clubs(
+            seasons,
+            league_history_fixture_pins(seasons, self.fixtures()),
+            self._league_history_indexes(),
+            tuple(self.clubs()),
+        )
+        return Table(pins, LeagueHistoryClub)
+
+    def _name_league_history_rows(
+        self, rows: Sequence[LeagueHistorySeason]
+    ) -> list[LeagueHistorySeason]:
+        pins = {pin.history_index: pin for pin in self.league_history_clubs()}
+        named: list[LeagueHistorySeason] = []
+        for season in rows:
+            pin = pins.get(season.history_index) if season.history_index is not None else None
+            if pin is None:
+                named.append(season)
+            else:
+                named.append(
+                    replace(
+                        season,
+                        club_uid=pin.club_uid,
+                        club_name=pin.club_name,
+                        club_method=pin.method,
+                    )
+                )
+        return named
 
     def _cup_history_indexes(self) -> dict[int, int]:
         return self._context.cached(CUP_HISTORY_INDEXES_CACHE_KEY, self._read_cup_history_indexes)

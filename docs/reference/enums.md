@@ -37,6 +37,8 @@ label, and the status types that say whether a field's meaning is verified.
    :members:
 .. autoclass:: fmsave.InjurySeverity
    :members:
+.. autoclass:: fmsave.LeagueHistoryClubMethod
+   :members:
 .. autoclass:: fmsave.MatchOutcome
    :members:
 .. autoclass:: fmsave.MatchPosition

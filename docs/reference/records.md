@@ -106,6 +106,9 @@ and the spells table covers open spells only). The league-history rows carry no 
 identity, so `career_league_history()` holds every club's readable rows rather than one
 club's career. Cup-history rows are per team list too (`history_index`, opponents as team
 ids); `club_cup_history(uid)` gives one club's rows when its cup honours pin its list.
+`league_history_clubs()` pins league-history lists to clubs (from fixtures, league titles and
+club uid order), and `league_history_table(season, competition)` / `club_league_history(uid)`
+return rows named through it.
 `career_awards()` rows are award placings (winner, runner-up, third); monthly awards are
 not stored in the yearly award history. `career_manager_records()` holds every manager's
 "Managerial Stats" record (`manager_career(staff_uid)` picks one).
@@ -117,6 +120,7 @@ not stored in the yearly award history. `career_manager_records()` holds every m
 .. autoclass:: fmsave.ManagerSpell
 .. autoclass:: fmsave.Award
 .. autoclass:: fmsave.LeagueHistorySeason
+.. autoclass:: fmsave.LeagueHistoryClub
 .. autoclass:: fmsave.BestElevenEntry
 .. autoclass:: fmsave.HistoryPerson
 .. autoclass:: fmsave.ManagerCareerRecord

@@ -56,13 +56,43 @@ The index stores no club uid. Lists run in club uid order among clubs that have
 league history (clubs with none get no list), and clubs whose first league
 season came after an imported career are appended at the end in the order they
 first appeared. On the ground-truth save St Albans City (uid 716) is list 351.
-Which clubs have a list is not stored, so a club's list number is found from its
-league titles: `resolve_league_history_indexes` maps each hall-of-fame honour's
-competition (an editor database id) to the internal id, finds the single
-first-place row the game wrote for that season and competition, and takes its
-list. Clubs with no post-import league title stay unresolved. On the ground-truth
-save this pins 63 clubs with no conflicts, matches uid order, and agrees 18/18 with
-an independent live-table check.
+Which clubs have a list is not stored, so lists are pinned to clubs from evidence
+elsewhere in the save (`Save.league_history_clubs()`, one `LeagueHistoryClub` per
+pinned list, its `method` saying which evidence):
+
+1. **Fixtures** (`league_history_fixture_pins`). Every played, scored fixture adds
+   to both teams' record (P, W, D, L, GF, GA) for its season and competition, over
+   the whole competition and over its stage alone (a history row can leave out
+   play-offs or a later phase). A record held by exactly one team in that season
+   and competition, equal to exactly one non-imported row of that competition in
+   the fixtures' start year or the year after (calendar-year and split-year
+   leagues), pins the row's list to the team; a list naming two teams, or a team
+   naming two lists, is dropped. The team maps to its club through `clubs()`
+   (affiliates' teams excluded). The save keeps fixtures for the last full season
+   and the current one, so this names every club that played a league with
+   fixtures then, and through its list all its earlier seasons too.
+2. **Titles** (`resolve_league_history_indexes`): hall-of-fame league titles, as
+   in checkpoint 6. Only honour club ids `clubs()` holds count (on the
+   ground-truth save 321 of 878 honour rows carry an id that is no club uid). A
+   title and a fixture pin that disagree drop the list and every list of both
+   clubs.
+3. **Uid order** (`resolve_league_history_clubs`). Lists holding imported rows run
+   in club uid order. Between two pinned lists `i < j` (clubs `a < b`), when the
+   clubs with uids strictly between `a` and `b` not pinned elsewhere are exactly
+   `j - i - 1`, and the first-team ids of `a` and `b` have no unused id between
+   them (`clubs()` does not list every club: an unused id could be a club that
+   owns one of the lists), the lists take those clubs in uid order.
+
+Ground-truth save: 2,791 lists pinned (2,077 fixtures, 714 uid order); every one of
+the 55 usable title pins agrees; 0 lists claimed twice; 0 uid-order inversions
+among pinned lists below the last imported list (19,276); St Albans = list 351
+(fixtures, team 603). Uid-order fills reproduce 962/962 held-out fixture pins and
+agree with the competition's nation on all 198 fills with post-import rows. Rows
+named per season (non-imported rows): 76.6% (2023/24) rising to 84.3% (2036/37);
+English tiers (VNS/VNN, National, L2, L1, Championship, PL) 90.2% rising to 100%.
+The unnamed rows belong to clubs that left every league with fixtures before
+2035/36 (e.g. six 2024/25 VNS clubs since relegated below the lowest stored
+level) and to view-only leagues the save stores tables for but no fixtures.
 
 ## Decoder Implementation
 
@@ -76,8 +106,14 @@ an independent live-table check.
   to its list number (None when the index does not cover it) and flags
   `imported` rows (second games byte 0 on a played table).
 - `resolve_league_history_indexes(seasons, honours, competition_by_database_id)`
-  pins club uids to list numbers through league titles; `Save.club_league_history`
-  uses it and returns an empty table for a club it cannot pin.
+  pins club uids to list numbers through league titles.
+- `league_history_fixture_pins(seasons, fixtures)` pins lists to team ids from
+  fixture records, and `resolve_league_history_clubs(seasons, fixture_pins,
+  title_indexes, clubs)` combines both with the uid-order fill into
+  `LeagueHistoryClub` records. `Save.league_history_clubs()` wraps it (it reads
+  `fixtures()`: about 40 s on the ground-truth save); `Save.club_league_history`
+  and `Save.league_history_table` name rows through it (`club_uid`, `club_name`,
+  `club_method`; None where the list is not pinned).
 
 ## Usage
 
@@ -88,6 +124,9 @@ import fmsave
 
 save = fmsave.open("my-career.fm")
 league_history = save.career_league_history()
+
+for row in save.league_history_table(2025, 708):  # 2024/25 National League South
+    print(row.position + 1, row.club_name or "?", row.points, row.club_method)
 
 for season in save.club_league_history(716):  # St Albans City on the ground-truth save
     print(f"{season.season_year}: Position {season.position + 1}/{season.total_teams}")

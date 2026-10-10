@@ -94,8 +94,10 @@ from __future__ import annotations
 
 import re
 import struct
+from bisect import bisect_left, bisect_right
 from collections import Counter
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
+from itertools import pairwise
 
 from fmsave._errors import CorruptSaveError
 from fmsave.models.career_history import (
@@ -103,10 +105,14 @@ from fmsave.models.career_history import (
     BestElevenEntry,
     CupEntry,
     Honour,
+    LeagueHistoryClub,
+    LeagueHistoryClubMethod,
     LeagueHistorySeason,
     ManagerSpell,
     PersonHistory,
 )
+from fmsave.models.clubs import Club
+from fmsave.models.fixtures import Fixture
 
 HALL_OF_FAME_SECTION = "hall_of_fame"
 CUP_HISTORY_SECTION = "tc_cup_history_dt"
@@ -345,6 +351,189 @@ def resolve_cup_history_indexes(
     resolved = {club: next(iter(lists)) for club, lists in claims.items() if len(lists) == 1}
     holders = Counter(resolved.values())
     return {club: index for club, index in resolved.items() if holders[index] == 1}
+
+
+type _Record = tuple[int, int, int, int, int, int]
+
+
+def league_history_fixture_pins(
+    seasons: Sequence[LeagueHistorySeason], fixtures: Iterable[Fixture]
+) -> dict[int, int]:
+    """The team behind every league-history list a season of fixtures pins exactly.
+
+    Each played fixture with a score and a season adds to both sides' running record
+    (played, won, drawn, lost, goals for, goals against) for its season and
+    competition, once over the whole competition and once over its stage alone, so a
+    table whose history row leaves out play-offs or a later phase still matches its
+    regular stage. A record counts only when no other team holds the same record in
+    that season and competition at either level, and it pins a row when exactly one
+    row the game wrote (imported rows left out) of that competition, in the season the
+    fixtures started or the one after, holds the same six numbers. A list is pinned
+    when its rows name one team and that team names no other list.
+
+    Returns:
+        List number to the team id whose fixtures matched it.
+    """
+    records: dict[tuple[int, int, int | None, int], list[int]] = {}
+    for fixture in fixtures:
+        if (
+            not fixture.played
+            or fixture.season_start_year is None
+            or fixture.competition_id is None
+            or fixture.home_goals is None
+            or fixture.away_goals is None
+        ):
+            continue
+        for team_id, scored, conceded in (
+            (fixture.home_team_id, fixture.home_goals, fixture.away_goals),
+            (fixture.away_team_id, fixture.away_goals, fixture.home_goals),
+        ):
+            outcome = 1 if scored > conceded else 2 if scored == conceded else 3
+            scopes = (None,) if fixture.stage_id is None else (None, fixture.stage_id)
+            for stage_id in scopes:
+                key = (fixture.season_start_year, fixture.competition_id, stage_id, team_id)
+                record = records.setdefault(key, [0, 0, 0, 0, 0, 0])
+                record[0] += 1
+                record[outcome] += 1
+                record[4] += scored
+                record[5] += conceded
+    holders: dict[tuple[int, int, _Record], set[int]] = {}
+    for (start_year, competition_id, _stage, team_id), record in records.items():
+        played, wins, draws, losses, scored, conceded = record
+        key = (start_year, competition_id, (played, wins, draws, losses, scored, conceded))
+        holders.setdefault(key, set()).add(team_id)
+    rows: dict[tuple[int, _Record], list[LeagueHistorySeason]] = {}
+    for season in seasons:
+        if season.imported or season.history_index is None:
+            continue
+        record = (
+            season.games_played,
+            season.wins,
+            season.draws,
+            season.losses,
+            season.goals_for,
+            season.goals_against,
+        )
+        rows.setdefault((season.competition_id, record), []).append(season)
+    teams_of_list: dict[int, set[int]] = {}
+    lists_of_team: dict[int, set[int]] = {}
+    for (start_year, competition_id, record), teams in holders.items():
+        if len(teams) != 1:
+            continue
+        matches = [
+            season
+            for season in rows.get((competition_id, record), ())
+            if season.season_year in (start_year, start_year + 1)
+        ]
+        if len(matches) != 1:
+            continue
+        (team_id,) = teams
+        index = matches[0].history_index
+        assert index is not None
+        teams_of_list.setdefault(index, set()).add(team_id)
+        lists_of_team.setdefault(team_id, set()).add(index)
+    return {
+        index: next(iter(teams))
+        for index, teams in teams_of_list.items()
+        if len(teams) == 1 and len(lists_of_team[next(iter(teams))]) == 1
+    }
+
+
+def resolve_league_history_clubs(
+    seasons: Sequence[LeagueHistorySeason],
+    fixture_pins: Mapping[int, int],
+    title_indexes: Mapping[int, int],
+    clubs: Sequence[Club],
+) -> tuple[LeagueHistoryClub, ...]:
+    """Every league-history list pinned to a club, by fixtures, titles or uid order.
+
+    Fixture pins (`league_history_fixture_pins`) name a team, mapped to its club
+    through `clubs`; title pins (`resolve_league_history_indexes`) count only for a
+    uid `clubs` holds (a hall-of-fame club id outside it is not a club uid). The two
+    must not disagree: a list claimed by two clubs, or a club claiming two lists, is
+    dropped entirely (with every other list those clubs claim), and no uid-order fill
+    crosses it. Then the lists that hold
+    imported rows run in club uid order, so between two pinned lists `i < j` of clubs
+    `a < b` sit the lists of clubs with uids between `a` and `b`. When the clubs there not pinned elsewhere are exactly
+    as many as the lists `j - i - 1`, and the first-team ids of `a` and `b` leave no
+    unused id between them (an unused id could be a club the save does not list),
+    each list takes the next club in uid order.
+
+    Returns:
+        One record per pinned list, in list order.
+    """
+    club_by_team = {
+        team.team_id: club.uid for club in clubs for team in club.teams if not team.is_affiliate
+    }
+    names = {club.uid: club.name for club in clubs}
+    claims: dict[int, set[tuple[int, LeagueHistoryClubMethod, int | None]]] = {}
+    for index, team_id in fixture_pins.items():
+        club_uid = club_by_team.get(team_id)
+        if club_uid is not None:
+            claims.setdefault(index, set()).add(
+                (club_uid, LeagueHistoryClubMethod.FIXTURES, team_id)
+            )
+    for club_uid, index in title_indexes.items():
+        if club_uid in names:
+            claims.setdefault(index, set()).add((club_uid, LeagueHistoryClubMethod.TITLE, None))
+    pinned: dict[int, tuple[int, LeagueHistoryClubMethod, int | None]] = {}
+    dropped_lists: set[int] = set()
+    dropped_clubs: set[int] = set()
+    for index, found in claims.items():
+        if len({club_uid for club_uid, _method, _team in found}) != 1:
+            dropped_lists.add(index)
+            dropped_clubs.update(club_uid for club_uid, _method, _team in found)
+        else:
+            pinned[index] = min(
+                found, key=lambda claim: claim[1] != LeagueHistoryClubMethod.FIXTURES
+            )
+    lists_per_club = Counter(club_uid for club_uid, _method, _team in pinned.values())
+    for index, claim in list(pinned.items()):
+        if lists_per_club[claim[0]] > 1 or claim[0] in dropped_clubs:
+            del pinned[index]
+            dropped_lists.add(index)
+            dropped_clubs.add(claim[0])
+
+    ordered_end = 1 + max(
+        (
+            season.history_index
+            for season in seasons
+            if season.imported and season.history_index is not None
+        ),
+        default=-1,
+    )
+    uids = sorted(names)
+    first_team = {club.uid: club.teams[0].team_id for club in clubs if club.teams}
+    taken = {club_uid for club_uid, _method, _team in pinned.values()}
+    anchors = sorted((index, claim[0]) for index, claim in pinned.items() if index < ordered_end)
+    filled: dict[int, int] = {}
+    for (low_index, low_uid), (high_index, high_uid) in pairwise(anchors):
+        gap = high_index - low_index - 1
+        if (
+            gap <= 0
+            or high_uid < low_uid
+            or low_uid not in first_team
+            or high_uid not in first_team
+        ):
+            continue
+        between = uids[bisect_right(uids, low_uid) : bisect_left(uids, high_uid)]
+        free = [club_uid for club_uid in between if club_uid not in taken]
+        unused_team_ids = first_team[high_uid] - first_team[low_uid] - 1 - len(between)
+        if dropped_clubs.intersection(between) or any(
+            low_index < index < high_index for index in dropped_lists
+        ):
+            continue
+        if len(free) == gap and unused_team_ids == 0:
+            filled.update(zip(range(low_index + 1, high_index), free, strict=True))
+    records = [
+        LeagueHistoryClub(index, club_uid, names[club_uid], method, team_id)
+        for index, (club_uid, method, team_id) in pinned.items()
+    ]
+    records += [
+        LeagueHistoryClub(index, club_uid, names[club_uid], LeagueHistoryClubMethod.UID_ORDER)
+        for index, club_uid in filled.items()
+    ]
+    return tuple(sorted(records, key=lambda record: record.history_index))
 
 
 _AWARD_RECORD_BYTES = 82
