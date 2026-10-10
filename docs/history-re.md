@@ -207,8 +207,7 @@ note had it.
   then a flat 18-byte row array from offset 4:
   `[u32 club][u32 comp][u16 y1][u16 y2] 02 01 ff ff` — 165,490 rows, 99.95% with
   y2 in y1..y1+2 (same-year rows common, two-year spans rare). 61,034 rows carry
-  club 0xffffffff = competition records without a club. `scripts/decode_cup_history.py`
-  walks it.
+  club 0xffffffff = competition records without a club.
 - Club 716: exactly 20 rows, seasons 2024/25 → 2034/35 (none in 2026/27, 2029/30,
   2030/31 and none in 2023/24 — that season lives in the FM24 blob):
   comp 0x154d (5,453) → 13 rows; 0x154e (5,454) → 5; 0x16e3 (5,859) → 1 (2024/25);
@@ -291,40 +290,13 @@ note had it.
   years 2005→2037, ~640 records, no club-716 rows; ids and the club id space differ
   from award_year_hist_dt. Left undecoded (field level) for now.
 
-## tc_league_history_dt / tc_league_history_ls — DECODED (simple data extraction)
+## tc_league_history_dt / tc_league_history_ls — DECODED, rows threaded to clubs
 
-The per-season past league-table store has been decoded using a simple data
-extraction approach that reads all readable 24-byte league history rows from the
-dt section. The decoder provides raw data for application logic to interpret as
-needed, following the user's explicit request for data dumping rather than
-intelligent reconstruction.
-
-**Decoder Implementation:**
-- Iterates through `tc_league_history_dt.bin` at offsets ≡ 8 mod 24
-- Validates each 24-byte block as a readable league history row:
-  - Season year in reasonable range (1900-2100)
-  - Position < total teams (0-based indexing)
-  - Total teams between 2 and 100 (reasonable bounds)
-  - Wins/Draws/Losses not all 255 (indicates no data)
-- Decodes valid rows into `LeagueHistorySeason` objects
-- Returns all valid rows as a tuple
-- Provides optional function to extract LS pointer data for advanced users
-
-**Data Available:**
-All readable league history data is now accessible via `Save.career_league_history()`:
-- season_year, competition_id, position, total_teams
-- games_played, wins, draws, losses
-- goals_for, goals_against, points
-
-This data can be combined with other career history decoders:
-- Awards: `Save.career_awards()` - seasonal manager awards
-- Cup history: `Save.career_cup_entries()` - cup runs per season  
-- Hall of fame: `Save.career_honours()` - honours won per season
-- Manager spells: `Save.career_manager_spells()` - job start dates
-
-The simple extraction approach provides maximum flexibility for users to build
-their own career chain reconstruction, performance analysis, or visualization
-logic on top of the raw data.
+Integrated as `Save.career_league_history()` (reference:
+`docs/reference/league_history.md`). dt = 24-byte rows on an 8-mod-24 grid;
+ls = one delta-encoded row list per club (checkpoint 5 below), surfaced as
+each row's `history_index`. Checkpoint 4 records the reader-bug fixes; read
+its anchor list together with checkpoint 5's correction.
 
 ### Where this stands (checkpoint 4, 2026-10-09: validated against ground truth)
 
@@ -347,6 +319,9 @@ validated on the ground-truth save (analysis extracts under
   docstring brought to record standard (Attributes + unconfirmed markers).
 
 **Validation results (decoder output vs `docs/ground-truth.md`):**
+> **Superseded by checkpoint 5:** only the 2023/24 (0x720ce0) and 2024/25
+> (0x730a60) rows below are St Albans'; the other anchors are other clubs'
+> rows. Use list 351 (checkpoint 5) for the real chain.
 - All five anchor rows decode exactly: 2024/25 VNS 1st (111 pts,
   GF 129 = news item's 2.80/game × 46) at dt 0x730a60 comp 708; 2028/29 L1 1st
   (P34 W20 D7 L7 67) at 0x775e98 comp 13; 2029/30 Championship 5th (76) at
@@ -373,14 +348,14 @@ validated on the ground-truth save (analysis extracts under
   122/123 rows from other record shapes), 51 rows with the null-year sentinel
   1900; 5,671 duplicate (season, comp, pos) keys (mostly pre-import, plus
   ~2.4k in import-era seasons). Post-import rows (2024+) all carry
-  team_ref 0xffffffff — club attribution is only possible via ls, still
-  unthreaded.
+  team_ref 0xffffffff — club attribution comes from the ls (checkpoint 5).
 
 **Pinned in `tests/test_career_league_history.py`:** the 24-byte row grammar and
 grid walk, sanity bands (season 1899/2101 rejected, pos>=size rejected,
 sizes 1/101 rejected, all-255 results block rejected), the unplayed-table row
 is kept raw, no points-rule enforcement (2-pt and neither-rule rows read
-through), ls accepted-but-not-followed, ls pointer walk from offset 24.
+through). Checkpoint 5 replaced the ls tests: delta decode, row → list
+number, unparseable index → `history_index` None.
 Save-derived values are deliberately not committed (CONTRIBUTING guardrail);
 the anchor offsets above are the re-verification recipe on the ground-truth
 save.
@@ -1390,12 +1365,8 @@ for league positions, honours, cup runs, awards, manager spells exist):
    family's "person" id space needs re-checking before integration — maps in
    checkpoints 1/3).
 2. ~~Validation backlog~~ **DONE (checkpoint 4)**: anchors verified, reader bugs
-   fixed, pytest pinned. Still open inside league history: identifying the
-   club's rows for 2026/27 (League Two) and the Premier-era seasons (2034/35+
-   20-club P38 comps: candidates 7, 22, 23, 51, 124, 128, 136, 159, 526, 3484-
-   3486) needs the ls chain (ls node 0xa30f0 references the 2024/25 row, 0x11b88
-   and 0x30bc0 the 2029/30 row; the (ptr, ptr) butted runs on either side are
-   per-season region indexes, not club chains).
+   fixed, pytest pinned. The club-threading question is solved by the ls
+   decode (checkpoint 5): St Albans = list 351, all seasons attributed.
 3. **player_stats_hist_dt (876 MB)** — per-player statistical history
    (appearances/goals per season); needed for player pages. Status:
    **decode-parked (2026-10-10)** — head grammar pinned (152-B grid,
