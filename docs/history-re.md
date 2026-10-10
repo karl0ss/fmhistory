@@ -1282,7 +1282,8 @@ chain is claimed by a *different* single group (438, 450, 490, …), and group
 
 ### Remaining plan (owner priority, 2026-10-09: DECODERS FIRST)
 
-Standing direction from the owner: the priority is **finishing the missing
+**Superseded: the working roadmap now lives in `docs/PLAN.md` — every session
+starts there.** Standing direction from the owner: the priority is **finishing the missing
 decoders in fmsave** — no tooling/site work until the data is complete, since a
 site built on partial data is built on guesses. The screenshots remain
 calibration-only (each decoder's output gets validated against them; that
