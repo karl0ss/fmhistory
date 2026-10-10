@@ -806,6 +806,61 @@ facts (sold 9/8/2036, £32.5M) — his 749-hit low16 family first; (4) resolve
 Dumas through the ls index (not id literals) and dump every record in his
 list; check one Aug-2036 record for a fee-shaped field.
 
+### person_record_history_dt — record grammar progress (checkpoint 8, 2026-10-10; scans 119–122)
+
+**ls structure** (scan119): maximal ascending runs = 1,650,811; sizes 2–3
+dominate (1.14M runs of 2, 236k of 3, 231k of 1; largest 1,442). The ls mixes
+dt pointers with out-of-range values (a second id space, unexplained) and
+occasional small in-range values that point at non-record bytes — entries
+where the target parses as a clean record are the person-pointer entries.
+
+**Record skeleton pinned** (scans 120–122), byte map at the true head start
+`h`:
+
+- `[u32 refA] [u16 refB] [00] [u32 refC]` — an 11-byte head; all-ff
+  (`ff ff ff ff ff ff | ff ff ff ff`) = no reference. NOT always sentinel:
+  real refs appear (e.g. refA=0x43b7b seen in one record; the scan115 YT
+  family carries real values in these positions).
+- `[u16 tick] [u16 year]` at h+11/h+13 — tick ∈ day/season-tick range
+  (1 = 1 Jan, 182/201 ≈ pre-season, 21–33k in-season), year 2020–2039 (2039+
+  seen = likely far-future contract expiry sentinel, cf. transfer_man).
+- `[u8 flag]` h+19 (01/02/05/08/15 seen), then ~19 zero bytes, then
+  `[u16 c1]` h+39 (14/40/61/82/94/95/155/269/353 seen — small per-record
+  counter, semantics open), `[u32 c2]` h+42 and beyond: sentinel
+  `ffffffff` on most pointer-reached records; **the scan115 YT family has c2
+  = person low16 and a following money u32** (645,833/505,193/605,228) — so
+  the tail extends on non-sentinel records and carries money fields.
+
+**Find-anchor alignment rule** (the reason fixed offsets drift): the head's
+ff-run length varies with which ref fields are sentinel — the naive
+`ff×6 00`-find lands 0 / +2 / +4 past the true head start depending on
+whether refA or refB carry values. A robust parser must back-scan from the
+`00` byte and test the three u32 candidate starts. (This is why scan122's
+fixed +11/+13 fields read sane on some records and junk on others — the
+underlying 42-B cycle with sentinel heads is real: 642k records of exactly
+42 B, 236k of 84, 60k of 126 — 42-multiples dominate the 1.18M
+sentinel-head population.)
+
+**Person binding not yet made**: no ls run parsed yet had stable c2 (c2 is
+sentinel ff on the all-clean records) — the person link must come either from
+the non-sentinel-head records (refA/refB/refC holding club/person refs) or
+from ls side structure (per-person list boundaries). YT's 749-low16-hit
+family remains the best bridge: decode that family's records first.
+
+**Dead ends this round:** the largest ls run's entries (0x2f0cb…, 4 apart)
+point into non-record data — ls entries are NOT all record pointers; treat
+head_ok-validated entries only, and never assume stride between ls entries
+equals record stride.
+
+**Next steps:** (1) robust head parser (back-scan from `00`, test u32
+candidates at -11/-7/-4) to give every ls entry a canonical record start;
+(2) re-run run-wise field dump with canonical starts — look for stable
+c1/c2 per person and for money u32s in tails; (3) decode the YT low16 family
+(`… c1 00 00 | <low16> | <money u32> …` records) and check for a 2036
+record with an Aug tick matching his 9/8/2036 sale; (4) same for Dumas (in
+10/8/2036, £23M) — if his fee appears here, the fee log is found and the
+integration follows.
+
 ### Remaining plan (owner priority, 2026-10-09: DECODERS FIRST)
 
 Standing direction from the owner: the priority is **finishing the missing
