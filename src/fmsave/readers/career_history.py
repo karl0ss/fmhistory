@@ -70,6 +70,19 @@ What each section holds:
   the decoder stamps each row with its list number (`history_index`). The season
   is the season's ending year.
 
+- `tc_best_eleven_history_dt` — every club's season best-eleven table, as 509-byte
+  records after the 8-byte section head `03 01 'tmc.' 02 00`:
+
+      [u16 season] 18 x unit [13 B tail] [u8 table type][u8 kind] 00 [u32 table id] 04
+      unit = [u32 player reference][u16 apps][u16 goals][u32 rating total]
+             02 [u32 natural positions] 02 [u32 secondary positions] 02 [u32 slot position]
+
+  The identity head closes the record rather than opening it: read the other way,
+  the section's first units have no head and its last head has no units. The
+  `tc_best_eleven_history_ls` index uses the league-history list grammar (same tag,
+  delta-encoded offsets past the 8-byte head, a 10-byte trailer whose record size is
+  509), and lists every record exactly once, one list per club.
+
 Competition ids in the career-history sections are save-internal ids, and no save stores a
 competition name, so none of these records carries a name; naming needs the same
 editor-database-id map the competition reader uses.
@@ -85,6 +98,7 @@ from collections.abc import Mapping, Sequence
 from fmsave._errors import CorruptSaveError
 from fmsave.models.career_history import (
     Award,
+    BestElevenEntry,
     CupEntry,
     Honour,
     LeagueHistorySeason,
@@ -602,3 +616,110 @@ def player_references(pindexes: Sequence[int], uids: Sequence[int]) -> dict[int,
     save `pindex + 1` equals the closing-header reference for 99.2% of players.
     """
     return {pindex + 1: uid for pindex, uid in zip(pindexes, uids, strict=True)}
+
+
+# Best-eleven history: 509-byte club-season tables, threaded to clubs through the ls index
+
+BEST_ELEVEN_DT_SECTION = "tc_best_eleven_history_dt"
+BEST_ELEVEN_LS_SECTION = "tc_best_eleven_history_ls"
+
+_BEST_ELEVEN_HEAD = 8
+_BEST_ELEVEN_RECORD = 509
+_BEST_ELEVEN_UNITS = 18
+_BEST_ELEVEN_UNIT = 27
+_BEST_ELEVEN_UNITS_AT = 2
+# The record's closing identity head: [u8 table type][u8 kind] 00 [u32 table id] 04.
+_BEST_ELEVEN_ID_HEAD_AT = 501
+_BEST_ELEVEN_ID_HEAD_END = 4
+# The tag byte in front of each of a unit's three position words.
+_BEST_ELEVEN_TAG = 2
+_BEST_ELEVEN_TAG_OFFSETS = (12, 17, 22)
+_EMPTY_REFERENCE = 0xFFFF_FFFF
+
+
+def _is_valid_best_eleven_record(dt_data: bytes, offset: int) -> bool:
+    """Whether the 509 bytes at a record offset read as a best-eleven record.
+
+    The record must fit in the section, carry a real season year, close with the
+    `00 ... 04` identity head, and tag every unit's three position words with 02.
+    """
+    if offset + _BEST_ELEVEN_RECORD > len(dt_data):
+        return False
+    season = struct.unpack_from("<H", dt_data, offset)[0]
+    head = offset + _BEST_ELEVEN_ID_HEAD_AT
+    if not (_MIN_YEAR <= season <= 2100) or dt_data[head + 2] != 0:
+        return False
+    if dt_data[head + 7] != _BEST_ELEVEN_ID_HEAD_END:
+        return False
+    for slot in range(_BEST_ELEVEN_UNITS):
+        unit = offset + _BEST_ELEVEN_UNITS_AT + _BEST_ELEVEN_UNIT * slot
+        if any(dt_data[unit + tag] != _BEST_ELEVEN_TAG for tag in _BEST_ELEVEN_TAG_OFFSETS):
+            return False
+    return True
+
+
+def _decode_best_eleven_record(
+    dt_data: bytes, offset: int, history_index: int | None
+) -> list[BestElevenEntry]:
+    """The filled units of the best-eleven record at a record offset, in slot order."""
+    season = struct.unpack_from("<H", dt_data, offset)[0]
+    head = offset + _BEST_ELEVEN_ID_HEAD_AT
+    table_type, kind = dt_data[head], dt_data[head + 1]
+    table_id = struct.unpack_from("<I", dt_data, head + 3)[0]
+    record_index = (offset - _BEST_ELEVEN_HEAD) // _BEST_ELEVEN_RECORD
+    entries: list[BestElevenEntry] = []
+    for slot in range(_BEST_ELEVEN_UNITS):
+        unit = offset + _BEST_ELEVEN_UNITS_AT + _BEST_ELEVEN_UNIT * slot
+        reference, appearances, goals, rating_total = struct.unpack_from("<IHHI", dt_data, unit)
+        if reference == _EMPTY_REFERENCE:
+            continue
+        natural, secondary, position = (
+            struct.unpack_from("<I", dt_data, unit + tag + 1)[0] for tag in _BEST_ELEVEN_TAG_OFFSETS
+        )
+        entries.append(
+            BestElevenEntry(
+                record_index=record_index,
+                season_year=season,
+                table_type=table_type,
+                kind=kind,
+                table_id=table_id,
+                slot=slot,
+                player_reference=reference,
+                appearances=appearances,
+                goals=goals,
+                rating_total=rating_total,
+                average_rating=rating_total / appearances / 10 if appearances else None,
+                natural_positions=natural,
+                secondary_positions=secondary,
+                table_position=position,
+                history_index=history_index,
+            )
+        )
+    return entries
+
+
+def decode_best_eleven(dt_data: bytes, ls_data: bytes) -> tuple[BestElevenEntry, ...]:
+    """Every filled slot of every best-eleven table the dt section stores, in file order.
+
+    The dt section is an 8-byte head and then 509-byte records, one club's season
+    table each: a season year, 18 units and a 13-byte tail, closed by the record's
+    identity head (table type, kind, table id). Records that fail the record check
+    are skipped, and so are empty slots (player reference 0xffffffff). The ls index
+    holds one list of record offsets per club in the league-history grammar, and a
+    record's list number becomes each of its rows' `history_index` (None when the
+    index does not parse or does not cover the record).
+
+    Returns:
+        One `BestElevenEntry` per filled slot, by record and then slot.
+    """
+    owner: dict[int, int] = {}
+    for index, offsets in enumerate(decode_league_history_lists(ls_data)):
+        for record_offset in offsets:
+            owner[record_offset] = index
+    entries: list[BestElevenEntry] = []
+    for offset in range(
+        _BEST_ELEVEN_HEAD, len(dt_data) - _BEST_ELEVEN_RECORD + 1, _BEST_ELEVEN_RECORD
+    ):
+        if _is_valid_best_eleven_record(dt_data, offset):
+            entries.extend(_decode_best_eleven_record(dt_data, offset, owner.get(offset)))
+    return tuple(entries)

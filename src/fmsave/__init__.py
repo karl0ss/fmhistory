@@ -29,6 +29,7 @@ from fmsave.checks import (
 from fmsave.models.affiliates import AffiliateGroup
 from fmsave.models.career_history import (
     Award,
+    BestElevenEntry,
     CupEntry,
     Honour,
     LeagueHistorySeason,
@@ -113,6 +114,7 @@ __all__ = [
     "AmbiguousNameError",
     "Attributes",
     "Award",
+    "BestElevenEntry",
     "Clause",
     "ClauseKind",
     "Club",

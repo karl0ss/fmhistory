@@ -1393,6 +1393,49 @@ chain is claimed by a *different* single group (438, 450, 490, …), and group
 **Next:** integrate best-eleven cells (model + reader + `Save.` method,
 units carrying `player_uid` via the reference map), then retired-player names.
 
+### tc_best_eleven checkpoint 4: INTEGRATED — record framing corrected, ls = one list per club (2026-10-10; scans tmp_besteleven/i1–i8)
+
+**Integrated** as `Save.career_best_eleven()` → `Table[BestElevenEntry]`
+(one row per filled slot; `decode_best_eleven` in `readers/career_history.py`;
+`docs/reference/best_eleven.md`). GT save: 474,491 rows, 26,456 records, 2,724
+lists, every record threaded; pure decode 3.8 s, 19.5 s with the
+player-reference join (player scan). Named share by season: 2036 96%, 2033
+73%, 2029 41%, 2023 10%.
+
+**Two corrections to checkpoints 1–2 (both made the old analysis wrong):**
+
+1. **Framing:** the section is an 8-byte head (`03 01 'tmc.' 02 00`) + 509-B
+   records `[u16 season][18 units][13 B tail][u8 T][u8 kind][00][u32 id3][04]`
+   — the T/kind/id3 head **closes** its record. The old "cell at k*509, head
+   first" framing paired every head with the *previous* table's units (that is
+   why cell 0 had no head and an 8-byte head dangled at the end). Evidence:
+   (T,kind)→mean-apps eta² 0.425 (old) vs 0.52 (new), per-(T,kind) apps SD
+   tighter on nearly every family (e.g. (13,8) 3.4→2.2, (1,9) 4.2→1.7), and
+   the 1:1 head↔units count. St Albans 2036's units sit under head
+   (0,18,98390), not (0,18,75245).
+2. **ls = the league-history list grammar** (delta-encoded, `offset[m] = v[m]
+   + v[m-1]` past the 8-byte head; trailer `0, 509, 2`). Decoded that way
+   every one of the 26,456 records is in exactly one list — the "12,298
+   distinct / shared cells / THE WALL" results were artefacts of reading the
+   raw values as offsets. Lists are clubs: St Albans = list 685, one record
+   per season 2023–2036. **THE WALL, id3=competition-season and ls=spell-window
+   models are all dead** (built on both artefacts).
+
+**Semantics pinned on St Albans (all unconfirmed in the model):**
+- season = starting year: list 685 runs 2023–2036 vs league-history ending
+  years 2024–2037; paired so, (T,kind) changes exactly where the league
+  competition does: comp 708→(2,4), 150→(0,7), 10→(0,8), 9→(0,10),
+  8→(0,13), 7→(0,18). (T,kind) reads as a league id; id3 changes every season.
+- slots 0–10 = XI (GK first), 11–17 subs; f3 = the slot's position bit (1 GK,
+  4/16/8 defence, 128/1024/8192 midfield, 16384 ST), f1 = natural-positions
+  mask, f2 = secondary mask (mostly 0); `b` = goals (0 on GK, ~8–9 mean on
+  slot 10, ST); empty slot = ref 0xffffffff + zeros (1,717 slots, 11–17 only).
+
+**Open:** ls list number → club uid (not stored; a league-title pin like
+`club_league_history` may port: lists are probably club-uid ordered); the
+13-B tail (ascending byte runs, 904 distinct); (T,kind) → competition id map;
+retired-player names (pre-2030 rows mostly unnamed).
+
 ### Remaining plan (owner priority, 2026-10-09: DECODERS FIRST)
 
 **Superseded: the working roadmap now lives in `docs/PLAN.md` — every session

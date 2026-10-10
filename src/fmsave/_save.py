@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import replace
 from types import TracebackType
 from typing import NamedTuple, Self
 
@@ -29,6 +30,7 @@ from fmsave._version import read_save_info
 from fmsave.models.affiliates import AffiliateGroup
 from fmsave.models.career_history import (
     Award,
+    BestElevenEntry,
     CupEntry,
     Honour,
     LeagueHistorySeason,
@@ -40,7 +42,6 @@ from fmsave.models.competitions import Competition, Stage
 from fmsave.models.contracts import Contract
 from fmsave.models.facilities import ClubFacilities
 from fmsave.models.finances import FinanceMonth, Sponsorship
-from fmsave.models.transfer_history import PlayerSeasonRecord, WageLedgerRecord
 from fmsave.models.fixtures import Fixture
 from fmsave.models.injuries import InjuryRecord, InjuryType
 from fmsave.models.jobs import JobVacancy
@@ -56,6 +57,7 @@ from fmsave.models.staff import Staff, StaffList
 from fmsave.models.suspensions import Suspension
 from fmsave.models.tactics import SetPieceRoutine, Tactic
 from fmsave.models.training import MentoringGroup, TeamTraining
+from fmsave.models.transfer_history import PlayerSeasonRecord, WageLedgerRecord
 from fmsave.name_maps import (
     _EMPTY_COMPETITION_NAMES,  # pyright: ignore[reportPrivateUsage]
     _normalized_competition_names,  # pyright: ignore[reportPrivateUsage]
@@ -78,32 +80,27 @@ from fmsave.readers.affiliates import (
 )
 from fmsave.readers.career_history import (
     AWARD_SECTION,
+    BEST_ELEVEN_DT_SECTION,
+    BEST_ELEVEN_LS_SECTION,
     CUP_HISTORY_SECTION,
     HALL_OF_FAME_SECTION,
     LEAGUE_HISTORY_DT_SECTION,
     LEAGUE_HISTORY_LS_SECTION,
     MANAGER_HISTORY_SECTION,
     decode_awards,
+    decode_best_eleven,
     decode_cup_entries,
     decode_hall_of_fame,
     decode_league_history,
+    decode_manager_spells,
     find_person_reference,
     player_references,
     resolve_league_history_indexes,
-    decode_manager_spells,
-)
-from fmsave.readers.transfer_history import (
-    TRANSFER_MAN_SECTION,
-    decode_player_season_records,
-    decode_wage_ledger_records,
-    raise_when_ledger_unreadable,
-    raise_when_unreadable,
 )
 from fmsave.readers.facilities import find_facility_layout, read_club_facilities
 from fmsave.readers.finances import find_finance_layouts, read_club_finances
 from fmsave.readers.fixtures import build_fixtures_with_offsets
 from fmsave.readers.injuries import (
-    build_injury_records,
     build_injury_records,
     find_injury_manager_layout,
     find_injury_type_layout,
@@ -177,6 +174,13 @@ from fmsave.readers.training import (
     unmanaged_training_stats,
     walk_training_blocks,
 )
+from fmsave.readers.transfer_history import (
+    TRANSFER_MAN_SECTION,
+    decode_player_season_records,
+    decode_wage_ledger_records,
+    raise_when_ledger_unreadable,
+    raise_when_unreadable,
+)
 from fmsave.table import Table
 
 CLUBS_TABLE_CACHE_KEY = "table:clubs"
@@ -205,6 +209,7 @@ CAREER_MANAGER_SPELLS_TABLE_CACHE_KEY = "table:career_manager_spells"
 CAREER_AWARDS_TABLE_CACHE_KEY = "table:career_awards"
 CAREER_LEAGUE_HISTORY_TABLE_CACHE_KEY = "table:career_league_history"
 LEAGUE_HISTORY_INDEXES_CACHE_KEY = "league_history_indexes"
+CAREER_BEST_ELEVEN_TABLE_CACHE_KEY = "table:career_best_eleven"
 TRANSFER_MAN_SEASON_RECORDS_TABLE_CACHE_KEY = "table:transfer_man_season_records"
 TRANSFER_MAN_WAGE_LEDGER_TABLE_CACHE_KEY = "table:transfer_man_wage_ledger"
 JOB_VACANCIES_TABLE_CACHE_KEY = "table:job_vacancies"
@@ -842,6 +847,32 @@ class Save:
         return context.cached(
             CAREER_LEAGUE_HISTORY_TABLE_CACHE_KEY, self._read_career_league_history
         )
+
+    def career_best_eleven(self) -> Table[BestElevenEntry]:
+        """Every player of every club's season best-eleven table, one row per slot.
+
+        The `tc_best_eleven_history_dt` section stores one 509-byte table per club per
+        season: eighteen slots (the eleven, goalkeeper first, then seven substitutes)
+        with each player's appearances, goals and rating total. The
+        `tc_best_eleven_history_ls` index lists each club's tables, and every row carries
+        the number of its club's list as `history_index`, so filtering on one index
+        gives one club's best elevens across seasons; the index does not store club
+        uids. Players are named by their history reference, and `player_uid` joins it
+        to `players()` through `history_player_references()`: players who have left
+        `players()`, most retired players among them, keep None.
+
+        Returns one record per filled slot with the record number, season year, the
+        table's identity head (type, kind, id), slot, player reference, appearances,
+        goals, rating total and average rating, the three position bitmasks, history
+        index and player uid.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written.
+        """
+        context = self._context
+        return context.cached(CAREER_BEST_ELEVEN_TABLE_CACHE_KEY, self._read_career_best_eleven)
 
     def club_league_history(self, club_uid: int) -> Table[LeagueHistorySeason]:
         """One club's past league seasons, in season order, when the save pins its list.
@@ -2484,6 +2515,21 @@ class Save:
         ):
             entries = decode_league_history(dt_data, ls_data)
         return Table(entries, LeagueHistorySeason)
+
+    def _read_career_best_eleven(self) -> Table[BestElevenEntry]:
+        with (
+            self._context.section(BEST_ELEVEN_DT_SECTION) as dt_data,
+            self._context.section(BEST_ELEVEN_LS_SECTION) as ls_data,
+        ):
+            entries = decode_best_eleven(dt_data, ls_data)
+        references = self.history_player_references()
+        return Table(
+            [
+                replace(entry, player_uid=references.get(entry.player_reference))
+                for entry in entries
+            ],
+            BestElevenEntry,
+        )
 
     def _league_history_indexes(self) -> dict[int, int]:
         return self._context.cached(

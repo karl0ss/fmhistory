@@ -1,7 +1,8 @@
 """Career history records read from the save's history sections.
 
-These come from the `hall_of_fame`, `tc_cup_history_dt`, `tc_manager_history_dt` and
-`award_year_hist_dt` sections, whose binary layout fmsave's older readers do not parse.
+These come from the `hall_of_fame`, `tc_cup_history_dt`, `tc_manager_history_dt`,
+`award_year_hist_dt`, `tc_league_history_*` and `tc_best_eleven_history_*` sections,
+whose binary layout fmsave's older readers do not parse.
 Their layouts were
 reverse-engineered on one save (`Karl Hudgell - UnemployedNew.fm`, build 26.3.2,
 FM24 save imported into FM26) and are not yet verified across builds, so every field
@@ -274,5 +275,102 @@ register_field_statuses(
         "points",
         "imported",
         "history_index",
+    ),
+)
+
+
+@dataclass(frozen=True, slots=True)
+class BestElevenEntry:
+    """One player of one club's season best-eleven table, from the best-eleven history.
+
+    `tc_best_eleven_history_dt` is an 8-byte section head followed by 509-byte
+    records, `[u16 season][18 units of 27 B][13 B tail][u8 table type][u8 kind][00]
+    [u32 table id][04]`; a unit is `[u32 player reference][u16 appearances][u16
+    goals][u32 rating total][02 u32 natural positions][02 u32 secondary positions][02
+    u32 table position]`. A record's identity head sits at its end, after its units.
+    `tc_best_eleven_history_ls` lists every record exactly once, one delta-encoded
+    list per club (the league-history index grammar), so `history_index` groups one
+    club's tables across seasons; neither section stores which club uid a list is.
+    On the ground-truth save St Albans City's list (685) runs one record per season
+    from 2023 to 2036, while its league-history rows (season-ending years) run 2024
+    to 2037: the year reads as the season's starting year. Paired that way, the
+    table type and kind change exactly where the club's league competition does
+    (six leagues, six pairs), so the pair reads as a league identifier.
+
+    Slots 0-10 hold the eleven, goalkeeper first, and slots 11-17 the substitutes;
+    `table_position` is one position bit (1 on the goalkeeper slot, 16384 on the
+    striker slots), and `goals` peaks on the striker slots. An empty slot (player
+    reference 0xffffffff, every other field zero) is not a row.
+
+    Attributes:
+        record_index: Number of the 509-byte record within the section, from 0
+            (unconfirmed).
+        season_year: Season year the record stores, which reads as the season's
+            starting year, e.g. 2036 for the 2036/37 season (unconfirmed).
+        table_type: First byte of the record's identity head (unconfirmed).
+        kind: Second byte of the record's identity head; with `table_type` it
+            follows the club's division (unconfirmed).
+        table_id: u32 id in the record's identity head; it changes every season
+            for one club and joins to nothing fmsave reads (unconfirmed).
+        slot: Unit number within the table, 0-17 (unconfirmed).
+        player_reference: The player's history reference id, `pindex + 1` of his
+            player record (unconfirmed).
+        appearances: Appearances counted for the table (unconfirmed).
+        goals: Goals, read from the unit's second count; zero on goalkeeper slots
+            and highest on striker slots (unconfirmed).
+        rating_total: Sum of match ratings x 10 over the appearances (unconfirmed).
+        average_rating: `rating_total / appearances / 10`, the average match rating,
+            or None with no appearances (unconfirmed).
+        natural_positions: Position bitmask of the positions the player plays
+            (unconfirmed).
+        secondary_positions: A second position bitmask, zero on most units
+            (unconfirmed).
+        table_position: The single position bit the slot fills in the table
+            (unconfirmed).
+        history_index: Number of the `tc_best_eleven_history_ls` list holding the
+            record: one list per club. None when the index does not cover the record
+            (unconfirmed).
+        player_uid: Uid of the player in `players()`, joined through
+            `Save.history_player_references()`. None for a player no longer in
+            `players()`, which covers most retired players (unconfirmed).
+    """
+
+    record_index: int
+    season_year: int
+    table_type: int
+    kind: int
+    table_id: int
+    slot: int
+    player_reference: int
+    appearances: int
+    goals: int
+    rating_total: int
+    average_rating: float | None
+    natural_positions: int
+    secondary_positions: int
+    table_position: int
+    history_index: int | None = None
+    player_uid: int | None = None
+
+
+register_field_statuses(
+    BestElevenEntry,
+    unconfirmed=(
+        "record_index",
+        "season_year",
+        "table_type",
+        "kind",
+        "table_id",
+        "slot",
+        "player_reference",
+        "appearances",
+        "goals",
+        "rating_total",
+        "average_rating",
+        "natural_positions",
+        "secondary_positions",
+        "table_position",
+        "history_index",
+        "player_uid",
     ),
 )

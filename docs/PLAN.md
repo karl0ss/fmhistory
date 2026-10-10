@@ -55,12 +55,18 @@ validated against the k-world yearly reports (seasons 1–9) and screenshots.
 
 ## Phase 2 — best-eleven, structurally (names deferred)
 
-- [ ] **D4. Integrate `tc_best_eleven_history_dt/ls`.** Grammar is pinned
+- [x] **D4. Integrate `tc_best_eleven_history_dt/ls`.** Grammar is pinned
       (checkpoint 2 in `docs/history-re.md`): 509-B cells = best-18 tables for
       a competition-season (id3), 18 units = players (internal pid space),
       ls = 2,724 bounded spell windows. Integrate model + reader + `Save.`
       method with ids documented as internal. **Outcome:** 1–6 + structural 7
       ⇒ assemble the **blind career report** and calibrate vs k-world.
+      **Status (2026-10-10, checkpoint 4):** INTEGRATED as
+      `Save.career_best_eleven()` (474,491 slot rows, players named via
+      `history_player_references`: 96% for 2036). Framing corrected (the
+      T/kind/id3 head closes its record) and ls decoded with the league
+      delta grammar: one list per club, every record in exactly one list
+      (St Albans = list 685, 2023–2036). **Next:** pin list → club uid.
 
 ## Phase 3 — identities (names)
 
@@ -77,6 +83,9 @@ validated against the k-world yearly reports (seasons 1–9) and screenshots.
 - Transfer fees: **closed** — no per-transfer fee store exists in the
   container (fee-hunt elimination arc, checkpoint 5 in history-re.md).
 - `tc_best_eleven` id3=club: **dead** (checkpoint 2 corrects d8253b1).
+- `tc_best_eleven` THE WALL / id3=competition-season / ls=spell-window:
+  **dead** — artefacts of the off-by-one framing and undecoded ls deltas
+  (checkpoint 4).
 - Within-group (ls) cell overlap models: **dead** — the WALL measurement.
 - Best-eleven pid→player via `players().uid`: dead — but pid = history
   reference = pindex + 1 (SOLVED 2026-10-10, `Save.history_player_references()`).

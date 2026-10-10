@@ -2,6 +2,7 @@
 
 from fmsave.models.affiliates import AffiliateGroup
 from fmsave.models.career_history import (
+    BestElevenEntry,
     CupEntry,
     Honour,
     LeagueHistorySeason,
@@ -79,6 +80,7 @@ __all__ = [
     "Ability",
     "AffiliateGroup",
     "Attributes",
+    "BestElevenEntry",
     "Clause",
     "ClauseKind",
     "Club",
