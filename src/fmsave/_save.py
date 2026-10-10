@@ -57,7 +57,7 @@ from fmsave.models.staff import Staff, StaffList
 from fmsave.models.suspensions import Suspension
 from fmsave.models.tactics import SetPieceRoutine, Tactic
 from fmsave.models.training import MentoringGroup, TeamTraining
-from fmsave.models.transfer_history import PlayerSeasonRecord, WageLedgerRecord
+from fmsave.models.transfer_history import ClubPlayerMove, PlayerSeasonRecord, WageLedgerRecord
 from fmsave.name_maps import (
     _EMPTY_COMPETITION_NAMES,  # pyright: ignore[reportPrivateUsage]
     _normalized_competition_names,  # pyright: ignore[reportPrivateUsage]
@@ -176,6 +176,7 @@ from fmsave.readers.training import (
 )
 from fmsave.readers.transfer_history import (
     TRANSFER_MAN_SECTION,
+    club_player_moves,
     decode_player_season_records,
     decode_wage_ledger_records,
     raise_when_ledger_unreadable,
@@ -945,21 +946,22 @@ class Save:
         return player_references(records.pindexes, records.uids)
 
     def transfer_man_player_seasons(self) -> Table[PlayerSeasonRecord]:
-        """Every readable 73-byte season-record row the `transfer_man` section stores.
+        """Every readable 73-byte move-grid row the `transfer_man` section stores.
 
-        The section's tail is a per-season store of per-player-per-club rows across
-        the whole game world, newest seasons stored clear and older seasons in one
-        zstd-compressed block each. A row keys a player through the club uid and
-        squad slot in its head id and groups under the season year it stores, and
-        its money fields sit on the raw-£ weekly-wage scale. The reader pattern-scans
-        each season region, so rows a layout the scan misses are skipped rather than
-        misread; row semantics are unconfirmed on the ground-truth save and are not
-        verified across builds. The section's transfer-registration and negotiation
-        families are not decoded, and the section carries no transfer fees.
+        The section's tail is a per-season store of career moves across the whole game
+        world — transfers, loans, free moves, youth intakes, releases, staff
+        appointments — newest seasons stored clear and older seasons in one
+        zstd-compressed block each. A row names the moving person by his history
+        reference (`history_player_references` resolves players), the teams he moves
+        to and from by `Team.team_id`, and the date the move took effect. The reader
+        pattern-scans each season region, so rows a layout the scan misses are skipped
+        rather than misread; row semantics are calibrated on the ground-truth save only
+        and are not verified across builds. The section carries no transfer fees;
+        `club_player_moves` joins one club's rows to players and clubs.
 
-        Returns one record per readable row with the club uid, squad slot, head
-        variant bytes, the four money fields, the row type byte, the tick word,
-        the season year, the status word and the four trailing fields.
+        Returns one record per readable row with the person's reference, head variant
+        bytes, the team fields, the row type byte, the date words and decoded date,
+        the status word and the four trailing fields.
 
         Raises:
             SaveClosedError: The save is closed.
@@ -971,11 +973,52 @@ class Save:
             TRANSFER_MAN_SEASON_RECORDS_TABLE_CACHE_KEY, self._read_transfer_man_player_seasons
         )
 
+    def club_player_moves(self, club_uid: int) -> Table[ClubPlayerMove]:
+        """Every move into or out of one club the `transfer_man` move grid records.
+
+        Reads `transfer_man_player_seasons` and keeps each row whose destination or
+        origin team is one of the club's own teams, joining the moving person's history
+        reference to a player (`history_player_references`, names from `players()`)
+        and both teams to their clubs (`clubs()`). Staff moves and players no longer in
+        `players()` keep their reference with no uid or name. Moves come in date order.
+        The save stores no transfer fees, so none are reported.
+
+        On the ground-truth save, the manager's club's incoming row types 1, 4 and 5
+        since he took over count 127, the number of players his profile says he
+        bought.
+
+        Args:
+            club_uid: Uid of the club, as `clubs()` reports it.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written.
+        """
+        clubs = self.clubs()
+        club_by_team = {
+            team.team_id: team.club_uid
+            for club in clubs
+            for team in club.teams
+            if not team.is_affiliate
+        }
+        club_names = {club.uid: club.name for club in clubs}
+        player_names = {player.uid: player.name for player in self.players()}
+        moves = club_player_moves(
+            self.transfer_man_player_seasons(),
+            club_uid,
+            club_by_team,
+            club_names,
+            self.history_player_references(),
+            player_names,
+        )
+        return Table(moves, ClubPlayerMove)
+
     def transfer_man_wage_ledger(self) -> Table[WageLedgerRecord]:
         """Every readable wage-ledger record the `transfer_man` section's clear zone stores.
 
         The clear zone is one chronological append log whose wage-ledger records — a
-        uniform 28-byte format keyed by club uid and squad slot, with two money fields
+        uniform 28-byte format keyed by the player's history reference, with two money fields
         on the raw-£ weekly-wage scale — sit interleaved with the negotiation records
         it is logged alongside. The money fields are stored raw: the second is often a
         small multiple of the first, but not predictably so, and neither maps to a
@@ -984,7 +1027,7 @@ class Save:
         negotiation record's body are read as standalone ones. Row semantics are
         unconfirmed on the ground-truth save and are not verified across builds.
 
-        Returns one record per readable row with the club uid, squad slot, kind byte,
+        Returns one record per readable row with the player reference, kind byte,
         the two money fields, the flag byte and the tail word.
 
         Raises:
