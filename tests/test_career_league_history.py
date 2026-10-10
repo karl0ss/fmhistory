@@ -10,6 +10,7 @@ from fmsave.readers.career_history import (
     LEAGUE_HISTORY_LS_SECTION,
     decode_league_history,
     decode_league_history_lists,
+    find_person_reference,
     resolve_league_history_indexes,
 )
 
@@ -259,3 +260,13 @@ def test_the_second_games_byte_marks_imported_rows() -> None:
     unplayed = row(2031, played=255)[:13] + b"\x00" + row(2031, played=255)[14:]
     seasons = decode_league_history(dt_blob(written, carried, unplayed), b"")
     assert [s.imported for s in seasons] == [False, True, False]
+
+
+def test_a_person_reference_is_the_word_before_his_doubled_unique_id() -> None:
+    header = struct.pack("<III", 328408, 2002143423, 2002143423)
+    noise = struct.pack("<III", 0x0500_0000, 2002143423, 2002143423)
+    game_db = b"\x00" * 16 + noise + b"\x11" * 9 + header + b"\x00" * 8
+    assert find_person_reference(game_db, 2002143423) == 328408
+    assert find_person_reference(game_db, 7) is None
+    twice = game_db + struct.pack("<III", 5, 2002143423, 2002143423)
+    assert find_person_reference(twice, 2002143423) is None

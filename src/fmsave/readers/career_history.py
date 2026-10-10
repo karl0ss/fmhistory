@@ -564,3 +564,30 @@ def resolve_league_history_indexes(
     resolved = {club: next(iter(lists)) for club, lists in claims.items() if len(lists) == 1}
     holders = Counter(resolved.values())
     return {club: index for club, index in resolved.items() if holders[index] == 1}
+
+
+# A history section names a person by a reference id that is one past the id his
+# game_db object closes with; that closing header stores the reference and then the
+# person's database Unique ID twice. Reference ids are dense, so a value this large
+# preceding a doubled uid is unrelated data.
+_MAX_PERSON_REFERENCE = 0x0100_0000
+
+
+def find_person_reference(game_db: bytes, unique_id: int) -> int | None:
+    """The reference id history sections use for the person with this Unique ID, or None.
+
+    The person's object closes with a header `[u32 reference][u32 unique_id][u32
+    unique_id]`, so the reference is the word before the first doubled Unique ID whose
+    preceding word is in the dense reference range. None unless exactly one such
+    header exists. On the ground-truth save the human manager's reference is the
+    winner id his award rows carry.
+    """
+    needle = struct.pack("<II", unique_id, unique_id)
+    found: set[int] = set()
+    hit = game_db.find(needle, 4)
+    while hit != -1:
+        reference = struct.unpack_from("<I", game_db, hit - 4)[0]
+        if reference < _MAX_PERSON_REFERENCE:
+            found.add(reference)
+        hit = game_db.find(needle, hit + 1)
+    return next(iter(found)) if len(found) == 1 else None

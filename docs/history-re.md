@@ -277,6 +277,17 @@ note had it.
   so that row is left out (the twin (1937, 4, 716) row is read). (2023, 1147, 716, 871)
   is read with tag 0x83 and club 871 — 871's meaning unresolved.
 
+- **Winner → person join SOLVED (2026-10-10, scan d3_*), integrated as
+  `Save.history_person_reference(uid)`.** A person's `game_db` object closes
+  with `[u32 ref][u32 unique_id][u32 unique_id]` (unique_id = uid + 1; the
+  same sound-header convention `player_scan.closing_unique_id` uses), and
+  `ref` is the winner id award rows carry: manager staff uid 2002143422 →
+  header (328408, 2002143423 ×2) → his 5 season award rows (144, 103, 101,
+  99 ×2). Lookup 0.35 s per person. Noise: values ≥ 2^24 before a doubled
+  uid (e.g. 0x05000000) are unrelated data and are filtered. Players resolve
+  too (Dumas → 189608, one award row). Note this award-section reference
+  space is NOT person_record_history's refC (Dumas 0xb604 there).
+
 ### award_man (tad., 842,938 B) — award definitions, partially read
 - `03 01 'tad.' 0d 00` header; records `[6×00 01][u16 award id][u8 01][u32 count]
   [(u16 day, u16 year) presentation events...]` with (227, 2037)/(128, 2038) dates and

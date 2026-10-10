@@ -87,6 +87,7 @@ from fmsave.readers.career_history import (
     decode_cup_entries,
     decode_hall_of_fame,
     decode_league_history,
+    find_person_reference,
     resolve_league_history_indexes,
     decode_manager_spells,
 )
@@ -871,6 +872,27 @@ class Save:
             if index is not None and season.history_index == index
         ]
         return Table(sorted(rows, key=lambda season: season.season_year), LeagueHistorySeason)
+
+    def history_person_reference(self, person_uid: int) -> int | None:
+        """The id history sections use for a person, from his uid, or None.
+
+        Award rows (`career_awards().winner_id`) and other history records name people
+        by a save-wide reference id rather than by uid. A person's `game_db` object
+        closes with that reference followed by his database Unique ID (uid + 1)
+        twice, so the reference is found by that header. None when no single header
+        matches. On the ground-truth save the human manager's reference is the winner
+        id of all his season award rows.
+
+        Args:
+            person_uid: Uid of the person, as `staff()` or `players()` reports it.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written.
+        """
+        with self._context.section(GAME_DB_SECTION) as game_db:
+            return find_person_reference(game_db, person_uid + 1)
 
     def transfer_man_player_seasons(self) -> Table[PlayerSeasonRecord]:
         """Every readable 73-byte season-record row the `transfer_man` section stores.
