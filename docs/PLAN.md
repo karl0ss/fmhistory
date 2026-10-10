@@ -91,10 +91,11 @@ validated against the k-world yearly reports (seasons 1–9) and screenshots.
 
 ## Phase 3 — identities (names)
 
-- [ ] **D5. `player_stats_hist_dt` (876 MB).** Pin the per-player record
-      grammar; bind its key space to the best-eleven pid space (b59 confirmed
-      the same pids occur there) and to `players()` uids. Names for best XI +
-      award winners. Largest item — only start when D1–D4 are landed.
+- [x] **D5. `player_stats_hist_dt` (876 MB).** INTEGRATED (2026-10-10) as
+      `Save.player_season_history(uids)`: rows bound through an unlisted pool
+      index frame and the list number each player object stores before its
+      person block; St Albans 2036/37 best-eleven apps/goals/rating reproduce.
+      Open: retired players' lists (history-re.md, player_stats_hist_dt checkpoint 2).
 - [ ] **D6. Manager history ended spells + person refs.** Decode the ended-
       spell row shape in `tc_manager_history_dt` (only open spells decode
       today) and pin its person-reference encoding (not uid, not hof pid).
