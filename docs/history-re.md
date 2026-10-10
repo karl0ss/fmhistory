@@ -304,10 +304,78 @@ The manager has 19 awards in-game; the yearly history holds 6 placings. Ruled ou
   [u16 award_index @+32]`. Type 5 = award won: 2181 NLS Manager of the Month (2023,
   sub 0x17, importance 35) and the 5 season awards (sub 0x16, importance 85). Only
   ONE monthly award is in the log, so it is filtered/pruned, not complete.
-Next: decode the manager's game_db staff object (closing triple
-`328408, uid+1, uid+1` at game_db offset 248,297,587; object start unknown) and the
-per-season job-history stats (the Job History screen's per-season award counts
-1,2,2,2,1,2,1,?,1,1,2 must live somewhere).
+Next: ~~decode the manager's game_db staff object~~ (done differently: career totals are
+in person_record_manager's record table — see "Manager career statistics" below; the
+game_db triple at 248,297,587 opens a stub, not a career object). The per-season
+job-history award counts 1,2,2,2,1,2,1,?,1,1,2 are still unlocated.
+
+### Manager career statistics — INTEGRATED (`Save.career_manager_records()`, `Save.manager_career(uid)`; 2026-10-10, scratch `fm26-career/tmp_manager/h*.py`, `v*.py`)
+**Where they live:** `person_record_manager` (4,394,626 B, `tad.` v30). After the human
+event log (bytes 14..10,807 on the GT save; 170 entries for ref 328408) the section is a
+table of **fixed 367-byte records, one per person who has managed** (11,945 on GT),
+ascending history reference, butted to a 4-byte `ff ff ff ff` trailer. Found by searching
+u32 1589/1059 and u16 741/391/219 near each other (two hits = the career and current-job
+blocks of ref 328408's record @3,311,605). Full layout: `docs/reference/manager_career.md`.
+- Record = `[ref][ref]01`, career fee extremes (+9 paid, +32 received: `[player ref][date]
+  [u32 £][u16][from team][u8][to team]`), 4 spell slots @+55 (longest/shortest club,
+  longest/shortest national: `[u8][team][date][date]`), u64 spent/received/agent fees
+  @+107, u32 GF/GA @+131, u16 cups/league titles @+147, u16 games/W/L @+163, u16 awards
+  @+193, bought/sold/released @+199, u8 club/national jobs @+209, then a current-job block
+  (fees with a different field order @+215/+238, job start date @+260, team @+269,
+  money/goals/counters @+286..+339). **Draws are not stored** (game derives G−W−L).
+- Dates are real packed game dates (`_scan.decode_date`: low 9 bits day-of-year,
+  1-based), not the (day-of-season, year) pairs other history sections use.
+- **GT validation — every Managerial Stats number matches:** 741 games, 391W/131D
+  (derived)/219L, GF 1589, GA 1059, 1 club job / 0 national, longest spell 18/7/2023 →
+  4/12/2037 = 5,253 days, shortest 0 days (slot unset), 19 awards, 127 bought, £101M
+  spent (101,492,665), 39 sold, 50 released, cups 1, league wins 3, agent fees £2.4M
+  (2,406,906), highest fee paid £23M = 22,937,564 for ref 189608 = Corentin Dumas on
+  10/8/2036 (St-Etienne team 706 → 603), highest received £32.5M = 32,347,260 for ref
+  280836 = Ben Young-Thomas on **9/8/2037** (GT note had "2036?"; screen shows 9/8/20..),
+  603 → Shanghai Port. Current job: team 603 (St Albans), start 18/7/2023, same totals.
+  (FM's display rounds £10–100M to the nearest £0.5M: 22.94→£23M, 32.35→£32.5M.)
+- Population checks (11,945): W+L ≤ games always; current-job games ≤ career games;
+  longest club spell ≥ shortest (7,550/7,550); slots 3–4 are non-club teams 228/229;
+  current-job team = `Staff.team_id` for 1,096/1,138 staff with one (rest = other roles).
+- **Correction to the fee-hunt closure:** the save DOES store fees for the record
+  transfers (career extremes here) and, in the human event log, for logged transfers
+  (type-2 entries: `[from team][u8 0][to team][player ref][u32 fee]`, e.g. Dumas entry
+  @9,948 carries 22,937,564). The closure still holds for a complete per-transfer store.
+- Open: `money_received` (+115/+294) = £97,733,168 but the screen shows "Total Sold
+  Transfer Value £0". Unknown words on the GT record: +151=5 (plausibly promotions —
+  5 since 2025), +155=3, +159=1, +171=21, +173=42, +177=18, +195=13, +197=5, +318=2600,
+  +340=5 (exposed as `unknown["word_<offset>"]`). The screen rows below "League Wins"
+  were not captured; a screenshot of the full Overall table would pin them.
+
+**Dead ends (do not redo):**
+- The game_db header `[328408][2002143423][2002143423]` @248,297,587 is followed by kind
+  byte 08 and a ~70-byte stub, then ref 328409's header — it is a stub person object, not
+  the close of a career object. The human's own object is ref **328407** / uid 2002143422
+  / kind 9 @241,959,697, ending at that header (6.34 MB). Probes of it for 716/603/years:
+  sequential club-id lists, float tables, `0d 00 ff ff ff ff 00 01 00 6c 07…` repeated
+  records — no career totals (they are in person_record_manager).
+- `humans` (27 KB) = UI view/filter preferences (`tslf`, `fptatlif`, `daqstlif` tags) —
+  no career data.
+- Per-season Job History rows (league/position/awards/trophies): stride searches for the
+  season-year run (u16 2023..2030, any stride 2–400) and for the per-season sequences
+  (awards 1,2,2,2,1,2,1,?,1,1,2,0,0,0; positions 3,1,1,3,7,1,9,3,7,5,2,12,12,11; u8/u16,
+  both orders, stride 1–300) found nothing in person_record_manager, tc_manager_history_dt,
+  tc_manager_history_ls or manager_manager; game_db year runs are person-header uid
+  coincidences. tc_manager_history_dt is append-only, so per-season rows would be
+  scattered, not strided — the next lead is decoding its record family keyed via
+  `tc_manager_history_ls` (same list grammar as the league ls?). Positions per season
+  already come from `club_league_history(716)`; trophies per season from honours; the
+  per-season award counts remain the only Job History column without a source.
+- Event log (first part of person_record_manager): type 1 sub 1 entries at season ends
+  carry title wins (VNS 2025 / FA Trophy 2025 / VNL 2026 / L1 2029), type 5 = awards
+  (5 season + 1 monthly), type 8 = matches, type 2 = transfers with fees. It is
+  importance-pruned (1 of the monthly awards), so it cannot give per-season award counts.
+- Profile fields not found yet: coaching licence (Continental B, studying A), preferred
+  formations (4-4-2, 4-4-2 2DM), tactical style (Control Possession), reputation (Global).
+  Nationality is already `Staff.nation_id` = 139 (England); wage/contract/DOB/personality
+  are in `staff()`. Licence etc. probably live in the kind-9 human object; no anchor value
+  is known for them (enum ids), so a diff of two saves around a badge/formation change is
+  the practical way in.
 
 ### award_club_hist_dt (23,984 B) — structure seen, not decoded
 - Uniform ~37-byte records `[u16 year][u16 award][00][u16 club][ff-padded tail]`,

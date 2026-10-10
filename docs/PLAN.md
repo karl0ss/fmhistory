@@ -55,6 +55,13 @@ validated against the k-world yearly reports (seasons 1–9) and screenshots.
       City). `award_year_hist_dt` is 82-byte records with three placing slots;
       `Award.placing` added (NLS MoS 2024/25 runner-up now read). Monthly awards:
       not in the yearly history; location still open.
+- [x] **Manager career statistics (2026-10-10).** `person_record_manager`'s
+      367-byte record table (one per manager in the world, keyed by history
+      reference) → `Save.career_manager_records()` / `Save.manager_career(uid)`.
+      Every Managerial Stats number on the GT save reproduces (741 games,
+      391-131-219, 1589-1059, 127 bought/£101M, 39 sold, 50 released, 19 awards,
+      £23M Dumas, £32.5M Young-Thomas, £2.4M agents, 5,253-day spell). Open:
+      per-season Job History award counts, licence/formations/tactical style.
 - [ ] **D2. Award names.** Map `career_awards`' `award_id` to award names from
       `award_man` (`tad.`, 842,938 B, partially mapped).
 - [ ] **D3. Competition names.** Resolve competition_id → name for honours,

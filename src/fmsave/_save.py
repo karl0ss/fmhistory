@@ -35,6 +35,7 @@ from fmsave.models.career_history import (
     HistoryPerson,
     Honour,
     LeagueHistorySeason,
+    ManagerCareerRecord,
     ManagerSpell,
     PersonHistory,
 )
@@ -117,6 +118,10 @@ from fmsave.readers.managed import (
     find_managed_club_layouts,
     first_human_selector,
     resolve_managed_clubs,
+)
+from fmsave.readers.manager_career import (
+    PERSON_RECORD_MANAGER_SECTION,
+    decode_manager_career_records,
 )
 from fmsave.readers.match_summaries import (
     MatchSummaryScores,
@@ -218,6 +223,7 @@ CAREER_LEAGUE_HISTORY_TABLE_CACHE_KEY = "table:career_league_history"
 LEAGUE_HISTORY_INDEXES_CACHE_KEY = "league_history_indexes"
 CAREER_BEST_ELEVEN_TABLE_CACHE_KEY = "table:career_best_eleven"
 HISTORY_PEOPLE_TABLE_CACHE_KEY = "table:history_people"
+CAREER_MANAGER_RECORDS_TABLE_CACHE_KEY = "table:career_manager_records"
 TRANSFER_MAN_SEASON_RECORDS_TABLE_CACHE_KEY = "table:transfer_man_season_records"
 TRANSFER_MAN_WAGE_LEDGER_TABLE_CACHE_KEY = "table:transfer_man_wage_ledger"
 JOB_VACANCIES_TABLE_CACHE_KEY = "table:job_vacancies"
@@ -1012,6 +1018,58 @@ class Save:
         """
         records = self._context.player_records()
         return player_references(records.pindexes, records.uids)
+
+    def career_manager_records(self) -> Table[ManagerCareerRecord]:
+        """Every manager's career statistics record, in history-reference order.
+
+        `person_record_manager` keeps one fixed-size record for every person who has
+        managed in the game world, keyed by his history reference: the "Managerial
+        Stats" profile screen's whole-career totals (games, wins, losses, goals,
+        cups, league titles, awards, players bought/sold/released, money spent,
+        agent fees), the career's highest fee paid and received with player, date
+        and teams, the longest and shortest club and national spells, the job
+        counts, and a current-job block with the same totals for the job he holds
+        now. Draws are derived (games minus wins minus losses). `manager_career`
+        picks one staff member's record.
+
+        On the ground-truth save every number the human manager's profile shows
+        reproduces (741 games, 391-131-219, 1589-1059, 127 bought for £101M, 39
+        sold, 50 released, 19 awards, highest fees £23M for Dumas on 10/8/2036 and
+        £32.5M for Young-Thomas, £2.4M agent fees, longest spell 5,253 days).
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written, or the
+                section no longer ends with the record table's trailer.
+        """
+        context = self._context
+        return context.cached(
+            CAREER_MANAGER_RECORDS_TABLE_CACHE_KEY, self._read_career_manager_records
+        )
+
+    def manager_career(self, staff_uid: int) -> ManagerCareerRecord | None:
+        """One staff member's career statistics record, or None.
+
+        Finds his history reference (`history_person_reference`) and returns the
+        `career_manager_records` row carrying it; None when the reference is not
+        found or he has never managed.
+
+        Args:
+            staff_uid: Uid of the person, as `staff()` reports it.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written.
+        """
+        reference = self.history_person_reference(staff_uid)
+        if reference is None:
+            return None
+        for record in self.career_manager_records():
+            if record.reference == reference:
+                return record
+        return None
 
     def transfer_man_player_seasons(self) -> Table[PlayerSeasonRecord]:
         """Every readable 73-byte move-grid row the `transfer_man` section stores.
@@ -2651,6 +2709,11 @@ class Save:
             player_name = None if player_uid is not None else names.get(entry.player_reference)
             rows.append(replace(entry, player_uid=player_uid, player_name=player_name))
         return Table(rows, BestElevenEntry)
+
+    def _read_career_manager_records(self) -> Table[ManagerCareerRecord]:
+        with self._context.section(PERSON_RECORD_MANAGER_SECTION) as section_data:
+            records = decode_manager_career_records(section_data)
+        return Table(records, ManagerCareerRecord)
 
     def _read_history_people(self) -> Table[HistoryPerson]:
         context = self._context
