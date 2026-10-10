@@ -208,6 +208,14 @@ note had it.
   `[u32 club][u32 comp][u16 y1][u16 y2] 02 01 ff ff` — 165,490 rows, 99.95% with
   y2 in y1..y1+2 (same-year rows common, two-year spans rare). 61,034 rows carry
   club 0xffffffff = competition records without a club.
+- **The `comp` u32 is NOT a competition id (2026-10-10):** all 20 club-716
+  values (5453/5454/5655/5859) are members of comp 648's stage list — comp
+  648 is the **French Cup** (database 1301407) per both `stages()` and
+  `competitions()` — while St Albans' real cup (FA Trophy, internal 151,
+  database 109202) has stages 246/4342/4465…; the English FA Cup (664) has
+  others. As raw competition ids, 5859 would "name" as a Portuguese league.
+  Field semantics open; `CupEntry.competition_id` must not be named. The FA
+  Trophy win comes through `career_honours()` correctly.
 - Club 716: exactly 20 rows, seasons 2024/25 → 2034/35 (none in 2026/27, 2029/30,
   2030/31 and none in 2023/24 — that season lives in the FM24 blob):
   comp 0x154d (5,453) → 13 rows; 0x154e (5,454) → 5; 0x16e3 (5,859) → 1 (2024/25);
@@ -1431,6 +1439,31 @@ for league positions, honours, cup runs, awards, manager spells exist):
 6. Lower priority: award_club_hist_dt (partly covered via award_year_hist
    club-award rows), tc_record_man (22 MB live-updating records, semantics
    unconfirmed — own project), tc_history_dt, tc_extended_club_records_history_dt.
+
+## Names from the game install (2026-10-10; scratch `fm26-career/extract_names.py`)
+
+fmsave ships no names and reads no game install by design; it takes a
+`database_id,name` CSV via `fmsave.open(save, competition_names=...)`.
+Building that CSV from the install (mounted at `/mnt/fm26`):
+- `shared/data/database/db/<ver>/<ver>_fm/*.dat` = a **12-byte `03 01 'tad.'`
+  wrapper + the same `fmf.` container a save uses** — strip 12 bytes and
+  `fmsave._container.read_index` / `read_section` open it (server_db 77
+  tables, lang_update_db 400 sections).
+- Names live only in `lang_db.dat` (2600 base) / `lang_update_db.dat` (2620),
+  sections `<language>_<table>`; **language 8 = English**. Table 25 =
+  competitions keyed on the **editor database id** (= `Competition.database_id`:
+  11 Premier League, 12 Sky Bet Championship, 13 League One, 14 League Two,
+  109201 Enterprise National League, 5123055 Enterprise National League
+  South); table 0 = awards. Record = `[u32 id]` + strings `[u32 len][utf-8]`
+  each followed by a flag byte; table 25 ends a record with flag 00, table 0
+  with one trailing 00. Other languages' headers differ (not needed).
+- **`Award.award_id` = the award's position in the English award table**
+  (ordered by database id): 99 → Sky Bet Championship Manager of the Season
+  (107385), 101 → League One MoS, 103 → League Two MoS, 144 → Enterprise
+  National League Manager of the Year (114799). Same in 2600 and 2620; a
+  database update that inserts awards mid-table would shift it.
+- Hall-of-fame honours resolve by database id directly (2024/25 English FA
+  Trophy = 109202 ✓). Output CSVs are SI data: keep them outside the repo.
 
 ## Method notes
 - Names live in `game_db`; history sections reference people/clubs by uid (u32 LE),
