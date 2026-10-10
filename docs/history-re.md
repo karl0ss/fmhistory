@@ -1151,12 +1151,11 @@ Scripts `tmp_besteleven/b1..b31*.py`.
   (e.g. 2023,2023,2025,2023,2026,… in group 25 — adjacent duplicate entries
   exist: the same cell twice, once per XI kind).
 
-**Cell semantics (high confidence):** a cell is a **best-XI table** for one
-(id3, season, kind): 18 player slots (11 XI + 7 subs). Evidence:
-**same-id3 cell pairs share 14.85 of 18 unit pids on average (n=48,085);
-different-id3 cells share ~0 (n=3,000)** — a squad-stable entity across its
-cells. The 18 units cluster tightly per cell (consecutive-ish small-id
-allocation = one squad's players). rating-sum/apps = real FM avg ratings.
+**Cell semantics (REVISED, see checkpoint 2 below):** a cell is a best-18
+table over 18 units, but the b29-basis claim "same-id3 cells share 14.85/18
+unit pids" was an ls duplicate-entry artifact (pairs over entries, not unique
+cells). Measured correctly: same-id3 adjacent-year cell pairs = 1,372, of which
+only 9 share any unit pid — **id3 ≠ club**. Do not redo the club model.
 
 **OPEN / ruled out (do not redo):**
 
@@ -1201,6 +1200,82 @@ allocation = one squad's players). rating-sum/apps = real FM avg ratings.
    (join/leave) — no name registry needed for a first decode; names last.
 5. Integration per the checklist, then the owner-requested **blind career
    report** (decoded data only, no screenshot/GT facts).
+
+### tc_best_eleven checkpoint 2 (2026-10-10; scans b32–b54): the WALL, dt geometry, and the working model
+
+Scripts `tmp_besteleven/b32..b54*.py`. All numbers on the GT save.
+
+**The WALL (central measurement — kills every within-group entity model):**
+within one ls group, cell unit-pid sets are mutually exclusive at every season
+distance: dy=0 → 12,697 pairs, mean overlap 0.001; dy=1 → 37,426 pairs, mean
+0.013; dy=2–6 → 0.004–0.007 — below the random-pair rate. Only ~30 heavy
+within-group pairs exist (overlap 10–17, all dy=1). NOT a family artifact:
+same-(T,kind) within-group pairs Jaccard 0.0011 (1,250 pairs), and 26k heavy
+cross-group pairs are cross-family, so unit pids are one global space. The ~30
+anomalies: consecutive-year cells in a group sharing 6–17 of 18, different
+(T,kind)/id3, one shared group — reads like the same squad recurring (e.g.
+repeated honours).
+
+**pid = player id in creation-order space (STABLE, verified):** 123,638
+distinct unit pids, all < 913,729; per-year median rises 98,189 (2023) →
+486,274 (2036) = allocation order. Aging-curve career chains prove identity:
+pid 62872 appears 2023–2036, ~2 cells/season, apps ~4–13 (k=19 cells) vs
+44–51 (k=18 cells) with mid-career rating peak — reading as cup vs league
+appearances of one long-career player. ~2 cells/season ≈ one club's league +
+cup + continental competitions.
+
+**Squad continuity lives ACROSS groups:** all 1.37M shared-pid cell pairs
+classified: 334,720 adjacent-year cross-group pairs (up to 17/18 shared);
+within-group ≈ nothing. Union-find over ≥6-shared pairs: 52,561 heavy pairs;
+top component = **42 cells, exactly 3 per season, every season 2023–2037**,
+chained dy=1 (same (T,kind) family recurring year-to-year). Heavy pairs never
+share id3 (0 of 52,561); their group-index delta is flat (groups are not a
+club-ordered adjacency).
+
+**dt geometry (new):** the grid is **season-major, and within a season slice
+cells are ordered by ls-group index** — each group's entries sit at a stable
+position inside each season's ~1.9–2.1k-cell slice; group gi's first-tier
+cell = grid slot gi for the first ~42 groups. So dt is effectively sorted by
+(season, group, tier).
+
+**ls entries are pure offsets:** every entry ≡ 0 (mod 509) (b54 checked the
+high bytes — no payload bits; the e>>16 histogram was just k/128). 26,456
+entries, 12,298 distinct, mean refcount 2.15 (2–15).
+
+**Groups are not cell-collection entities:** every cell of the 42-cell club
+chain is claimed by a *different* single group (438, 450, 490, …), and group
+438's 14 entries are mostly cells of unrelated chains. So a group does not
+"own" an entity's cells — it references cells tied to it.
+
+**Working model (fits every measurement; NOT yet proven):**
+- cell = a **best-18 table for one competition-season** (id3 = competition-
+  season id in the tmc. registry: 20,960 distinct id3s, 94% single-season ✓;
+  different competitions same club-season ⇒ disjoint top-18s ⇒ THE WALL ✓;
+  units = top-18 players of that competition that season, apps 12–49 =
+  games in that competition ✓). id3=club, unit-squad models: dead.
+- ls group = **a spell/club history entry** (tmc. = manager-history family!):
+  2,724 groups, ≤16 entries over ≤8 consecutive seasons, 2–3 cells/season
+  (league+cup+continental), present every season of its span, each season's
+  cells in different (T,kind) families — and the group stops at 16 entries,
+  so it is a bounded history window, not an eternal competition.
+- The ~30 heavy within-group dy=1 pairs = the same team recurring in one
+  group across consecutive seasons (title defence / same spell, two seasons).
+- kind-1 cells (493, k=1 unit): id3 = **person uid** — 7 decode to real
+  historical figures via career_persons: Lothar Matthäus (1270), Nenad Vanić
+  (1082), Juan Antonio Pizzi (1112), Didier Santini (1255), Nenad Bjelica
+  (1407), Cato André Hansen (1651) — in (T,kind) ∈ {10/16/19/13}×1 families.
+  First id3→name bridge in this section.
+
+**Next probes (in order):**
+1. Match groups against `tc_manager_history_dt` (same tmc. family): its spell
+   rows have club + season spans in Club.uid space — find the group whose
+   seasons/competition-pattern matches the manager's club-716 spells; a
+   group↔spell bridge would pin group semantics and give id3 a season window.
+2. Check whether all groups' entries for one season are in distinct (T,kind)
+   families (club plays each competition once) vs repeats.
+3. Pin unit pid→player via `used_player_data` (44.4 MB, per-person blobs) —
+   then the whole section names itself.
+4. Then integration per the checklist and the blind career report.
 
 
 ### Remaining plan (owner priority, 2026-10-09: DECODERS FIRST)
