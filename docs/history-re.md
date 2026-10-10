@@ -1512,6 +1512,47 @@ player-reference join (player scan). Named share by season: 2036 96%, 2033
 13-B tail (ascending byte runs, 904 distinct); (T,kind) → competition id map;
 retired-player names (pre-2030 rows mostly unnamed).
 
+### History people checkpoint: retired-player names INTEGRATED (2026-10-10; scans tmp_retired/s1–s15, t_api)
+
+**Integrated** as `Save.history_people()` → `Table[HistoryPerson]`
+(`readers/history_people.py`, `docs/reference/history_people.md`), joined into
+`career_best_eleven()` as `player_name` on rows with no `player_uid`.
+
+**Proven on the GT save:**
+- Retired players' objects survive in `game_db`, closed by `[ref][uq][uq]`
+  (uq = uid + 1) like any person. Header references are strictly monotone in
+  offset (players and non-players alike, 100%), so non-player headers sit
+  between two players' headers with ref and uq inside both brackets. A full
+  every-offset doubled-word scan (numpy, research only) bracketed 64,233 of the
+  64,883 unresolved best-eleven pids, each exactly once; **650 have no
+  bracketed header**.
+- Name forms before the header: 18-B stub `10 00 [first id][surname id][4 flag
+  B][u32]` (most retired players), 14-B stub `10 01 [common id][4 flag B][u32]`
+  (mononyms: Renato Augusto, Wu Lei), or a full object read with the **last**
+  validated person block (first-match picked another person's block in ~1/3 of
+  cases; last-block = `players().name` on 2,000/2,000 sampled players).
+- `career_persons().person_uid` **is** the person's unique id (= closing
+  header uq) — the join the hall of fame lacked. 131/131 unresolved-best-eleven
+  people with a HoF record agree by name (research scan); via the API, 4,539/4,539
+  named HoF-joined people agree (49 more are unnamed objects).
+- Coverage via the API: 63,684 / 64,886 unresolved best-eleven refs named
+  (98.1%; 2023 98.2%, 2024 98.8%, 2036 99.0%). Research scan: 458 bracketed
+  refs fit no form. Reader: 632,378 people in 8.7 s pure Python (gap-bounded
+  `bytes.find` per reference; no every-offset scan) after the ~16 s player scan.
+- St Albans 2024/25 (list 685, season 2024) names itself: Brad House (GK, 51
+  apps), James Sweet, David Longe-King, Josh Leslie-Smith, Josh Debayo, Giorgio
+  Rasulo, Laurence Wootton, Josh Castiglione, Shiloh Remy (20 g), Louis Dunne,
+  Charley Kendall … Pharrell Williams (21 g) — all retired.
+
+**Dead ends:** `career_persons()` as a name source (0.2% of unresolved refs);
+`staff()` (0.9%, retired players turned staff — the stub/object forms cover
+them anyway). Not needed/not tried: `used_player_data`, `person_db_changes`,
+the install's `people_db.dat` (possible fallback for the ~1,100 left, since
+many uqs look like original database ids, e.g. 29191769, 2000120283).
+
+**Open:** stub flag bytes and trailing word; the 650 headerless + 458
+formless refs; birth dates for stub people (not stored in the stub).
+
 ### Remaining plan (owner priority, 2026-10-09: DECODERS FIRST)
 
 **Superseded: the working roadmap now lives in `docs/PLAN.md` — every session

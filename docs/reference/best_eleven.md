@@ -65,4 +65,11 @@ with fmsave.open("career.fm") as save:
 `player_uid` joins `player_reference` to `players()` through
 `Save.history_player_references()`; players no longer in `players()` (most retired
 players) keep None, so older seasons resolve less often (2036: 96%, 2023: 10% on the
-ground-truth save).
+ground-truth save). Those rows carry `player_name` instead, read by
+`Save.history_people()` (see [history_people.md](history_people.md)): 98.1% of the
+unresolved references are named on the ground-truth save, so a table names itself
+without `players()`:
+
+```python
+name = players[entry.player_uid].name if entry.player_uid else entry.player_name
+```
