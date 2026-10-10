@@ -940,7 +940,63 @@ Dumas ±0/±1 ref variants; fee values by anchor (closed checkpoint 5).
 (f15, f19, f35) signatures + per-family semantic labels; the 84/126-B
 long-record families' tails; what produces a "second id space" in ls.
 Fee hunt moves to `person_db_changes` (21 MB, unprobed) and
-`non_pl_hist_dt` item grammar (checkpoint 4 pointer).
+`non_pl_hist_dt` item grammar (checkpoint 4 pointer). **→ CLOSED, see
+fee-hunt closure checkpoint below.**
+
+### Fee hunt CLOSED (2026-10-10; scans 130–136): no per-transfer fee store exists in the save container
+
+Every named candidate probed or structurally identified; none carries fees.
+
+1. **`person_db_changes` (21 MB) = person attribute-change log, NOT fees**
+   (scan130). Header `03 01 'tmc.' f1 0d | 3d 03 | 04 00 01 0a | 06 00 00
+   00` then tagged entries embedding **reversed field-name strings**
+   (`ecaP` = Pace, `srev` = vers, `yttd`, `inud`, `CApU`…). Fee anchors
+   23,000/32,500/23M/32.5M/101,000 = 0 hits. Year words cluster 2020–2022.
+2. **`interaction_manager` (6.8 MB)** — the manager's interaction log:
+   dense tagged stream (`01 00 18`, `ff ff 7f`, `01 01` motifs; 325k u16
+   2037 words). Fee anchors = 0 hits (u32 all five values). Fee not stored
+   as raw £k/u32 here.
+3. **News strings carry only name-pair tables and stadium names** — "the
+   fee" narrative does not exist as text: `million` ×0, `Dumas` ×2 (other
+   players: Hamza Dumas, Dumas Ribeiros), Corentin ×2 (Tielens, Gilson).
+   News items embed per-item person name tables as
+   `u32 len | name | u32 len | name`.
+4. **News money skeleton** (`… 18 40 00 | 49 05 | ff ff ff ff | u32
+   money`, scan136): only 36 sites — a rare news subtype (wage-scale
+   1.2k–47k values), far too few to be global transfer news. Not the fee
+   column.
+5. **Family-A u16 sweep** (scan133/134 — the fee-£k-in-u16 blind spot,
+   previously only searched as u32): all 31,789 family-A rows swept for
+   u16 23,000/32,500 anywhere in the 145-B row → 39 rows with 32,500 (34
+   at in-row +80 = the recurring league-standard wage, none club-716),
+   1 × 23,000. 0 club-716 rows carry fee-scale u16s. Family-A carries NO
+   fees in any width.
+6. **Small sections**: contract_man / feeder_man / job_centre /
+   board_takeover_manager / dispute / person_record_manager → 0 hits on
+   all fee anchors.
+7. **`non_pl_hist_dt` item grammar identified** (scan135 — a decoder
+   candidate for staff histories, not fees): stream of 20-B items
+   `01 00 6c 07 | u8 kind (01/02/10) | u8 sub (0b/1e/71/18/05/77/aa…) | 00
+   00 | u32 id (258/602 … 930,613 = person/club id space) | u16 day1 | u16
+   year1 | u16 day2 | u16 year2` — a spell record with from/to dates. ls
+   (`03 01 'tad.' 04 00`, 643,778 u32s, ALL in dt range) points at item
+   leaders; per-entity groups of ~3 items. Year words dense 2000–2023.
+8. **`tc_history_dt` §1d 1a money rows** (checkpoint 5 item 5): per-club
+   per-season aggregates — the only money-bearing rows left, and they are
+   single (club, season) aggregates, not per-transfer values.
+
+**Conclusion:** the per-transfer fee is not stored as its own value
+anywhere in the sections probed (53 MB × transfer_man, 131 MB ×
+person_record_history_dt, 21 MB × person_db_changes, 42.7+ MB × others,
+news, manager/human sections). The UI's fee numbers must derive from (a)
+the `0b` kind-8 wage ladders (refuted as wage-scale in checkpoint 4), (b)
+73B P2/P4 fee+add-on composites (refuted, wage snapshots), or (c) data
+outside the probed history sections. **The remaining honest option for the
+site is fee-less transfer rows + the 73B P2/P4 money fields flagged
+"money (wage-scale, unconfirmed)".** Dead ends to never redo: u32 AND u16
+value anchoring in every section (this checkpoint + 4 + 5); fee narrative
+strings in news; `03 13 00`-prefixed family-A row pattern (wrong — rows
+are detected by `13 00` preceded by a kind byte 02–0b with ff×4 @+30).
 
 ### Remaining plan (owner priority, 2026-10-09: DECODERS FIRST)
 
@@ -964,9 +1020,12 @@ for league positions, honours, cup runs, awards, manager spells exist):
    (2022:39 … 2037:85,610), Dumas (716,7) 23,972@2036 and companion (716,172)
    32,604@2036 reproduce exactly; 98 ff-year junk rows excluded by the
    year-acceptance filter; ~13.4 s decode, cached. All 16 fields unconfirmed.
-   Transfer *fees* remain unfound (checkpoints 4–5: value anchoring closed;
-   structural candidates next). Registration families (family-A, 11 00, 03,
-   0b) still to integrate — see checkpoint 3 maps.
+   Transfer *fees*: the fee hunt is CLOSED (see "Fee hunt CLOSED"
+   checkpoint) — no per-transfer fee store exists in the container; the
+   site shows fee-less transfer rows with 73B money fields flagged
+   unconfirmed. Remaining in transfer_man: **zone1 compact families to
+   integrate** (family-A, `11 00` wage ledger, `03`, `0b` — maps in
+   checkpoints 1/3).
 2. ~~Validation backlog~~ **DONE (checkpoint 4)**: anchors verified, reader bugs
    fixed, pytest pinned. Still open inside league history: identifying the
    club's rows for 2026/27 (League Two) and the Premier-era seasons (2034/35+
