@@ -52,6 +52,19 @@ class PlayerHistoryStats:
         kind: The competition type, in the season-statistics slot order: non-competitive,
             league, cup, continental, international; None for a code outside 0-4
             (unconfirmed).
+        departure_fee: The money of the move that ended the player's spell at the row's
+            team, in pounds; None while the spell goes on, and on a spell that ended in a
+            release or a contract running out. Every row of the spell's last season holds
+            it, whatever its `kind`, and earlier seasons of the spell hold None. On a
+            permanent spell (`spell_code` 0) it is the transfer fee the move carried, 0 for
+            a free move; `Save.club_player_moves(..., fees=True)` reads it back as
+            `ClubPlayerMove.fee`. On loan and trial spells the value is not identified: loan
+            spells hold 0 or small sums, and the one trial spell seen repeats the fee of the
+            transfer that followed it (unconfirmed).
+        spell_code: The stored byte at row offset 30, which tells the kind of spell the row
+            belongs to: 0 a permanent registration, 1 a loan (set on both the loan club's
+            rows and the lending club's rows of that season), 4 a trial; other values are
+            rare and unread (unconfirmed).
         rating_total: Ten times the sum of the player's match ratings (unconfirmed).
         average_rating: `rating_total / rated_appearances / 10`, or None without rated
             appearances (unconfirmed).
@@ -126,6 +139,8 @@ class PlayerHistoryStats:
     competition_id: int | None
     kind_code: int
     kind: SeasonStatsKind | None
+    departure_fee: int | None
+    spell_code: int
     rating_total: int
     average_rating: float | None
     minutes: int

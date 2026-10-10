@@ -15,7 +15,9 @@ ledgers the game's transfer screens read. Two slices are decoded here:
 The rest of the section — the transfer-registration families and the
 negotiation offers — is byte-mapped in the project's notes but not decoded
 here: the section carries no transfer fee, and a fee-shaped money field read
-anywhere in it is a wage or record-constant coincidence.
+anywhere in it is a wage or record-constant coincidence. The fee a move carried
+is stored in the moving player's statistics history instead
+(`PlayerHistoryStats.departure_fee`); `move_fee` joins it to a move.
 
 Layouts here were reverse-engineered on one save (`Karl Hudgell -
 UnemployedNew.fm`, build 26.3.2, an FM24 career imported into FM26) and are not
@@ -33,6 +35,7 @@ from datetime import date
 
 from fmsave._errors import CorruptSaveError
 from fmsave._scan import decode_date
+from fmsave.models.player_stats_history import PlayerHistoryStats
 from fmsave.models.transfer_history import ClubPlayerMove, PlayerSeasonRecord, WageLedgerRecord
 
 if sys.version_info >= (3, 14):
@@ -342,3 +345,46 @@ def club_player_moves(
         )
     moves.sort(key=lambda move: move.date or date.min)
     return tuple(moves)
+
+
+# Move-grid row types that move a player for good: transfer, free move, manager's signing.
+FEE_MOVE_TYPES = frozenset({1, 4, 5})
+# `PlayerHistoryStats.spell_code` of a permanent registration.
+PERMANENT_SPELL = 0
+
+
+def move_fee(move: ClubPlayerMove, history: Iterable[PlayerHistoryStats]) -> int | None:
+    """The fee one permanent move carried, read off the moving player's history rows.
+
+    When a player leaves a team, every history row of his last season there stores the
+    money of the move that took him away (`PlayerHistoryStats.departure_fee`). The fee of
+    a move of type 1, 4 or 5 is the departure fee on his permanent-spell rows (spell code
+    0) at the club he leaves — on his no-team rows when the move names no origin club or
+    team — in the season the move falls in or the one before (a season is named by its
+    starting year). The rows of one spell repeat the value per competition type; the fee
+    is returned only when exactly one value is found. None for any other move type, a
+    move with no date, a release (no departure fee is stored), or a player whose rows do
+    not single one value out.
+
+    Args:
+        move: The move, from `club_player_moves`.
+        history: The moving player's `PlayerHistoryStats` rows, any order.
+    """
+    if move.record_type not in FEE_MOVE_TYPES or move.date is None:
+        return None
+    seasons = (move.date.year - 1, move.date.year)
+    found: set[int] = set()
+    for row in history:
+        if (
+            row.departure_fee is None
+            or row.spell_code != PERMANENT_SPELL
+            or row.season_year not in seasons
+        ):
+            continue
+        if move.from_club_uid is not None:
+            if row.club_uid != move.from_club_uid:
+                continue
+        elif row.team_id != move.from_team_id:
+            continue
+        found.add(row.departure_fee)
+    return found.pop() if len(found) == 1 else None

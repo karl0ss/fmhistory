@@ -109,9 +109,11 @@ validated against the k-world yearly reports (seasons 1–9) and screenshots.
 
 ## Parked / closed (do not redo)
 
-- Transfer fees: **closed** — no per-transfer fee store exists in the
-  container (fee-hunt elimination arc, checkpoint 5 in history-re.md).
-  Transfers themselves (arrivals/departures, named, dated):
+- Transfer fees: **FOUND and integrated (2026-10-10)** — per player in
+  `player_stats_hist_dt` row +7 (`PlayerHistoryStats.departure_fee`),
+  joined by `Save.club_player_moves(club_uid, fees=True)` (history-re.md,
+  "Transfer fees FOUND"); the earlier "closed" verdict is superseded.
+  Open: loan fees, retired players' moves. Transfers themselves (arrivals/departures, named, dated):
   `Save.club_player_moves(club_uid)` (transfer_man checkpoint 8, 2026-10-10;
   127 bought reproduces exactly, sold/released split still open).
 - `tc_best_eleven` id3=club: **dead** (checkpoint 2 corrects d8253b1).

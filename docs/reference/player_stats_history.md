@@ -22,7 +22,8 @@ nor season.
 +0    00
 +1    u32 team id           Team.team_id (0xffffffff on a few rows)
 +5    u16 competition id    the team's league that season, 0xffff for none
-+7    u32                   0xffffffff on most rows; undecoded (see below)
++7    i32 departure fee     money of the move that ended the spell; -1 (0xffffffff)
+                            while the spell goes on or after a release (see below)
 +11   u16 season year       the season's starting year (2036 = 2036/37)
 +13   u16 rating total      ten times the summed match ratings
 +15   u16 minutes
@@ -30,7 +31,7 @@ nor season.
                             +21 yellow cards, +22 clean sheets
 +24   u8 starts             +25 substitute appearances, +26 rated appearances,
                             +27 goals, +28 assists, +29 player of the match
-+30   u8                    0 on most rows, 1 on loan spells seen; undecoded
++30   u8 spell code         0 permanent registration, 1 loan, 4 trial
 +31   u8 kind               0 non-competitive, 1 league, 2 cup, 3 continental,
                             4 international (the season-statistics slot order)
 +40.. u16 words             the season-statistics line words: a line word at line
@@ -95,10 +96,21 @@ players, mostly stubs) and are not bound.
 
 - Rows can repeat field for field inside a list: 29,965 of 5,690,048 listed rows (0.53%),
   mostly zero registration rows, 2,561 with minutes. Drop repeats before adding up.
-- The u32 at +7 holds a large value on some rows of a player's last season at a club
-  (Tshongo's 2036 row at his previous club: 8,250,000; Dumas's: 22,937,564, the game's
-  record of his move being £23M). It reads like a fee but does not equal the shown fee;
-  undecoded.
+- **Departure fee (+7, `departure_fee`).** When a player leaves a team, every row of his
+  last season there (all competition kinds alike) stores the money of the move that took
+  him away; earlier seasons of the spell, the current spell, and a spell that ended in a
+  release or a contract running out keep -1 (`None`). On a permanent spell (spell code 0)
+  it is the transfer fee, 0 for a free move: Dumas's 2036 rows at Saint-Etienne hold
+  22,937,564 (the game shows £23M, `manager_career().highest_fee_paid` 22,937,564),
+  Tshongo's at Guingamp 8,250,000. On loan spells it holds 0 or small sums (loan fees,
+  unverified); the only trial-spell values seen repeat the fee of the transfer that
+  followed. One loan row holds -10. `Save.club_player_moves(club_uid, fees=True)` joins
+  the fee to each permanent move (`ClubPlayerMove.fee`, rule in
+  `fmsave.readers.transfer_history.move_fee`).
+- **Spell code (+30, `spell_code`).** At St Albans every row with code 1 has a loan of the
+  player within the season or the next (both the loan club's rows and the lending club's
+  rows of that season carry it), and every row with code 4 a trial; 0 elsewhere. One row
+  of 8,984 checked holds 26.
 - Timing on the ground-truth save: binding (index + every player's list number) about 8 s
   once per `Save`; each call decompresses the dt (about 3 s); peak RSS about 3 GB with
   `players()` loaded.

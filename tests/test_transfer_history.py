@@ -14,11 +14,14 @@ from datetime import date
 import pytest
 
 from fmsave._errors import CorruptSaveError
+from fmsave.models.player_stats_history import PlayerHistoryStats
+from fmsave.models.transfer_history import ClubPlayerMove
 from fmsave.readers.transfer_history import (
     TRANSFER_MAN_SECTION,
     club_player_moves,
     decode_player_season_records,
     decode_wage_ledger_records,
+    move_fee,
     raise_when_ledger_unreadable,
     raise_when_unreadable,
     _ZSTD_MAGIC,
@@ -396,3 +399,73 @@ def test_club_moves_skip_other_clubs_and_sort_by_date() -> None:
         None,
         None,
     )
+
+
+def _move(**changes: object) -> ClubPlayerMove:
+    values: dict[str, object] = {
+        "date": date(2036, 8, 10),
+        "record_type": 1,
+        "direction": "in",
+        "player_reference": 7,
+        "player_uid": 70,
+        "player_name": "Corentin Dumas",
+        "from_team_id": 1316,
+        "to_team_id": 603,
+        "from_club_uid": 800,
+        "to_club_uid": 716,
+        "from_club_name": "AS Saint-Etienne",
+        "to_club_name": "St. Albans City",
+    }
+    values.update(changes)
+    return ClubPlayerMove(**values)  # type: ignore[arg-type]
+
+
+def _history(
+    season: int, team: int | None, club: int | None, fee: int | None, spell: int = 0
+) -> PlayerHistoryStats:
+    """A history row with only the fields `move_fee` reads set to something meaningful."""
+    values: dict[str, object] = dict.fromkeys(PlayerHistoryStats.__dataclass_fields__, 0)
+    values.update(
+        season_year=season,
+        team_id=team,
+        club_uid=club,
+        departure_fee=fee,
+        spell_code=spell,
+        player_uid=70,
+    )
+    return PlayerHistoryStats(**values)  # type: ignore[arg-type]
+
+
+def test_move_fee_reads_the_departure_fee_at_the_club_left() -> None:
+    history = [
+        _history(2035, 1316, 800, None),
+        _history(2036, 1316, 800, 22_937_564),
+        _history(2036, 1316, 800, 22_937_564),  # the same spell's cup row
+        _history(2036, 603, 716, None),
+        _history(2031, 1316, 800, 5_000),  # an older spell at the same club
+    ]
+    assert move_fee(_move(), history) == 22_937_564
+
+
+def test_move_fee_of_a_free_agent_reads_his_no_team_rows() -> None:
+    history = [_history(2028, None, None, 0), _history(2028, 626, 900, 2_392, spell=1)]
+    move = _move(record_type=4, from_team_id=None, from_club_uid=None, date=date(2029, 7, 1))
+    assert move_fee(move, history) == 0
+
+
+@pytest.mark.parametrize(
+    ("move", "history"),
+    [
+        (_move(record_type=3), [_history(2036, 1316, 800, 40_000)]),
+        (_move(date=None), [_history(2036, 1316, 800, 40_000)]),
+        (_move(), [_history(2036, 1316, 800, None)]),
+        (_move(), [_history(2036, 1316, 800, 40_000, spell=1)]),
+        (_move(), [_history(2034, 1316, 800, 40_000)]),
+        (_move(), [_history(2035, 1316, 800, 1), _history(2036, 1316, 800, 2)]),
+    ],
+    ids=["loan", "no-date", "spell-goes-on", "loan-spell", "outside-window", "ambiguous"],
+)
+def test_move_fee_is_none_without_exactly_one_value(
+    move: ClubPlayerMove, history: list[PlayerHistoryStats]
+) -> None:
+    assert move_fee(move, history) is None
