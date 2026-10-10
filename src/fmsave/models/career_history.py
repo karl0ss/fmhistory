@@ -91,7 +91,10 @@ class CupEntry:
     Attributes:
         club_uid: Uid of the club the row's campaign is for; 0xffffffff for a
             competition record without a club (unconfirmed).
-        competition_id: Save-internal cup competition id (unconfirmed).
+        competition_id: The row's second u32, read as a cup competition id; on the
+            ground-truth save every value under the managed club falls in one foreign
+            cup's stage list, so it is not a competition or stage id and must not be
+            joined to `competitions()` or named (unconfirmed).
         start_season: Season-ending year the span starts on (unconfirmed).
         end_season: Season-ending year the span ends on; usually `start_season` plus
             one (unconfirmed).
