@@ -42,12 +42,15 @@ def row(
     word82: int = 9,
     expected_goals: int = 1234,
     xg_prevented: int = -51,
+    fee: int = 0xFFFF_FFFF,
+    spell: int = 0,
 ) -> bytes:
     """One 152-byte history row with the head and a few statistic words set."""
     data = bytearray(ROW_BYTES)
-    struct.pack_into("<IHIH", data, 1, team_id, competition, 0xFFFF_FFFF, season)
+    struct.pack_into("<IHIH", data, 1, team_id, competition, fee, season)
     struct.pack_into("<HH", data, 13, rating_total, minutes)
     data[24:29] = bytes([starts, subs, rated, goals, assists])
+    data[30] = spell
     data[31] = kind
     struct.pack_into("<H", data, 48, word48)
     struct.pack_into("<H", data, 82, word82)
@@ -160,6 +163,15 @@ def test_kind_code_outside_the_slot_order_has_no_kind() -> None:
     assert index is not None
     (unknown,) = decode_player_rows(dt, index, 0, 1, goalkeeper=False)
     assert unknown.kind_code == 7 and unknown.kind is None
+
+
+def test_departure_fee_and_spell_code() -> None:
+    dt = dt_blob(row(), row(fee=22_937_564), row(fee=0, spell=1), row(fee=0xFFFF_FFF6, spell=4))
+    index = decode_stats_history_index(index_blob([[0, 1, 2, 3]]))
+    assert index is not None
+    rows = decode_player_rows(dt, index, 0, 1, goalkeeper=False)
+    assert [r.departure_fee for r in rows] == [None, 22_937_564, 0, -10]
+    assert [r.spell_code for r in rows] == [0, 0, 1, 4]
 
 
 class _Blocks:

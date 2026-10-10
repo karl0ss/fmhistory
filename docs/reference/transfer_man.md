@@ -10,7 +10,10 @@ records (`Save.transfer_man_wage_ledger()`). `Save.club_player_moves(club_uid)`
 joins one club's move rows to players and clubs. The section's remaining record
 families (negotiation offers, the `03` family) are byte-mapped in
 `docs/history-re.md` but not decoded here: **the section carries no transfer
-fee** (see `docs/history-re.md`, checkpoints 4 and 5).
+fee** (see `docs/history-re.md`, checkpoints 4 and 5). The fee of a move is
+stored in the moving player's statistics history instead
+(`PlayerHistoryStats.departure_fee`, `docs/reference/player_stats_history.md`);
+`Save.club_player_moves(club_uid, fees=True)` joins it.
 
 Every record family in the section names people by the **history reference**
 (`Save.history_player_references()` maps it to a player uid; it is the player's
@@ -47,7 +50,39 @@ Row types, calibrated on the manager's club (St Albans City, first team 603):
 rows: each move row whose origin or destination team is one of the club's own
 teams, with `direction` ("in", "out", "internal"), the resolved `player_uid` and
 `player_name` (None for staff and players no longer in `players()`), and both
-teams' club uids and names. Moves are in date order. No fees.
+teams' club uids and names. Moves are in date order.
+
+With `fees=True` each permanent move (types 1, 4, 5) of a player in `players()`
+also gets `fee`: the `departure_fee` on the player's permanent-spell history rows
+(spell code 0) at the club he leaves — his no-team rows for a move from no club —
+in the move's calendar year or the season before, when exactly one value is
+found (`fmsave.readers.transfer_history.move_fee`). Free moves read 0; a release
+to no club stores no fee and reads None; retired players' moves stay None. The
+join costs one `player_season_history` call for all the club's movers (12 s on
+the ground-truth save with the binding cached, 4 s on a repeat).
+
+Ground-truth validation (`club_player_moves(716, fees=True)`):
+
+- All 83 incoming type 1/4/5 moves of players in `players()` get a fee; the
+  other 44 of the 127 "bought" are retired players. Of the outgoing moves, all
+  18 type-1 sales and all 8 free moves to another club get one; the 38 releases
+  to no club read None.
+- Every one of the 35 moves the manager's event log names with a fee and that
+  `club_player_moves` resolves agrees exactly: 13 paid (e.g. Dumas 22,937,564,
+  Pedro 9,851,914, Young-Thomas 2,700,000 in and 32,347,260 out, Olagunju
+  15,857,448 out) and 22 free (0). The other event-log fees belong to retired
+  players (Ruff, Burley, Richard Thomas) or a deal dated in the future
+  (Zedníček, 1/1/2038).
+- Fees in sum to £99,174,811 over the 83 resolved moves; with Ruff's and
+  Burley's logged fees, £99,254,811 against the profile's £101,492,665 for 127
+  bought. The £2,237,854 gap is not checked: the only incoming moves left
+  without a fee are retired players', whose history the save does not bind —
+  among them two more type-1 signings (from Hemel Hempstead and Charlton, 2024)
+  that could carry it. (Every resolved type-4 and type-5 signing reads 0.)
+- Game-wide, on a sample of 20,000 type 1/4/5 moves dated 2030 or later: 1,824 of
+  1,903 transfers get a fee (none of them 0), 10,730 of 10,938 free moves between
+  clubs read 0, and every one of 7,124 releases reads None. Transfers without a
+  fee are mostly players whose last rows at the selling club are loan-spell rows.
 
 ### WageLedgerRecord Dataclass
 `Save.transfer_man_wage_ledger()` reads the section's first (clear) zone: one

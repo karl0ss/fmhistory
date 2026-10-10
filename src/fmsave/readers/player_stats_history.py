@@ -28,10 +28,14 @@ A row (offsets from its start):
     +0   00
     +1   u32 team id         `Team.team_id` the line is for (0xffffffff on a few rows)
     +5   u16 competition id  the team's league competition that season, 0xffff for none
-    +7   u32                 0xffffffff on most rows; undecoded
+    +7   i32 departure fee   the money of the move that ended the player's spell at
+                             the team, on every row of the spell's last season; -1
+                             (0xffffffff) while the spell goes on or when it ended in
+                             a release
     +11  u16 season year     the season's starting year
     +13  u16 rating total    ten times the summed match ratings
     +15  u16 minutes
+    +30  u8 spell code       0 permanent, 1 loan, 4 trial
     +31  u8 kind             the season-statistics slot order: 0 non-competitive,
                              1 league, 2 cup, 3 continental, 4 international
 
@@ -78,9 +82,11 @@ _KINDS = (
     SeasonStatsKind.INTERNATIONAL,
 )
 
-# The row head: [00][u32 team id][u16 competition id][u32 undecoded][u16 season year]
-# [u16 rating total]; the kind byte sits at `_KIND_OFFSET`.
-_HEAD = struct.Struct("<xIH4xHH")
+# The row head: [00][u32 team id][u16 competition id][i32 departure fee][u16 season year]
+# [u16 rating total]; the spell and kind bytes sit at `_SPELL_OFFSET` and `_KIND_OFFSET`.
+_HEAD = struct.Struct("<xIHiHH")
+_NO_FEE = -1
+_SPELL_OFFSET = 30
 _KIND_OFFSET = 31
 # (field, row offset, struct code, stored units per public unit)
 _FIELDS: tuple[tuple[str, int, str, int], ...] = (
@@ -307,7 +313,9 @@ def decode_player_rows(
     rows: list[PlayerHistoryStats] = []
     skip = _OUTFIELD_NAMES if goalkeeper else _GOALKEEPER_NAMES
     for list_position, row_offset in enumerate(index.rows_of(list_number)):
-        team_id, competition_id, season_year, rating_total = _HEAD.unpack_from(dt_data, row_offset)
+        team_id, competition_id, fee, season_year, rating_total = _HEAD.unpack_from(
+            dt_data, row_offset
+        )
         kind_code = dt_data[row_offset + _KIND_OFFSET]
         values: dict[str, Any] = {}
         for (name, field_offset, _, unit), reader in zip(_ALL_FIELDS, _ROW_STRUCTS, strict=True):
@@ -328,6 +336,8 @@ def decode_player_rows(
                 competition_id=None if competition_id == _NO_COMPETITION else competition_id,
                 kind_code=kind_code,
                 kind=_KINDS[kind_code] if kind_code < len(_KINDS) else None,
+                departure_fee=None if fee == _NO_FEE else fee,
+                spell_code=dt_data[row_offset + _SPELL_OFFSET],
                 rating_total=rating_total,
                 average_rating=rating_total / rated / 10 if rated else None,
                 **values,

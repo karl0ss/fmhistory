@@ -1318,6 +1318,12 @@ fee-hunt closure checkpoint below.**
 
 ### Fee hunt CLOSED (2026-10-10; scans 130–136): no per-transfer fee store exists in the save container
 
+> **Superseded (2026-10-10, see "Transfer fees FOUND" below):** the fee of every move is
+> stored per player in `player_stats_hist_dt` (row +7), on the rows of the club the player
+> left. The hunt below missed it because it anchored on the shown, rounded values (23,000,
+> £23M, 32.5M); the stored fees are exact (22,937,564, 32,347,260). The eliminations below
+> still hold for the sections they name.
+
 Every named candidate probed or structurally identified; none carries fees.
 
 1. **`person_db_changes` (21 MB) = person attribute-change log, NOT fees**
@@ -1488,12 +1494,60 @@ control: equal hit rates); count-prefixed offset lists in `game_db`; `match_stat
 allocation order: blocks per team-season written at season end, holes reused).
 
 **Open:** (a) retired players' lists (~21.9k non-empty lists unbound; their objects are
-mostly stubs — test the q-21 rule on `history_people` full-object forms); (b) +7 u32
-(fee-like on last-season rows: Tshongo 8,250,000, Dumas 22,937,564 vs GT £23M — not equal,
-undecoded); +30 byte (1 on loan spells seen); (c) 0.53% field-for-field repeated rows in
+mostly stubs — test the q-21 rule on `history_people` full-object forms); (b) ~~+7 u32~~
+**SOLVED: departure fee, +30 spell code — see "Transfer fees FOUND"**; (c) 0.53% field-for-field repeated rows in
 lists (29,965; 2,561 with minutes) — cause unknown; (d) the u32 after the list number in
 the person object (e.g. 269,669) — maybe another per-person index (injury/person-record);
 (e) 2037 rows lag the live season.
+
+### Transfer fees FOUND: player_stats_hist_dt +7 = departure fee, INTEGRATED (2026-10-10; scratch `fm26-career/tmp_fees/g1–g10, h1–h3`)
+
+**Integrated:** `PlayerHistoryStats.departure_fee` (row +7, i32, -1 → None) and
+`PlayerHistoryStats.spell_code` (row +30); `ClubPlayerMove.fee`, filled by
+`Save.club_player_moves(club_uid, fees=True)` through `readers/transfer_history.move_fee`.
+Docs: `docs/reference/player_stats_history.md`, `docs/reference/transfer_man.md`.
+
+**The field.** When a player leaves a team, every history row of his last season there
+(all competition kinds) stores the money of the move that ended the spell. Earlier
+seasons of the spell, the current spell, and spells ended by a release / contract expiry
+to no club keep 0xffffffff. Byte +30 is the spell type: 0 permanent, 1 loan (on both the
+loan club's and the lending club's rows of that season; every St Albans code-1 row has a
+type-3 move of the player that season or the next), 4 trial (every code-4 row has a type-7
+move). On permanent spells +7 is the transfer fee, 0 for a free move; on loan spells 0 or
+small sums (loan fees? unverified); the two trial-spell values (Sidwell) repeat the
+following transfer's fee; one loan row holds -10.
+
+**Join rule (`move_fee`).** Move types 1/4/5 only: the player's rows with spell code 0 and
+a departure fee, at the move's origin club (`club_uid == from_club_uid`; team id when the
+club does not resolve; team None for a move from no club), in season `date.year - 1` or
+`date.year`; exactly one distinct value → the fee, else None. (Season-year window: Dutch
+2036/37 rows for a January 2037 Ajax sale are season 2036, Molde's calendar-year rows for
+January 2037 are 2037.)
+
+**Validation (`club_player_moves(716, fees=True)`):**
+- Event log: all 35 fee entries `club_player_moves` resolves agree exactly — 13 paid (Sidwell
+  19,000; O'Farrell 1,324,615 out; Finch 13,569,109 out; Schoop 3,132,169; González
+  1,445,149; Olagunju 15,857,448 out; Young-Thomas 2,700,000 in, 32,347,260 out; Tshongo
+  8,250,000; Dumas 22,937,564; Kitić 93,501; Bonatti 5,000,000; Pedro 9,851,914) and 22 free
+  (0). Not coverable: Ruff 20,000, Burley 60,000, Richard Thomas 67,160 (retired, not in
+  `players()`; Thomas has no grid move at all) and Zedníček 6,465,898 (deal dated 1/1/2038,
+  not yet executed — his rows end at CEC 2037 with 11,932,177, a different, earlier move).
+- Coverage: 83/83 resolved incoming type 1/4/5 moves get a fee (27 transfers paid, 18+38
+  type 4/5 all 0); out: 18/18 type-1 sales, 8/8 free moves to a club (0), 38 releases to no
+  club None. 44 of the 127 "bought" are retired players (4 t1, 36 t4, 4 t5).
+- Sum: incoming £99,174,811 (83 moves); + Ruff and Burley = £99,254,811 vs profile
+  £101,492,665 — gap £2,237,854, unverifiable (retired signings from Hemel Hempstead and
+  Charlton, 2024, are the remaining type-1 moves without a fee). Outgoing £89,759,304.
+- Game-wide sample (20,000 type 1/4/5 moves ≥ 2030): t1 1,824/1,903 get a fee, none 0; t4
+  between clubs 10,730/10,938 read 0; all 7,124 releases None. The 79 t1 misses are mostly
+  players whose last rows at the selling club are loan-spell rows (code 1), or rows outside
+  the season window — left None rather than guessed.
+- Timing: `club_player_moves(716, fees=True)` 12.2 s with grid/players cached (3.8 s
+  repeat); 350 movers, 8,984 rows.
+
+**Ruled out / not done:** loan fees (type-3 moves) — values exist on code-1 rows but no
+ground truth; not joined. Retired players' moves (their history lists are unbound, open
+item (a) of the previous checkpoint). The -10 value and code 26 (one row each) unread.
 
 ### tc_best_eleven_history_dt/ls — cell grammar pinned, owner/club identity OPEN (2026-10-10; scans b1–b31, tmp_besteleven/)
 
@@ -1841,10 +1895,10 @@ for league positions, honours, cup runs, awards, manager spells exist):
    (2022:39 … 2037:85,610), Dumas (716,7) 23,972@2036 and companion (716,172)
    32,604@2036 reproduce exactly; 98 ff-year junk rows excluded by the
    year-acceptance filter; ~13.4 s decode, cached. All 16 fields unconfirmed.
-   Transfer *fees*: the fee hunt is CLOSED (see "Fee hunt CLOSED"
-   checkpoint) — no per-transfer fee store exists in the container; the
-   site shows fee-less transfer rows with 73B money fields flagged
-   unconfirmed. **Wage ledger: INTEGRATED (checkpoint 7, 2026-10-10) —
+   Transfer *fees*: **FOUND (2026-10-10)** in `player_stats_hist_dt` +7
+   (see "Transfer fees FOUND") — `Save.club_player_moves(club_uid,
+   fees=True)` fills `ClubPlayerMove.fee`; the "Fee hunt CLOSED" checkpoint
+   is superseded. **Wage ledger: INTEGRATED (checkpoint 7, 2026-10-10) —
    `Save.transfer_man_wage_ledger()`**, 32,235 GT records. **Checkpoint 8
    (2026-10-10): the grid rows are per-person career MOVES keyed by the history
    reference (not club/slot), with team ids and a game date —
@@ -1859,7 +1913,7 @@ for league positions, honours, cup runs, awards, manager spells exist):
 3. ~~player_stats_hist_dt (876 MB)~~ **INTEGRATED (2026-10-10)** —
    `Save.player_season_history(uids)`; binding via the unlisted pool index +
    the list number before each person block (checkpoint 2). Open: retired
-   players' lists, the +7 fee-like u32.
+   players' lists (the +7 u32 is the departure fee, see "Transfer fees FOUND").
 4. **tc_best_eleven_history_dt (13 MB)** — best XI per season.
 5. ~~news (40 MB)~~ **DEAD END (2026-10-10)** — only a 12-day rolling
    buffer (23 Nov – 4 Dec 2037); no season summaries or transfer fees

@@ -196,10 +196,12 @@ from fmsave.readers.training import (
     walk_training_blocks,
 )
 from fmsave.readers.transfer_history import (
+    FEE_MOVE_TYPES,
     TRANSFER_MAN_SECTION,
     club_player_moves,
     decode_player_season_records,
     decode_wage_ledger_records,
+    move_fee,
     raise_when_ledger_unreadable,
     raise_when_unreadable,
 )
@@ -1280,7 +1282,8 @@ class Save:
         pattern-scans each season region, so rows a layout the scan misses are skipped
         rather than misread; row semantics are calibrated on the ground-truth save only
         and are not verified across builds. The section carries no transfer fees;
-        `club_player_moves` joins one club's rows to players and clubs.
+        `club_player_moves` joins one club's rows to players, clubs and (on request)
+        the fees the players' statistics history stores.
 
         Returns one record per readable row with the person's reference, head variant
         bytes, the team fields, the row type byte, the date words and decoded date,
@@ -1296,7 +1299,7 @@ class Save:
             TRANSFER_MAN_SEASON_RECORDS_TABLE_CACHE_KEY, self._read_transfer_man_player_seasons
         )
 
-    def club_player_moves(self, club_uid: int) -> Table[ClubPlayerMove]:
+    def club_player_moves(self, club_uid: int, *, fees: bool = False) -> Table[ClubPlayerMove]:
         """Every move into or out of one club the `transfer_man` move grid records.
 
         Reads `transfer_man_player_seasons` and keeps each row whose destination or
@@ -1304,14 +1307,24 @@ class Save:
         reference to a player (`history_player_references`, names from `players()`)
         and both teams to their clubs (`clubs()`). Staff moves and players no longer in
         `players()` keep their reference with no uid or name. Moves come in date order.
-        The save stores no transfer fees, so none are reported.
+
+        The grid stores no fee. With `fees=True` each permanent move (row types 1, 4 and
+        5) of a player in `players()` gets the fee its player's statistics history
+        stores for it (`player_season_history`, one call for all the club's movers; see
+        `move_fee` in `fmsave.readers.transfer_history` for the rule): 0 for a free
+        move, None for a release to no club. Retired players' moves keep None. Without
+        it every `fee` is None.
 
         On the ground-truth save, the manager's club's incoming row types 1, 4 and 5
         since he took over count 127, the number of players his profile says he
-        bought.
+        bought. With fees, all 83 such moves of players still in `players()` get a fee,
+        and 35 of 35 fees the manager's event log names for them (13 paid, 22 free)
+        agree.
 
         Args:
             club_uid: Uid of the club, as `clubs()` reports it.
+            fees: Also read each permanent move's fee (adds a `player_season_history`
+                call: about 10 s on the ground-truth save, more on the first call).
 
         Raises:
             SaveClosedError: The save is closed.
@@ -1335,6 +1348,22 @@ class Save:
             self.history_player_references(),
             player_names,
         )
+        if fees:
+            movers = {
+                move.player_uid
+                for move in moves
+                if move.player_uid is not None and move.record_type in FEE_MOVE_TYPES
+            }
+            history: dict[int, list[PlayerHistoryStats]] = {}
+            for row in self.player_season_history(sorted(movers)):
+                if row.player_uid is not None:
+                    history.setdefault(row.player_uid, []).append(row)
+            moves = tuple(
+                replace(move, fee=move_fee(move, history.get(move.player_uid, ())))
+                if move.player_uid is not None
+                else move
+                for move in moves
+            )
         return Table(moves, ClubPlayerMove)
 
     def transfer_man_wage_ledger(self) -> Table[WageLedgerRecord]:

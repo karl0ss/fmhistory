@@ -13,7 +13,8 @@ Two of its slices are decoded here:
 
 Both slices name people by the save-wide history reference
 (`Save.history_player_references()`), not by uid. The section carries no
-transfer fee, so this model reads no transfer fees.
+transfer fee; `ClubPlayerMove.fee` is joined in from the players' statistics
+history (`PlayerHistoryStats.departure_fee`).
 
 The layouts are not verified across builds, and no field's meaning is
 confirmed, so every field of the models is registered unconfirmed in the reader.
@@ -39,7 +40,8 @@ class PlayerSeasonRecord:
     him between by `Team.team_id`. Players' references resolve through
     `Save.history_player_references()`; row types 6 and 9 key non-player staff, and
     rows of players no longer in `players()` (retired, mostly) do not resolve. The
-    section holds no transfer fee.
+    row holds no transfer fee; the fee sits in the player's statistics history
+    (`PlayerHistoryStats.departure_fee`).
 
     On the ground-truth save every row's tick and season-year words decode as a
     game date, and the row types read, calibrated on the manager's club: 1 a
@@ -132,7 +134,9 @@ class ClubPlayerMove:
     `Save.club_player_moves()` builds these from the `transfer_man` move grid
     (`PlayerSeasonRecord`): every row naming one of the club's own teams as the
     origin or the destination, with the moving person's reference resolved to a
-    player and both teams resolved to their clubs. Fees are not stored in the save.
+    player and both teams resolved to their clubs. The grid stores no fee: with
+    `fees=True`, `Save.club_player_moves()` reads each permanent move's fee from the
+    moving player's statistics history (`PlayerHistoryStats.departure_fee`).
 
     Attributes:
         date: The game date the move took effect; None for a null-year row
@@ -157,6 +161,10 @@ class ClubPlayerMove:
             (unconfirmed).
         from_club_name: Denormalised name of from_club_uid (unconfirmed).
         to_club_name: Denormalised name of to_club_uid (unconfirmed).
+        fee: The fee the move carried, in pounds, 0 for a free move; read only when
+            `club_player_moves` is asked for fees, and only for row types 1, 4 and 5 of
+            a player in `players()`. None otherwise, and for a release to no club, which
+            stores no fee (unconfirmed).
     """
 
     date: date | None
@@ -171,6 +179,7 @@ class ClubPlayerMove:
     to_club_uid: int | None
     from_club_name: str | None
     to_club_name: str | None
+    fee: int | None = None
 
 
 register_field_statuses(
@@ -188,6 +197,7 @@ register_field_statuses(
         "to_club_uid",
         "from_club_name",
         "to_club_name",
+        "fee",
     ),
 )
 
