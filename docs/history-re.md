@@ -881,6 +881,82 @@ Not integrated yet: zone1's compact families (family-A registrations, 11 00
 wage ledger, 03, 0b negotiation — maps in checkpoints 1/3), and per-transfer
 fees remain unfound (next: `person_record_history_dt`, 131 MB).
 
+### transfer_man checkpoint 8 (2026-10-10): the 73B grid is a per-person MOVE log; rows named (scans `tmp_transfer/r1–r12`)
+
+**The "(club uid << 8 | squad slot) handle" reading of checkpoints 1–7 was
+wrong.** The 32-bit word is the person's **history reference** (`pindex + 1`,
+`Save.history_player_references()`), in every family that carries it:
+
+| family | field | resolves to a player | random ids, same range |
+|---|---|---|---|
+| 73B grid | head id (row +4) | 47–80% per row type (t1 58%, t14 80%); t6/t9 0% (staff) | 23.9% |
+| `11 00` wage ledger | handle (+2) | 93.3% | 23.7% |
+| `0b 00 01 00` negotiation | `+16` | 99.7% (51,237 non-null) | 23.7% |
+| `03` family (27 B) | u32 after the `03` | 84.0% (108,489) | 23.7% |
+
+The test refs (Dumas 189608, Y-T 280836, Tshongo 458697, Gumbs 493490, Hodges
+537474) sit in transfer_man at: 73B grid heads (Dumas `0x1c90d40`, Y-T
+`0x2348877`, Tshongo `0x19f303f`, Hodges `0x14b6847` + compressed seasons),
+`03` records (`03 | ref | u16 day | u16 year | 60/02 | …`, the "person" u32 of
+checkpoint 2 = a game date, year 0x07f2–0x07f5), and `0b` records' `+16`
+(neg-ref 603 holds Dumas, Tshongo, Gumbs and Hodges — 603 is St Albans' team
+id, see below; the `0b +4` "negotiation ref" may be a team id too — unchecked).
+
+**73B row semantics (re-derived; layout unchanged):**
+- `value_a` = destination **team id** (`Team.team_id`, via `clubs().teams`),
+  `value_b` = origin team id, `value_c` = destination on transfers/loans, the
+  origin on moves to no club. **St Albans City's first team = 603** (team ids
+  ≠ club uids: 603 is Aston Villa's *club* uid, which made the old reads look
+  like noise). They are not money: the "23,972 / 32,604 wage anchors" were rows
+  of other people (head 0x2cc07 = reference 183,303, not Dumas).
+- `tick` + `season_year` (row +36) = one 4-byte game date in fmsave's
+  `decode_date` packing (day-of-year low 9 bits, intra-day slot above): all
+  1,428,558 GT rows decode. Dumas's row = **10/8/2036** (GT 10/8/2036 ✓),
+  Y-T's sale = **9/8/2037** (GT says "9/8/2036?" — the year was uncertain; the
+  save says 2037).
+- `value_f` / `value_g` = history reference of the destination / origin club's
+  manager at the time (328,408 = Karl Hudgell, via
+  `history_person_reference(2002143422)`, on every St Albans-side row).
+- `record_type` = move kind, calibrated on St Albans: 1 transfer, 3 loan, 4
+  free move (to/from no club or between clubs), 5 signing seen only at the
+  human's club (42 rows game-wide, all St Albans), 7 trial (days before a t4
+  signing, or 4 April academy trialists), 14 youth intake (no origin; 16/yr),
+  24 release to no club (mostly intake players at 30 June), 37 retirement,
+  6/9 staff appointment/departure (0% player refs).
+
+**Integrated:** `PlayerSeasonRecord.club_uid/slot` → `player_reference`, new
+`date`; `WageLedgerRecord.club_uid/slot` → `player_reference`; new
+`ClubPlayerMove` + `Save.club_player_moves(club_uid)` (rows on any of the
+club's own teams, joined to player uid/name and both clubs). Tests synthetic.
+
+**GT validation (`club_player_moves(716)`, 1,087 moves, 683 named; all dated
+≥ 18/7/2023):**
+- **Bought: t1 in 31 + t4 in 54 + t5 in 42 = 127 = GT "127 players bought"
+  exactly.**
+- Sold / released do NOT reproduce by type alone: t1 out 25 (+21 t4 moves to
+  another club = 46) vs GT 39; t24 out 60 (50 naming a current player) and t4
+  to-no-club 79 vs GT 50 released. Loans: 182 out, 5 in.
+- 2036 summer window named in full, e.g. 23/6 Marvin Tshongo (Guingamp → SA,
+  t1), 5/8 Eneko Garrido (Hibernian), 8/8 Gerardo Real (Monterrey), 10/8
+  Corentin Dumas (Saint-Etienne), out: 16/6 Peter Fennell (→ Luton), 5/7 Jasper
+  Torkildsen (→ Bournemouth), 18/8 Charlie Thomas (→ Hull), 30/6 five t4
+  releases, nine loans out.
+- Grid history covers players back to 2023 (Y-T: Cardiff → SA 3/8/2034, t1);
+  37% of St Albans moves name a reference no longer in `players()` (retired
+  players, staff).
+
+**Open (next):**
+1. The out-side split vs GT 39 sold / 50 released (which types/flags the
+   manager profile counts; `flags` 1 vs 257 and head variants are unexplored).
+2. `value_e`, `count` (loans: high u16 4–11 over 0xffff — loan months?),
+   `value_d` (loan rows), head variant bytes.
+3. Re-read the `0b` negotiation `+4` "ref" and `+12` as team ids / dates, and
+   the `03` family as (person, date, …) — both now have a person key.
+4. Retired players' names (37% unresolved at St Albans) — same open item as the
+   best-eleven checkpoint.
+5. Checkpoints 1–7 statements built on the handle reading (club 716 "squad
+   tables", "Dumas (716,7)", dual-club wage pairs) are superseded by this one.
+
 ### person_record_history_dt — first survey (checkpoint 7, 2026-10-09; scans 110–118)
 
 The next fee-log candidate structurally (131,338,838 B dt + 13,656,218 B ls,
@@ -1420,7 +1496,11 @@ for league positions, honours, cup runs, awards, manager spells exist):
    checkpoint) — no per-transfer fee store exists in the container; the
    site shows fee-less transfer rows with 73B money fields flagged
    unconfirmed. **Wage ledger: INTEGRATED (checkpoint 7, 2026-10-10) —
-   `Save.transfer_man_wage_ledger()`**, 32,235 GT records. Remaining in
+   `Save.transfer_man_wage_ledger()`**, 32,235 GT records. **Checkpoint 8
+   (2026-10-10): the grid rows are per-person career MOVES keyed by the history
+   reference (not club/slot), with team ids and a game date —
+   `Save.club_player_moves(club_uid)` names them; 127 bought reproduces
+   exactly.** Remaining in
    transfer_man: zone1 negotiation (`0b`) records and family-A (the `03`
    family's "person" id space needs re-checking before integration — maps in
    checkpoints 1/3).

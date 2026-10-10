@@ -3,11 +3,11 @@
 The section (a `tad.` container, one per save) holds the transfer and contract
 ledgers the game's transfer screens read. Two slices are decoded here:
 
-- the tail's season-record grid: a store of 73-byte rows keyed per (club, squad
-  slot) and grouped per season — per-player-per-club season snapshots whose
-  money fields sit on the raw-£ weekly-wage scale. The rows sit in a clear
-  region after the section's other record families, followed by one
-  zstd-compressed block per older season, oldest first and the newest clear.
+- the tail's player-move grid: a store of 73-byte rows grouped per season, one
+  per dated move in a person's career, keyed by the person's history reference
+  and naming the teams moved between. The rows sit in a clear region after the
+  section's other record families, followed by one zstd-compressed block per
+  older season, oldest first and the newest clear.
 - the clear zone's wage ledger: uniform 28-byte money records interleaved in
   file order with 69-byte negotiation records, forming one global chronological
   log.
@@ -28,9 +28,12 @@ from __future__ import annotations
 import re
 import struct
 import sys
+from collections.abc import Iterable, Mapping
+from datetime import date
 
 from fmsave._errors import CorruptSaveError
-from fmsave.models.transfer_history import PlayerSeasonRecord, WageLedgerRecord
+from fmsave._scan import decode_date
+from fmsave.models.transfer_history import ClubPlayerMove, PlayerSeasonRecord, WageLedgerRecord
 
 if sys.version_info >= (3, 14):
     from compression import zstd
@@ -40,9 +43,10 @@ else:
 TRANSFER_MAN_SECTION = "transfer_man"
 
 _ROW_LENGTH = 73
-# One 73-byte row: the head word, the head id, three 00-null-separated u32
-# money fields and a fourth, an 8-byte gap, the type byte, a tick word, the
-# season year, a status word, four trailing fields and an unset tail.
+# One 73-byte row: the head word, the person's history reference, three
+# 00-null-separated u32 team ids and a fourth field, an 8-byte gap, the type
+# byte, the date (a packed day word then the year), a status word, four trailing
+# fields and an unset tail.
 _ROW_FORMAT = struct.Struct("<4sIBIBIBI8sIBHHHIIII15s")
 assert _ROW_FORMAT.size == _ROW_LENGTH
 
@@ -55,6 +59,9 @@ _ZSTD_MAGIC = b"\x28\xb5\x2f\xfd"
 
 # The row's head word is `00 <u8 variant> <u8 variant> 07`.
 _ROW_HEAD = re.compile(b"\x00[\x00\x01][\x00\x01]\x07")
+
+# The row's date sits at this offset: the u16 day word, then the u16 year.
+_ROW_DATE_OFFSET = 36
 
 # The nullable fields carry 0xffffffff when unset.
 _UNSET = 0xFFFF_FFFF
@@ -71,7 +78,7 @@ _MAX_TAIL_DROP = 8
 _WAGE_RECORD_LENGTH = 28
 # The two tag bytes the wage ledger opens each record with.
 _WAGE_MAGIC = b"\x11\x00"
-# One wage-ledger record after the tag: the 32-bit handle, the kind byte, two
+# One wage-ledger record after the tag: the player reference, the kind byte, two
 # money u32s each padded by a zero u32, a flag byte and the tail word.
 _WAGE_FORMAT = struct.Struct("<IBIIIIBI")
 assert _WAGE_FORMAT.size == _WAGE_RECORD_LENGTH - len(_WAGE_MAGIC)
@@ -93,7 +100,7 @@ def _head_variant(head: bytes) -> tuple[int, int]:
 def _season_year_ok(year: int) -> bool:
     """Whether the season-year field is a calendar year or the null year.
 
-    Rows carrying a 0xffff year all parse as one junk family (club 0, type 1,
+    Rows carrying a 0xffff year all parse as one junk family (reference below 256, type 1,
     flags 0x01ff) on the layout save, so the sentinel is not accepted: keeping
     it admits ~90 pattern-noise rows per save and no proven real row.
     """
@@ -104,8 +111,8 @@ def _row(bytes_at: bytes, offset: int) -> PlayerSeasonRecord | None:
     """The record the 73 bytes at `offset` hold, or None they hold no row.
 
     A row is `00 <u8 variant> <u8 variant> 07` plus three zero null-separators
-    around its money fields, a handle and season year inside the layout's
-    bounds, and unset sentinels where null.
+    around its team fields, a season year inside the layout's bounds, and unset
+    sentinels where null.
     """
     head = bytes_at[offset : offset + 4]
     if not _ROW_HEAD.match(head):
@@ -118,8 +125,7 @@ def _row(bytes_at: bytes, offset: int) -> PlayerSeasonRecord | None:
         return None
     variant_a, variant_b = _head_variant(head)
     return PlayerSeasonRecord(
-        club_uid=record[1] >> 8,
-        slot=record[1] & 0xFF,
+        player_reference=record[1],
         variant_a=variant_a,
         variant_b=variant_b,
         value_a=None if record[3] == _UNSET else record[3],
@@ -129,6 +135,7 @@ def _row(bytes_at: bytes, offset: int) -> PlayerSeasonRecord | None:
         record_type=record[10],
         tick=record[11],
         season_year=year,
+        date=decode_date(bytes_at, offset + _ROW_DATE_OFFSET),
         flags=record[13],
         value_e=None if record[14] == _UNSET else record[14],
         count=record[15],
@@ -225,17 +232,17 @@ def raise_when_unreadable(rows: int, data: bytes) -> None:
 def _wage_record(data: bytes, offset: int) -> WageLedgerRecord | None:
     """The wage-ledger record the 28 bytes at `offset` hold, or None it holds none.
 
-    A record is the `11 00` tag, a handle below 16 in its club-high byte, the
+    A record is the `11 00` tag, a player reference below 2**28, the
     kind byte below 32, two money u32s each padded by a zero u32, a flag byte
     and the tail word. The money bound also drops one tagged-record family that
     interleaves in the same clear zone and whose money positions carry a
     different grammar: its first money u32 reads with the bytes `01 02` in the
     middle.
     """
-    handle, kind, value_a, pad_a, value_b, pad_b, flags, tail_flags = _WAGE_FORMAT.unpack_from(
+    reference, kind, value_a, pad_a, value_b, pad_b, flags, tail_flags = _WAGE_FORMAT.unpack_from(
         data, offset + 2
     )
-    if handle >> 24 >= 0x10 or kind >= _WAGE_KIND_MAX:
+    if reference >> 24 >= 0x10 or kind >= _WAGE_KIND_MAX:
         return None
     if pad_a != 0 or pad_b != 0:
         return None
@@ -244,8 +251,7 @@ def _wage_record(data: bytes, offset: int) -> WageLedgerRecord | None:
     if value_a >= _WAGE_VALUE_A_MAX or value_b >= _WAGE_VALUE_B_MAX:
         return None
     return WageLedgerRecord(
-        club_uid=handle >> 8,
-        slot=handle & 0xFF,
+        player_reference=reference,
         kind=kind,
         value_a=value_a,
         value_b=value_b,
@@ -290,3 +296,49 @@ def raise_when_ledger_unreadable(rows: int, data: bytes) -> None:
         raise CorruptSaveError(
             f"transfer_man with {len(data)} bytes holds no readable wage-ledger records"
         )
+
+
+def club_player_moves(
+    records: Iterable[PlayerSeasonRecord],
+    club_uid: int,
+    club_by_team: Mapping[int, int],
+    club_names: Mapping[int, str | None],
+    player_by_reference: Mapping[int, int],
+    player_names: Mapping[int, str | None],
+) -> tuple[ClubPlayerMove, ...]:
+    """The move-grid rows that move a person into or out of one club, joined.
+
+    A row belongs to the club when its destination (`value_a`) or origin
+    (`value_b`) team is one of the club's own teams, read off `club_by_team`
+    (team id to the uid of the club whose own team list holds it). Each kept row
+    resolves its person's reference to a player uid and name, and both teams to
+    their clubs; anything that does not resolve reads as None. Moves come back in
+    date order, null-year rows first, and file order within a date.
+    """
+    moves: list[ClubPlayerMove] = []
+    for record in records:
+        to_club = None if record.value_a is None else club_by_team.get(record.value_a)
+        from_club = None if record.value_b is None else club_by_team.get(record.value_b)
+        moving_in = to_club == club_uid
+        moving_out = from_club == club_uid
+        if not moving_in and not moving_out:
+            continue
+        player_uid = player_by_reference.get(record.player_reference)
+        moves.append(
+            ClubPlayerMove(
+                date=record.date,
+                record_type=record.record_type,
+                direction="internal" if moving_in and moving_out else "in" if moving_in else "out",
+                player_reference=record.player_reference,
+                player_uid=player_uid,
+                player_name=None if player_uid is None else player_names.get(player_uid),
+                from_team_id=record.value_b,
+                to_team_id=record.value_a,
+                from_club_uid=from_club,
+                to_club_uid=to_club,
+                from_club_name=None if from_club is None else club_names.get(from_club),
+                to_club_name=None if to_club is None else club_names.get(to_club),
+            )
+        )
+    moves.sort(key=lambda move: move.date or date.min)
+    return tuple(moves)

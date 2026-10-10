@@ -76,6 +76,9 @@ validated against the k-world yearly reports (seasons 1–9) and screenshots.
 
 - Transfer fees: **closed** — no per-transfer fee store exists in the
   container (fee-hunt elimination arc, checkpoint 5 in history-re.md).
+  Transfers themselves (arrivals/departures, named, dated):
+  `Save.club_player_moves(club_uid)` (transfer_man checkpoint 8, 2026-10-10;
+  127 bought reproduces exactly, sold/released split still open).
 - `tc_best_eleven` id3=club: **dead** (checkpoint 2 corrects d8253b1).
 - Within-group (ls) cell overlap models: **dead** — the WALL measurement.
 - Best-eleven pid→player via `players().uid`: dead — but pid = history
