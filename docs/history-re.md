@@ -1378,8 +1378,9 @@ chain is claimed by a *different* single group (438, 450, 490, …), and group
   persons, or their surviving non-player objects) — next probe.
 - The same reference space appears in `transfer_man`, `person_record_history_dt`
   and `manager_manager` (5/5 test players hit 2–11×; random values in the same
-  range: median 0 hits). NOT the same space as person_record's refC in the
-  checkpoint 9 notes? — re-check: refC Dumas = 0xb604, reference = 189608.
+  range: median 0 hits). person_record_history's refC (checkpoint 9: Dumas
+  0xb604) is a different, second id space — the reference also occurs in that
+  section, so its records carry both.
 
 **Next:** integrate best-eleven cells (model + reader + `Save.` method,
 units carrying `player_uid` via the reference map), then retired-player names.
