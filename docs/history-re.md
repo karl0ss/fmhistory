@@ -1253,11 +1253,13 @@ chain is claimed by a *different* single group (438, 450, 490, …), and group
   different competitions same club-season ⇒ disjoint top-18s ⇒ THE WALL ✓;
   units = top-18 players of that competition that season, apps 12–49 =
   games in that competition ✓). id3=club, unit-squad models: dead.
-- ls group = **a spell/club history entry** (tmc. = manager-history family!):
+- ls group = **a bounded spell window** (tmc. = manager-history family!):
   2,724 groups, ≤16 entries over ≤8 consecutive seasons, 2–3 cells/season
   (league+cup+continental), present every season of its span, each season's
-  cells in different (T,kind) families — and the group stops at 16 entries,
-  so it is a bounded history window, not an eternal competition.
+  cells in different (T,kind) families. A spell *ends* — that is why no group
+  spans 2023–2037 while clubs do (club 716 plays all 15 seasons, so
+  group=club is dead on span evidence alone; also career_manager_spells()
+  has only 271 open-spell rows, not these 2,724 windows).
 - The ~30 heavy within-group dy=1 pairs = the same team recurring in one
   group across consecutive seasons (title defence / same spell, two seasons).
 - kind-1 cells (493, k=1 unit): id3 = **person uid** — 7 decode to real
