@@ -98,7 +98,7 @@ only for the club the save's human manager runs.
 
 ## Career history
 
-`career_persons()`, `career_honours()`, `career_cup_entries()`, `career_manager_spells()`,
+`career_persons()`, `career_honours()`, `career_cup_entries()`, `manager_spells()`,
 `career_awards()`, `career_league_history()`, `career_best_eleven()`, `history_people()`,
 `player_season_history(uids)` and `career_manager_records()`: rows
 the save's history sections keep (see the reader module's notes; competition ids name nothing yet
@@ -121,7 +121,6 @@ a career record pins the team's list) and open (the current job).
 .. autoclass:: fmsave.PersonHistory
 .. autoclass:: fmsave.Honour
 .. autoclass:: fmsave.CupEntry
-.. autoclass:: fmsave.ManagerSpell
 .. autoclass:: fmsave.Award
 .. autoclass:: fmsave.LeagueHistorySeason
 .. autoclass:: fmsave.LeagueHistoryClub

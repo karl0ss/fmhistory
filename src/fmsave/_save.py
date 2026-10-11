@@ -39,7 +39,6 @@ from fmsave.models.career_history import (
     ManagerCareerRecord,
     ManagerEvent,
     ManagerHistorySpell,
-    ManagerSpell,
     PersonHistory,
 )
 from fmsave.models.clubs import Club
@@ -93,13 +92,11 @@ from fmsave.readers.career_history import (
     HALL_OF_FAME_SECTION,
     LEAGUE_HISTORY_DT_SECTION,
     LEAGUE_HISTORY_LS_SECTION,
-    MANAGER_HISTORY_SECTION,
     decode_awards,
     decode_best_eleven,
     decode_cup_entries,
     decode_hall_of_fame,
     decode_league_history,
-    decode_manager_spells,
     find_person_reference,
     league_history_fixture_pins,
     player_references,
@@ -242,7 +239,6 @@ CAREER_PERSONS_TABLE_CACHE_KEY = "table:career_persons"
 CAREER_HONOURS_TABLE_CACHE_KEY = "table:career_honours"
 CAREER_CUP_ENTRIES_TABLE_CACHE_KEY = "table:career_cup_entries"
 CUP_HISTORY_INDEXES_CACHE_KEY = "cup_history_indexes"
-CAREER_MANAGER_SPELLS_TABLE_CACHE_KEY = "table:career_manager_spells"
 CAREER_AWARDS_TABLE_CACHE_KEY = "table:career_awards"
 CAREER_LEAGUE_HISTORY_TABLE_CACHE_KEY = "table:career_league_history"
 LEAGUE_HISTORY_INDEXES_CACHE_KEY = "league_history_indexes"
@@ -831,26 +827,6 @@ class Save:
         """
         context = self._context
         return context.cached(CAREER_CUP_ENTRIES_TABLE_CACHE_KEY, self._read_career_cup_entries)
-
-    def career_manager_spells(self) -> Table[ManagerSpell]:
-        """The manager spell-start rows the manager history section stores.
-
-        One row per spell a manager still holds at the time of the save, with the club
-        uid, the day of season the spell began and its season year. Ended spells store
-        their dates in a shape not decoded yet, so older spells are absent from the
-        table; a club the table has a row for may also have more rows later in its
-        record family. Rows cannot be tied to one manager: the section does not
-        reference people by the person uids the hall of fame stores.
-
-        Raises:
-            SaveClosedError: The save is closed.
-            SaveChangedError: The file changed on disk after it was opened.
-            CorruptSaveError: The save is damaged or was being written.
-        """
-        context = self._context
-        return context.cached(
-            CAREER_MANAGER_SPELLS_TABLE_CACHE_KEY, self._read_career_manager_spells
-        )
 
     def career_awards(self) -> Table[Award]:
         """Every placing the yearly award history stores, one per (award, season, placing).
@@ -3083,11 +3059,6 @@ class Save:
             ],
             CupEntry,
         )
-
-    def _read_career_manager_spells(self) -> Table[ManagerSpell]:
-        with self._context.section(MANAGER_HISTORY_SECTION) as manager_data:
-            spells = decode_manager_spells(manager_data)
-        return Table(spells, ManagerSpell)
 
     def _read_career_awards(self) -> Table[Award]:
         with self._context.section(AWARD_SECTION) as award_data:

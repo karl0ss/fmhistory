@@ -1223,11 +1223,18 @@ def _run_career_history(arguments: argparse.Namespace) -> int:
             if club_uid is None
             else career_save.club_cup_history(club_uid)
         )
-        spells = career_save.career_manager_spells()
+        spells = tuple(career_save.manager_spells())
         awards = career_save.career_awards()
+        club_teams = {
+            team.team_id
+            for club in career_save.clubs()
+            if club.uid == club_uid
+            for team in club.teams
+            if not team.is_affiliate
+        }
     if club_uid is not None:
         honours = tuple(honour for honour in honours if honour.club_uid == club_uid)
-        spells = tuple(spell for spell in spells if spell.club_uid == club_uid)
+        spells = tuple(spell for spell in spells if spell.team_id in club_teams)
         awards = tuple(award for award in awards if award.club_uid == club_uid)
 
     def _season_ending(year: int) -> str:
@@ -1243,8 +1250,8 @@ def _run_career_history(arguments: argparse.Namespace) -> int:
     lines: list[str] = []
     lines.append(f"persons in the hall of fame: {len(persons)}")
     spell_lines = [
-        f"club {spell.club_uid}: spell started day {spell.start_day} of "
-        f"{_season_ending(spell.start_year + 1)}"
+        f"manager {spell.reference} at team {spell.team_id}: {spell.start_date} to "
+        f"{spell.end_date or 'now'}, W{spell.wins} D{spell.draws} L{spell.losses}"
         for spell in spells
     ]
     lines.append(f"manager spells: {len(spells)}")

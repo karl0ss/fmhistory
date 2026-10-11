@@ -41,7 +41,6 @@ from fmsave.models.career_history import (
     ManagerEvent,
     ManagerFee,
     ManagerHistorySpell,
-    ManagerSpell,
     ManagerSpellWindow,
     PersonHistory,
 )
@@ -168,7 +167,6 @@ __all__ = [
     "ManagerEvent",
     "ManagerFee",
     "ManagerHistorySpell",
-    "ManagerSpell",
     "ManagerSpellWindow",
     "MatchOutcome",
     "MatchPosition",

@@ -79,7 +79,7 @@ validated against the k-world yearly reports (seasons 1–9) and screenshots.
       staff_uid=None)`, current jobs added as open spells. 25,798 ended spells;
       2,551 lists named from career-record windows (83.6% of rows; holdout vs
       the v03 snapshot 190/190). Open: naming the other 3,453 lists (mostly
-      one-row); retiring the old `career_manager_spells()` misread.
+      one-row). The old `career_manager_spells()` misread was removed (2026-10-11).
 - [ ] **D2. Award names.** Map `career_awards`' `award_id` to award names from
       `award_man` (`tad.`, 842,938 B, partially mapped).
 - [ ] **D3. Competition names.** Resolve competition_id → name for honours,

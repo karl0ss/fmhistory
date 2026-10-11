@@ -148,9 +148,9 @@ the team of the manager's v03 current job, 0 wrong. Karl: no ended spell; open s
 **Next steps:** name the 3,453 unpinned lists (mostly one-row lists: 3,080): find where a
 team stores its manager-history list number (team objects are not located by fmsave;
 the league/cup/best-eleven lists have the same problem); or a second pass using the
-chain rule constrained by the pinned lists. `career_manager_spells()` / `ManagerSpell`
-(the old open-spell scan) misreads these rows (its "club" is a manager reference) and
-should be retired in favour of `manager_spells()` — owner decision.
+chain rule constrained by the pinned lists. The old open-spell scan
+(`career_manager_spells()` / `ManagerSpell`) misread these rows (its "club" is a manager
+reference); **removed 2026-10-11** on the owner's say-so, `manager_spells()` replaces it.
 
 #### Superseded model (kept for the record; wrong except the append-only diff)
 - Header: `03 01 'tmc.' 02 00 30 1f 00 00 01 00`, records follow (12-byte header).

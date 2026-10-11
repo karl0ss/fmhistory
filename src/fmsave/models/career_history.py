@@ -190,29 +190,6 @@ class Award:
     tail: tuple[int, ...]
 
 
-@dataclass(frozen=True, slots=True)
-class ManagerSpell:
-    """A spell a manager holds at a club, from the manager history section.
-
-    The section stores one record per manager in the game world; inside some of those
-    records sits a spell row naming the club, the day the spell began and its season
-    year. The scan only finds spell rows in the still-open shape, whose end date is
-    two unset u32s: spells that have ended are stored in a shape not decoded yet, so
-    the table covers only open spells and misses everything older. On a career with
-    clubs found, the row for the human manager's club carries their join date.
-
-    Attributes:
-        club_uid: Uid of the club the spell is at (unconfirmed).
-        start_day: Day-of-season the spell began; 182 is early July on the
-            ground-truth save (unconfirmed).
-        start_year: Season year the spell began (unconfirmed).
-    """
-
-    club_uid: int
-    start_day: int
-    start_year: int
-
-
 register_field_statuses(
     PersonHistory,
     unconfirmed=("first_name", "last_name", "dob_day_of_year", "birth_year", "person_uid"),
@@ -248,10 +225,6 @@ register_field_statuses(
         "winner_age",
         "tail",
     ),
-)
-register_field_statuses(
-    ManagerSpell,
-    unconfirmed=("club_uid", "start_day", "start_year"),
 )
 
 

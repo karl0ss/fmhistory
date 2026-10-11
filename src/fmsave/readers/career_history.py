@@ -108,7 +108,6 @@ from fmsave.models.career_history import (
     LeagueHistoryClub,
     LeagueHistoryClubMethod,
     LeagueHistorySeason,
-    ManagerSpell,
     PersonHistory,
 )
 from fmsave.models.clubs import Club
@@ -117,7 +116,6 @@ from fmsave.models.fixtures import Fixture
 HALL_OF_FAME_SECTION = "hall_of_fame"
 CUP_HISTORY_SECTION = "tc_cup_history_dt"
 CUP_HISTORY_LS_SECTION = "tc_cup_history_ls"
-MANAGER_HISTORY_SECTION = "tc_manager_history_dt"
 AWARD_SECTION = "award_year_hist_dt"
 LEAGUE_HISTORY_DT_SECTION = "tc_league_history_dt"
 LEAGUE_HISTORY_LS_SECTION = "tc_league_history_ls"
@@ -800,36 +798,6 @@ def decode_awards(data: bytes) -> tuple[Award, ...]:
                 )
             )
     return tuple(awards)
-
-
-_SPELL_SENTINELS = b"\xff" * 8
-
-
-def decode_manager_spells(data: bytes) -> tuple[ManagerSpell, ...]:
-    """Every spell-start row in the manager history section that the scan accepts.
-
-    The section is one record per manager, whose interiors hold a family of record
-    shapes of which only the spell-start row is decoded: `<u32 club> u16 day u16
-    season u16 u16 same-season` followed by eight unset bytes, which is the shape a
-    spell still open carries. Rows for ended spells and every other shape are left
-    out, so the table does not cover a manager's whole record; a club whose spells
-    are all absent is expected, and so is more than one row for one spell as the
-    record family grows.
-    """
-    spells: list[ManagerSpell] = []
-    seen: set[tuple[int, int, int]] = set()
-    for offset in range(len(data) - 20):
-        club, day, season, _, season_again = struct.unpack_from("<IHHHH", data, offset)
-        if not (1 <= club <= 5_000_000 and day <= 366 and _MIN_YEAR <= season <= _MAX_YEAR):
-            continue
-        if season_again != season or data[offset + 12 : offset + 20] != _SPELL_SENTINELS:
-            continue
-        key = (club, day, season)
-        if key in seen:
-            continue
-        seen.add(key)
-        spells.append(ManagerSpell(club_uid=club, start_day=day, start_year=season))
-    return tuple(spells)
 
 
 # League history: the dt rows, threaded to clubs through the ls index

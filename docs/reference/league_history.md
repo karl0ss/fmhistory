@@ -162,7 +162,7 @@ League history data can be combined with other career history decoders:
 - **Cup history**: `save.career_cup_entries()` / `save.club_cup_history(uid)` - how each
   cup campaign ended (stage, result, opponent team) per season
 - **Hall of fame**: `save.career_honours()` - honours won per season
-- **Manager spells**: `save.career_manager_spells()` - job start dates
+- **Manager spells**: `save.manager_spells()` - every manager's spells with dates and results
 - **Transfers** (future): transfer activity per season
 
 ## Field Status
