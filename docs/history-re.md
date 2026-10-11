@@ -132,10 +132,13 @@ the team of the manager's v03 current job, 0 wrong. Karl: no ended spell; open s
   (person_record_history_dt, pl_hist_dt, tc_history_dt, non_pl_hist_dt) and never next
   to the team/club/manager in game_db.
 - List number stored next to the team or club: no fixed offset within club records
-  (record spans), ±6,000 B around the club's status uid pair, ±1,200 B around any
-  occurrence in game_db, or anywhere in manager_manager / person_record_manager /
-  tc_history_dt (relative-offset histograms over 2,500 pinned lists: no offset above
-  noise). [game_db league-list co-location scan: see below.]
+  (record spans), ±6,000 B around the club's status uid pair (600 lists), ±600 B
+  around every one of the 17.8M game_db occurrences of a pinned list number (targets:
+  team id, team id ±1, club uid, club uid − 1, and the club's league-history list
+  number; best offset reaches 132 of 1,986 lists, symmetric ±460/±230 = table
+  periodicity, i.e. noise), or anywhere in manager_manager / person_record_manager /
+  tc_history_dt (same histogram, ≤7 lists at any offset). Team objects that do not
+  carry their own team id remain the untested possibility.
 - Chain rule (list's last end date == a team's current manager's start date, unique on
   both sides): 5-fold CV 672 right / 34 wrong (95%) — not integrated.
 - `kind` byte: 10 = short spells (median 17 days, 2 games), 6 = long with ~1 game; not
