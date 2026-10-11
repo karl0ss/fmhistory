@@ -83,16 +83,34 @@ pinned list, its `method` saying which evidence):
    them (`clubs()` does not list every club: an unused id could be a club that
    owns one of the lists), the lists take those clubs in uid order.
 
-Ground-truth save: 2,791 lists pinned (2,077 fixtures, 714 uid order); every one of
-the 55 usable title pins agrees; 0 lists claimed twice; 0 uid-order inversions
-among pinned lists below the last imported list (19,276); St Albans = list 351
-(fixtures, team 603). Uid-order fills reproduce 962/962 held-out fixture pins and
-agree with the competition's nation on all 198 fills with post-import rows. Rows
-named per season (non-imported rows): 76.6% (2023/24) rising to 84.3% (2036/37);
-English tiers (VNS/VNN, National, L2, L1, Championship, PL) 90.2% rising to 100%.
-The unnamed rows belong to clubs that left every league with fixtures before
-2035/36 (e.g. six 2024/25 VNS clubs since relegated below the lowest stored
-level) and to view-only leagues the save stores tables for but no fixtures.
+4. **Player history** (`league_history_signature_pins`). Every row of
+   `player_stats_hist_dt` stores its team's league competition that season
+   (`team_season_competitions`), so each club's first team has a league per season
+   even where no fixtures or table survive. Learned from the lists pinned so far,
+   per list competition: the season offset (a list labels a season by its ending
+   year, player rows by the starting year, except in calendar-year leagues; a league
+   whose clubs never move takes its nation's offset) and the player-row competitions
+   it accepts (a split league's phase lists name the phase, players' rows the
+   parent league, e.g. Belgian 7047/7048 vs 1077). A list below the last imported
+   list is pinned to the one unpinned club in its uid bracket that agrees on at least
+   two seasons, contradicts none, and that no other club in the bracket matches on
+   as many seasons (a season with no player rows is no evidence). Rounds repeat as new
+   pins narrow the brackets; claims of one club by two lists, and pairs that would
+   break uid order, are dropped.
+
+Ground-truth save: 3,325 lists pinned (2,077 fixtures, 714 uid order, 534 player
+history); every one of the 55 usable title pins agrees; 0 lists claimed twice; 0
+uid-order inversions among pinned lists below the last imported list (19,276); St
+Albans = list 351 (fixtures, team 603). Uid-order fills reproduce 962/962 held-out
+fixture pins and agree with the competition's nation on all 198 fills with
+post-import rows. Player-history pins, 5-fold held out over the first three
+methods' pins (a fifth of the anchors removed each time): 958 reproduced, 0 wrong,
+the rest left unpinned. Rows named per season (non-imported rows with results): 91%
+(2023/24) rising to 99% (2036/37); English tiers (VNS/VNN, National, L2, L1,
+Championship, PL) 98–100% in every season. 2024/25 VNS is fully named: the six
+clubs since relegated below the lowest stored level (Salisbury, Truro City,
+Braintree Town, Taunton Town, Merthyr Town, Farnborough) are player-history pins.
+What stays unnamed is mostly view-only leagues and lists past 19,276.
 
 ## Decoder Implementation
 
@@ -109,9 +127,11 @@ level) and to view-only leagues the save stores tables for but no fixtures.
   pins club uids to list numbers through league titles.
 - `league_history_fixture_pins(seasons, fixtures)` pins lists to team ids from
   fixture records, and `resolve_league_history_clubs(seasons, fixture_pins,
-  title_indexes, clubs)` combines both with the uid-order fill into
-  `LeagueHistoryClub` records. `Save.league_history_clubs()` wraps it (it reads
-  `fixtures()`: about 40 s on the ground-truth save); `Save.club_league_history`
+  title_indexes, clubs, team_competitions)` combines both with the uid-order fill
+  and the player-history signatures into `LeagueHistoryClub` records.
+  `Save.league_history_clubs()` wraps it (it reads `fixtures()` and the
+  team-season competitions of `player_stats_hist_dt`: about 45 s on the
+  ground-truth save); `Save.club_league_history`
   and `Save.league_history_table` name rows through it (`club_uid`, `club_name`,
   `club_method`; None where the list is not pinned).
 

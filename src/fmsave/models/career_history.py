@@ -269,11 +269,16 @@ class LeagueHistoryClubMethod(StrEnum):
             lists between them, with no gap in the clubs' first-team ids where a club
             the save does not list could sit. Relies on lists running in club uid
             order, which every pinned pair on the ground-truth save follows.
+        PLAYER_HISTORY: The club's league per season, from its first team's player
+            statistics rows, matches the list's competitions on at least two seasons
+            and contradicts none, and no other unpinned club in the list's uid bracket
+            fits as well.
     """
 
     FIXTURES = "fixtures"
     TITLE = "title"
     UID_ORDER = "uid_order"
+    PLAYER_HISTORY = "player_history"
 
 
 @dataclass(frozen=True, slots=True)

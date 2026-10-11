@@ -297,6 +297,37 @@ def player_list_numbers(
     return {reference: number for reference, number in found.items() if claimed[number] == 1}
 
 
+_TEAM_SEASON = struct.Struct(f"<xIH4xH{ROW_BYTES - 13}x")
+
+
+def team_season_competitions(dt_data: bytes) -> dict[tuple[int, int], int]:
+    """Each team's league competition per season, from every row of the pool.
+
+    Every row stores its team id (+1), the team's league competition that season (+5)
+    and the season's starting year (+11); free rows count too, being what was true when
+    they were written. A team-season whose rows name more than one competition is left
+    out (none on the ground-truth save, 40,459 team-seasons).
+
+    Returns:
+        (team id, season starting year) mapped to the competition id.
+    """
+    seen: set[tuple[int, int, int]] = set(
+        _TEAM_SEASON.iter_unpack(memoryview(dt_data)[DT_HEAD_BYTES:])
+    )
+    found: dict[tuple[int, int], int] = {}
+    clashing: set[tuple[int, int]] = set()
+    for team_id, competition_id, season_year in seen:
+        if team_id == _NO_TEAM or competition_id == _NO_COMPETITION:
+            continue
+        key = (team_id, season_year)
+        if key in found and found[key] != competition_id:
+            clashing.add(key)
+        found[key] = competition_id
+    for key in clashing:
+        del found[key]
+    return found
+
+
 def history_person_list_numbers(
     candidates: Iterable[tuple[int, int | None]],
     index: StatsHistoryIndex,

@@ -677,6 +677,42 @@ evidence exists, and their gaps are not count-forced. **2036/37 Premier League
 3. Read the clubs `clubs()` misses (first-team-id gaps): each one found turns
    unsafe gaps into count-forced fills.
 
+### League-history lists → clubs: player-history signatures (checkpoint 8, 2026-10-11; scratch `fm26-career/tmp_clubsig/c1–c6`)
+
+**Integrated:** `LeagueHistoryClubMethod.PLAYER_HISTORY`,
+`readers/player_stats_history.team_season_competitions` (4.7 s incl. decompress),
+`readers/career_history.league_history_signature_pins`, wired as the last step of
+`resolve_league_history_clubs` (`team_competitions` argument; `Save` passes it).
+
+**Idea:** player_stats_hist_dt +5 is the team's league competition that season, on
+every row (free rows included): 40,459 team-seasons, never two competitions for one.
+Same id space as league-history rows; list season = player season + 1 except
+calendar-year leagues (0). So every first team has a league signature, including
+clubs relegated below the levels with fixtures — exactly the gap of checkpoint 7.
+
+**Pitfalls found (all handled):** offsets learned by vote are meaningless for leagues
+whose clubs never move (both offsets fit) → choose by purity, ties take the nation's
+offset (club nation_id majority per competition); split leagues (Belgium list 7047/
+7048 vs player 1077) → per-competition alias set (≥10% share, ≥2 obs); missing player
+data ≠ contradiction; thin candidates (Pombal, 3 seasons) beat strong ones with a
+single contradiction (Anadia 12/1) → reject when any other bracket club agrees on as
+many seasons; same-round claims can invert uid order (PSM Makassar/PSMS Medan, Loures/
+Pinhalnovense) → drop both sides.
+
+**Validation:** without the uid bracket recall is poor (signatures collide); with it,
+5-fold held out (a fifth of anchors removed): 958 right, **0 wrong** at ≥2 agreeing
+seasons. Relaxing the rival rule to "rival has ≤1 contradiction" gives a wrong pin
+(Persegres/PSBI) — keep strict. Real run: 534 new pins in 4 rounds, 0 inversions,
+integrated output identical to research.
+
+**Result:** 2024/25 VNS 24/24 named (Salisbury 55, Truro 54, Braintree 49, Taunton 41,
+Merthyr 31, Farnborough 30). English tiers 98–100% every season (was 90–96%); all
+leagues 91–99% (was 87–98%).
+
+**Open:** a second count-forced uid fill after the signature pins (new anchors make
+more gaps exact) — not tried; lists ≥ 19,276 (not uid-ordered) still need another
+rule.
+
 ### transfer_man (`tad.`) — structure 80% mapped (checkpoint 1, 2026-10-09)
 
 Section: 53,306,010 B, 13-byte header `03 01 'tad.' 23 00 | u32@8 = 11,560,192`

@@ -11,6 +11,7 @@ from fmsave.models.clubs import Club, Team
 from fmsave.models.fixtures import Fixture
 from fmsave.readers.career_history import (
     league_history_fixture_pins,
+    league_history_signature_pins,
     resolve_league_history_clubs,
 )
 
@@ -248,3 +249,93 @@ def test_lists_past_the_imported_ones_are_never_filled() -> None:
     # Only list 0 holds imported rows, so lists 1-2 are appended clubs, not uid-ordered.
     pins = resolve_league_history_clubs(ordered(0), {0: 1, 2: 3}, {}, clubs)
     assert {pin.method for pin in pins} == {FIXTURES}
+
+
+# Signature pins: league A (top) and B; a list labels a season by its ending year, player
+# rows by the starting one (offset 1). Clubs 100-104 field first teams 1-5.
+A, B = 7, 8
+SIGNATURE_CLUBS = tuple(club(100 + n, 1 + n) for n in range(5))
+PLAYER_LEAGUES = {  # club uid -> league per player-row season (2030, 2031, 2032)
+    100: (A, B, B),
+    101: (B, A, A),
+    102: (B, B, B),
+    103: (A, A, B),
+    104: (B, B, A),
+}
+
+
+def team_competitions(leagues: dict[int, tuple[int, ...]]) -> dict[tuple[int, int], int]:
+    return {
+        (uid - 99, 2030 + n): league
+        for uid, seasons in leagues.items()
+        for n, league in enumerate(seasons)
+    }
+
+
+def list_rows(index: int, leagues: tuple[int, ...]) -> list[LeagueHistorySeason]:
+    """A list holding the club's leagues, labelled one year later than the player rows."""
+    return [
+        history_row(index, (1, 0, 0, 1, 0, 1), season=2031 + n, competition=league)
+        for n, league in enumerate(leagues)
+    ]
+
+
+def signature_rows(leagues: dict[int, tuple[int, ...]]) -> list[LeagueHistorySeason]:
+    return [row for uid in leagues for row in list_rows(uid - 100, leagues[uid])]
+
+
+def test_signatures_pin_each_unpinned_list_inside_its_uid_bracket() -> None:
+    pins = league_history_signature_pins(
+        signature_rows(PLAYER_LEAGUES),
+        {0: 100, 4: 104},
+        team_competitions(PLAYER_LEAGUES),
+        SIGNATURE_CLUBS,
+        ordered_end=10,
+    )
+    assert pins == {1: 101, 2: 102, 3: 103}
+
+
+def test_lists_past_the_uid_ordered_ones_are_not_signature_pinned() -> None:
+    pins = league_history_signature_pins(
+        signature_rows(PLAYER_LEAGUES),
+        {0: 100, 4: 104},
+        team_competitions(PLAYER_LEAGUES),
+        SIGNATURE_CLUBS,
+        ordered_end=2,
+    )
+    assert pins == {1: 101}
+
+
+def test_a_club_with_less_evidence_than_a_rival_is_not_pinned() -> None:
+    # Club 102 has player rows for one season only, so it agrees on one season with list 2
+    # and is too thin; club 103 then contradicts list 2 and list 2 stays unpinned.
+    leagues = dict(PLAYER_LEAGUES)
+    sparse = team_competitions(leagues)
+    del sparse[(3, 2030)], sparse[(3, 2031)]
+    pins = league_history_signature_pins(
+        signature_rows(leagues), {0: 100, 4: 104}, sparse, SIGNATURE_CLUBS, ordered_end=10
+    )
+    assert 2 not in pins
+    assert pins[1] == 101
+
+
+def test_resolver_adds_signature_pins_with_their_method() -> None:
+    # Club 104 fields team 9: the unused team ids 5-8 between the anchors block the
+    # count-forced uid fill, so only the signatures pin lists 1-3.
+    clubs = (*SIGNATURE_CLUBS[:4], club(104, 9))
+    competitions = {
+        (9 if team == 5 else team, season): league
+        for (team, season), league in team_competitions(PLAYER_LEAGUES).items()
+    }
+    rows = signature_rows(PLAYER_LEAGUES) + [
+        history_row(0, (1, 0, 0, 1, 0, 1), season=2020, imported=True),
+        history_row(4, (1, 0, 0, 1, 0, 1), season=2020, imported=True),
+    ]
+    records = resolve_league_history_clubs(rows, {0: 1, 4: 9}, {}, clubs, competitions)
+    assert [(r.history_index, r.club_uid, r.method) for r in records] == [
+        (0, 100, FIXTURES),
+        (1, 101, LeagueHistoryClubMethod.PLAYER_HISTORY),
+        (2, 102, LeagueHistoryClubMethod.PLAYER_HISTORY),
+        (3, 103, LeagueHistoryClubMethod.PLAYER_HISTORY),
+        (4, 104, FIXTURES),
+    ]

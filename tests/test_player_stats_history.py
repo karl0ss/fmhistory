@@ -21,6 +21,7 @@ from fmsave.readers.player_stats_history import (
     history_person_list_numbers,
     index_covers_dt,
     player_list_numbers,
+    team_season_competitions,
 )
 
 _DT_TAG = b"\x03\x01tmc.\x06\x00"
@@ -237,6 +238,19 @@ def test_history_people_bind_unclaimed_non_empty_lists_stored_once() -> None:
         (18, 4),  # binds
     ]
     assert history_person_list_numbers(candidates, index, {0}) == {12: 1, 18: 4}
+
+
+def test_team_season_competitions_reads_every_row_and_drops_clashes() -> None:
+    dt = dt_blob(
+        row(team_id=603, competition=708, season=2024),
+        row(team_id=603, competition=708, season=2024, kind=2),
+        row(team_id=603, competition=150, season=2025),
+        row(team_id=7, competition=10, season=2025),
+        row(team_id=7, competition=11, season=2025),
+        row(team_id=0xFFFF_FFFF, competition=10, season=2025),
+        row(team_id=8, competition=0xFFFF, season=2025),
+    )
+    assert team_season_competitions(dt) == {(603, 2024): 708, (603, 2025): 150}
 
 
 def test_every_field_is_unconfirmed() -> None:

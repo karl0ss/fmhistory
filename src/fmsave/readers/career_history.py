@@ -444,6 +444,7 @@ def resolve_league_history_clubs(
     fixture_pins: Mapping[int, int],
     title_indexes: Mapping[int, int],
     clubs: Sequence[Club],
+    team_competitions: Mapping[tuple[int, int], int] | None = None,
 ) -> tuple[LeagueHistoryClub, ...]:
     """Every league-history list pinned to a club, by fixtures, titles or uid order.
 
@@ -457,7 +458,10 @@ def resolve_league_history_clubs(
     `a < b` sit the lists of clubs with uids between `a` and `b`. When the clubs there not pinned elsewhere are exactly
     as many as the lists `j - i - 1`, and the first-team ids of `a` and `b` leave no
     unused id between them (an unused id could be a club the save does not list),
-    each list takes the next club in uid order.
+    each list takes the next club in uid order. Last, with `team_competitions` (each
+    team's league per season, from player history), `league_history_signature_pins`
+    pins more lists by matching league signatures inside the uid brackets the pins
+    so far leave.
 
     Returns:
         One record per pinned list, in list order.
@@ -533,7 +537,214 @@ def resolve_league_history_clubs(
         LeagueHistoryClub(index, club_uid, names[club_uid], LeagueHistoryClubMethod.UID_ORDER)
         for index, club_uid in filled.items()
     ]
+    if team_competitions is not None:
+        known = {index: claim[0] for index, claim in pinned.items()} | filled
+        signature_pins = league_history_signature_pins(
+            seasons,
+            {index: club_uid for index, club_uid in known.items() if index not in dropped_lists},
+            team_competitions,
+            clubs,
+            ordered_end,
+        )
+        records += [
+            LeagueHistoryClub(
+                index, club_uid, names[club_uid], LeagueHistoryClubMethod.PLAYER_HISTORY
+            )
+            for index, club_uid in signature_pins.items()
+            if club_uid not in dropped_clubs
+        ]
     return tuple(sorted(records, key=lambda record: record.history_index))
+
+
+# Signature pins (`league_history_signature_pins`): a competition's aliases are the
+# player-row competitions seen on at least this share of its pinned clubs' seasons, its
+# season offset needs at least this purity, and two offsets this close are a tie.
+_ALIAS_SHARE = 0.1
+_OFFSET_PURITY = 0.9
+_OFFSET_TIE = 0.02
+_MIN_AGREEING_SEASONS = 2
+_MAX_SIGNATURE_ROUNDS = 10
+
+
+def _season_offsets(
+    lists: Mapping[int, Mapping[int, int]],
+    pinned: Mapping[int, int],
+    club_seasons: Mapping[int, Mapping[int, int]],
+    club_nation: Mapping[int, int],
+) -> dict[int, tuple[int, frozenset[int]]]:
+    """Per list competition: (season offset, the player-row competitions it accepts)."""
+    seen: dict[tuple[int, int], Counter[int]] = {}
+    nations: dict[int, Counter[int]] = {}
+    for index, club_uid in pinned.items():
+        seasons = club_seasons.get(club_uid, {})
+        for season, competition in lists.get(index, {}).items():
+            nation = club_nation.get(club_uid)
+            if nation is not None:
+                nations.setdefault(competition, Counter())[nation] += 1
+            for offset in (0, 1):
+                found = seasons.get(season - offset)
+                if found is not None:
+                    seen.setdefault((competition, offset), Counter())[found] += 1
+    decided: dict[int, tuple[int, frozenset[int], bool]] = {}
+    for competition in {competition for competition, _offset in seen}:
+        purity: dict[int, float] = {}
+        aliases: dict[int, frozenset[int]] = {}
+        for offset in (0, 1):
+            counts = seen.get((competition, offset))
+            if not counts:
+                continue
+            total = sum(counts.values())
+            accepted = frozenset(
+                found for found, n in counts.items() if n >= max(2, _ALIAS_SHARE * total)
+            )
+            aliases[offset] = accepted
+            purity[offset] = sum(counts[found] for found in accepted) / total
+        if not purity:
+            continue
+        offset = max(purity, key=lambda key: (purity[key], -key))
+        if purity[offset] < _OFFSET_PURITY:
+            continue
+        tie = len(purity) == 2 and abs(purity[0] - purity[1]) < _OFFSET_TIE
+        decided[competition] = (offset, aliases[offset], tie)
+    competition_nation = {
+        competition: counts.most_common(1)[0][0] for competition, counts in nations.items()
+    }
+    nation_offsets: dict[int, set[int]] = {}
+    for competition, (offset, _accepted, tie) in decided.items():
+        if not tie and competition in competition_nation:
+            nation_offsets.setdefault(competition_nation[competition], set()).add(offset)
+    model: dict[int, tuple[int, frozenset[int]]] = {}
+    for competition, (offset, accepted, tie) in decided.items():
+        if tie:
+            # Clubs never move in or out of this league, so its own seasons cannot tell the
+            # offset: take its nation's, when the nation's other leagues agree on one.
+            offsets = nation_offsets.get(competition_nation.get(competition, -1), set())
+            if len(offsets) != 1:
+                continue
+            offset = next(iter(offsets))
+        model[competition] = (offset, accepted)
+    return model
+
+
+def league_history_signature_pins(
+    seasons: Sequence[LeagueHistorySeason],
+    pinned: Mapping[int, int],
+    team_competitions: Mapping[tuple[int, int], int],
+    clubs: Sequence[Club],
+    ordered_end: int,
+) -> dict[int, int]:
+    """More list-to-club pins, from each club's league per season in player history.
+
+    `team_competitions` (`player_stats_history.team_season_competitions`) gives every
+    team's league competition per season, so each club's first team has a league
+    signature over the seasons; each list has one too (its rows' competitions). Learned
+    from the already `pinned` lists, per list competition: the season offset between
+    the two (a list labels a season by its ending year, player rows by the starting one,
+    except in calendar-year leagues), with a nation's offset for a league whose clubs
+    never move, and which player-row competitions it accepts (a split league's phase
+    lists name the phase, the players' rows the league).
+
+    A list below `ordered_end` (the lists that run in club uid order) can only belong to
+    an unpinned club whose uid lies between the clubs of the nearest pinned lists on
+    either side. It is pinned when exactly one such club agrees on at least two seasons
+    and contradicts none, and no other club agrees on as many (a season with no player
+    rows is no evidence). Rounds repeat while pins are added, each narrowing its
+    neighbours' brackets; a club two lists claim in one round, and both sides of a pair
+    that would break uid order, are left out.
+
+    Returns:
+        List number to club uid, for the lists newly pinned.
+    """
+    lists: dict[int, dict[int, int]] = {}
+    for season in seasons:
+        if not season.imported and season.history_index is not None:
+            lists.setdefault(season.history_index, {})[season.season_year] = season.competition_id
+    first_team = {
+        club.uid: team.team_id
+        for club in clubs
+        for team in club.teams
+        if team.slot == 0 and not team.is_affiliate
+    }
+    by_team: dict[int, dict[int, int]] = {}
+    for (team_id, season_year), competition in team_competitions.items():
+        by_team.setdefault(team_id, {})[season_year] = competition
+    club_seasons = {uid: by_team.get(team_id, {}) for uid, team_id in first_team.items()}
+    model = _season_offsets(
+        lists, pinned, club_seasons, {club.uid: club.nation_id for club in clubs}
+    )
+    holders: dict[tuple[int, int], set[int]] = {}
+    for club_uid, club_history in club_seasons.items():
+        for season_year, competition in club_history.items():
+            holders.setdefault((season_year, competition), set()).add(club_uid)
+    uids = sorted(first_team)
+
+    known = dict(pinned)
+    added_total: dict[int, int] = {}
+    for _round in range(_MAX_SIGNATURE_ROUNDS):
+        anchors = sorted(known)
+        taken = set(known.values())
+        added: dict[int, int] = {}
+        for index, rows in lists.items():
+            if index in known or index >= ordered_end:
+                continue
+            signature = [
+                (season_year - model[competition][0], model[competition][1])
+                for season_year, competition in rows.items()
+                if competition in model
+            ]
+            if not signature:
+                continue
+            position = bisect_left(anchors, index)
+            low = known[anchors[position - 1]] if position > 0 else -1
+            high = known[anchors[position]] if position < len(anchors) else None
+            bracket = set(
+                uids[bisect_right(uids, low) : None if high is None else bisect_left(uids, high)]
+            )
+            candidates: set[int] = set()
+            for season_year, accepted in signature:
+                for competition in accepted:
+                    candidates |= holders.get((season_year, competition), set())
+            scores: dict[int, tuple[int, int]] = {}
+            for club_uid in (candidates & bracket) - taken:
+                club_history = club_seasons[club_uid]
+                agree = contradict = 0
+                for season_year, accepted in signature:
+                    found = club_history.get(season_year)
+                    if found is None:
+                        continue
+                    if found in accepted:
+                        agree += 1
+                    else:
+                        contradict += 1
+                scores[club_uid] = (agree, contradict)
+            clean = [
+                club_uid
+                for club_uid, (agree, contradict) in scores.items()
+                if contradict == 0 and agree >= _MIN_AGREEING_SEASONS
+            ]
+            if len(clean) != 1:
+                continue
+            winner = clean[0]
+            if any(
+                club_uid != winner and agree >= scores[winner][0]
+                for club_uid, (agree, _contradict) in scores.items()
+            ):
+                continue
+            added[index] = winner
+        claims = Counter(added.values())
+        added = {index: club_uid for index, club_uid in added.items() if claims[club_uid] == 1}
+        merged = known | added
+        order = sorted(merged)
+        broken: set[int] = set()
+        for low_index, high_index in pairwise(order):
+            if high_index < ordered_end and merged[low_index] > merged[high_index]:
+                broken.update({low_index, high_index} & added.keys())
+        added = {index: club_uid for index, club_uid in added.items() if index not in broken}
+        if not added:
+            break
+        known.update(added)
+        added_total.update(added)
+    return added_total
 
 
 _AWARD_RECORD_BYTES = 82

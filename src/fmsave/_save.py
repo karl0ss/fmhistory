@@ -149,6 +149,7 @@ from fmsave.readers.player_stats_history import (
     find_stats_history_index,
     history_person_list_numbers,
     player_list_numbers,
+    team_season_competitions,
 )
 from fmsave.readers.players import build_player_decoder, collect_player_stats
 from fmsave.readers.results import (
@@ -3115,11 +3116,16 @@ class Save:
 
     def _read_league_history_clubs(self) -> Table[LeagueHistoryClub]:
         seasons = tuple(self.career_league_history())
+        team_competitions = None
+        if PLAYER_STATS_HISTORY_DT_SECTION in self._require_open().sections:
+            with self._context.section(PLAYER_STATS_HISTORY_DT_SECTION) as dt_data:
+                team_competitions = team_season_competitions(dt_data)
         pins = resolve_league_history_clubs(
             seasons,
             league_history_fixture_pins(seasons, self.fixtures()),
             self._league_history_indexes(),
             tuple(self.clubs()),
+            team_competitions,
         )
         return Table(pins, LeagueHistoryClub)
 
