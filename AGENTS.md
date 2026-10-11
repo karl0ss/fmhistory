@@ -17,7 +17,7 @@ cup runs, awards, transfers — per season, for the manager and their clubs.*
    Every fact must be derived from the save's decoded sections and validated
    against the screenshots afterwards.
 2. **Push as we go** — when a decoder lands, commit and push to `origin
-   history-decoders` (`git@github.com:karl0ss/fmhistory.git`).
+   history-decoders` (`git@github.com:karl0ss/fmsave.git`; the repo was renamed from fmhistory).
 3. **Checkpoint at every good stopping point**: update the current section in
    `docs/history-re.md` (or add a new one) with what is solved, what was ruled
    out (dead ends save future sessions real time), and the concrete next steps,
@@ -43,6 +43,9 @@ cup runs, awards, transfers — per season, for the manager and their clubs.*
 - Analysis section extracts live OUTSIDE the repo under
   `/home/karl/fm26-career/sections*/` (never commit binary save data). Scratch
   scripts and interim findings notes also belong there, never in the repo tree.
+- The career report app built on these decoders is a separate repo,
+  [fmcareer](https://github.com/karl0ss/fmcareer) (local `/home/karl/fmcareer`). It
+  depends on this branch; decoders land here first, then the app uses them.
 
 ## Environment
 
