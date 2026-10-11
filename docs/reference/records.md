@@ -113,7 +113,9 @@ return rows named through it.
 not stored in the yearly award history. `career_manager_records()` holds every manager's
 "Managerial Stats" record (`manager_career(staff_uid)` picks one); `manager_events(staff_uid)`
 reads a human manager's event log (moves with fees, record fees, honours, promotions, awards,
-notable matches) from the same section.
+notable matches) from the same section. `manager_spells(staff_uid=None)` lists every
+manager's spells in charge of a team, ended (from `tc_manager_history_dt`, teams named where
+a career record pins the team's list) and open (the current job).
 
 ```{eval-rst}
 .. autoclass:: fmsave.PersonHistory
@@ -131,4 +133,5 @@ notable matches) from the same section.
 .. autoclass:: fmsave.ManagerFee
 .. autoclass:: fmsave.ManagerSpellWindow
 .. autoclass:: fmsave.ManagerEvent
+.. autoclass:: fmsave.ManagerHistorySpell
 ```

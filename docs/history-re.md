@@ -87,8 +87,72 @@ The u16 y_a/y_b pairs in the block: single-season rows show y_a==y_b (e.g.
 2021/2021), multi-year spans show (1975,1976), (1977,1978), (1993,1994),
 (1995,1996), (2018,2019) — so the pair is a spell start/end, not per-season rows.
 
-### tc_manager_history_dt (tmc., 799,746 B, header count field 0x1f30 = 7,984) —
-#### spell-start rows INTEGRATED (`Save.career_manager_spells()`)
+### tc_manager_history_dt / _ls — CRACKED: one row per ended spell, one list per team, INTEGRATED (`Save.manager_spells()`; checkpoint 2026-10-11, scratch `fm26-career/tmp_manager_history/m1–m29, v1–v2`)
+
+**Integrated:** `ManagerHistorySpell`, `readers/manager_history.py`
+(`decode_manager_history_lists`, `decode_manager_history`,
+`resolve_manager_history_teams`, `current_job_spells`, `manager_spells`),
+`Save.manager_spells(staff_uid=None)` (cached; 0.6 s after
+`career_manager_records`), `docs/reference/manager_history.md`,
+`tests/test_manager_history.py`.
+
+**Layout (replaces the model below, which was wrong on every point):**
+- dt = `03 01 'tmc.' 02 00` (8 B) + exactly 25,798 × 31-byte rows (799,746 = 8 +
+  31·25,798). The "header count 7,984" is the first row's reference; the "12-byte
+  header" and "one record per manager" were misreads.
+- Row: `[u32 manager history reference][date start][date end][u32][u32][u16 W][u16 D]
+  [u16 L][u8 kind][u8 ×4]`. Dates are packed game dates (low 9 bits day of year, high
+  bits time slot — the "counter" words of the old model). Start `00 00 e7 07` (1,270 rows)
+  = null start. The u32 in "`cc 02 00 00` (club 716)" was a manager reference; no
+  St Albans row exists — the human's spell is still open, and open spells are not rows.
+- ls = league-ls grammar (`tad.` v4, free count 0, 6,004 lists, delta `v[m]+v[m-1]`
+  past the 8-byte head, trailer `0, 31, 2`). Every row in exactly one list; lists are
+  teams, numbered in the order of each team's FIRST row (list i's first offset is
+  strictly increasing in i), so the number carries no identity. Rows within a list are
+  that team's managers in order (start = previous end on 78% of consecutive pairs; the
+  rest are vacancies).
+- Append-only confirmed again: v03 (Nov 8) and v02 (Nov 14) dt are byte prefixes of
+  New's, and their ls lists are prefixes of New's lists (5,993 → 6,004 lists).
+
+**Validation (GT save):** W/D/L: for the 5,724 managers whose rows + current job sum to
+career games, summed wins and losses equal `ManagerCareerRecord` 5,724/5,724. Longest
+club window reproduced exactly (team+start+end) 7,525/8,537 (88.1%; 97.9% of windows
+that are not pre-2023), shortest 5,353/7,462 (71.7%; 90.1%). Team naming: 2,551 lists
+pinned by career-record windows (0 conflicts), 83.6% of rows; holdout vs the v03
+snapshot (pins from pre-snapshot rows only): 190/190 appended rows in pinned lists name
+the team of the manager's v03 current job, 0 wrong. Karl: no ended spell; open spell team
+603 from 2023-07-18, 741 games 391-131-219. 16,530 managers with ≥1 spell, 6,387 with >1
+(4,156 with spells at ≥2 named teams).
+
+**Ruled out (do not redo):**
+- `non_pl_hist_dt` is NOT the same spells: 8 B head + 287,455 × 20-byte rows
+  `[u32 subject][date][date][01 00 6c 07][4 B code]`; masked-date join to manager rows:
+  411 hits on 21,429 rows, none with the team/club as subject (pre-game staff history).
+- Spell date pairs (raw and slot-masked) appear in no other section
+  (person_record_history_dt, pl_hist_dt, tc_history_dt, non_pl_hist_dt) and never next
+  to the team/club/manager in game_db.
+- List number stored next to the team or club: no fixed offset within club records
+  (record spans), ±6,000 B around the club's status uid pair (600 lists), ±600 B
+  around every one of the 17.8M game_db occurrences of a pinned list number (targets:
+  team id, team id ±1, club uid, club uid − 1, and the club's league-history list
+  number; best offset reaches 132 of 1,986 lists, symmetric ±460/±230 = table
+  periodicity, i.e. noise), or anywhere in manager_manager / person_record_manager /
+  tc_history_dt (same histogram, ≤7 lists at any offset). Team objects that do not
+  carry their own team id remain the untested possibility.
+- Chain rule (list's last end date == a team's current manager's start date, unique on
+  both sides): 5-fold CV 672 right / 34 wrong (95%) — not integrated.
+- `kind` byte: 10 = short spells (median 17 days, 2 games), 6 = long with ~1 game; not
+  pinned. Bytes +27/+28 vs career league titles/cups: 84%/88% of non-zero managers;
+  +29 vs record word_151 and +30 vs word_157 ~89–90%: none exact, left in `unknown`.
+
+**Next steps:** name the 3,453 unpinned lists (mostly one-row lists: 3,080): find where a
+team stores its manager-history list number (team objects are not located by fmsave;
+the league/cup/best-eleven lists have the same problem); or a second pass using the
+chain rule constrained by the pinned lists. `career_manager_spells()` / `ManagerSpell`
+(the old open-spell scan) misreads these rows (its "club" is a manager reference) and
+should be retired in favour of `manager_spells()` — owner decision.
+
+#### Superseded model (kept for the record; wrong except the append-only diff)
 - Header: `03 01 'tmc.' 02 00 30 1f 00 00 01 00`, records follow (12-byte header).
 - One record per manager in the game world: the wire pattern `00 0a 00 00 00 00`
   occurs 8,178 times against the header count of 7,984 (a handful of extra
@@ -113,6 +177,7 @@ The u16 y_a/y_b pairs in the block: single-season rows show y_a==y_b (e.g.
   spell per manager per season, whole game world.
 - Persons here are NOT referenced by their 0x775648bf-style uid or by the pids from
   hall_of_fame (searched, zero hits) — reference encoding still unknown.
+
 
 ### tc_record_man (tad., 22,737,139 B)
 - Header: `03 01 'tad.' 18 00 | u32 5 | ff * 24 | u32 22 | u32 ... | u32 6 ...`
@@ -363,7 +428,8 @@ blocks of ref 328408's record @3,311,605). Full layout: `docs/reference/manager_
   tc_manager_history_ls or manager_manager; game_db year runs are person-header uid
   coincidences. tc_manager_history_dt is append-only, so per-season rows would be
   scattered, not strided — the next lead is decoding its record family keyed via
-  `tc_manager_history_ls` (same list grammar as the league ls?). Positions per season
+  `tc_manager_history_ls` (2026-10-11: decoded — one row per ENDED spell, no per-season
+  rows; the lead is closed). Positions per season
   already come from `club_league_history(716)`; trophies per season from honours; the
   per-season award counts remain the only Job History column without a source.
 - Event log (first part of person_record_manager): now INTEGRATED — see "Manager event

@@ -814,6 +814,87 @@ register_field_statuses(
 
 
 @dataclass(frozen=True, slots=True)
+class ManagerHistorySpell:
+    """One manager's spell in charge of one team, ended or still open.
+
+    Ended spells are the 31-byte rows of `tc_manager_history_dt`: the game appends one
+    when a manager leaves a team (caretaker spells included), and the
+    `tc_manager_history_ls` index keeps one list per team, numbered in the order the
+    teams' first rows were written. The index stores no team ids, so `team_id` is
+    filled only for lists a manager's career record pins down (a longest or shortest
+    spell window with the same manager, start and end) and is None for the rest. An
+    open spell is the manager's current job from `person_record_manager`; it carries
+    no `history_index`. Spells that ended before the game started are not stored.
+
+    Attributes:
+        reference: The manager's history reference, as `ManagerCareerRecord.reference`
+            (unconfirmed).
+        team_id: `Team.team_id` of the team, or None when the spell's list is not
+            pinned to a team (unconfirmed).
+        start_date: First day of the spell, or None where the row stores a null start
+            (a spell already running when the database's history begins)
+            (unconfirmed).
+        end_date: Last day of the spell, or None for the current job (unconfirmed).
+        games: Games managed in the spell: wins + draws + losses for an ended spell
+            (unconfirmed).
+        wins: Games won (unconfirmed).
+        draws: Games drawn; stored for an ended spell, derived (games - wins - losses)
+            for the current job (unconfirmed).
+        losses: Games lost (unconfirmed).
+        history_index: Number of the `tc_manager_history_ls` list holding the row (one
+            list per team), or None for the current job (unconfirmed).
+        kind: Row byte +26, None for the current job. 10 marks short spells (median 17
+            days, 2 games: caretaker-like); 2, 3, 0, 5 and 6 also occur. Meaning open
+            (unconfirmed).
+        unknown: The row's undecoded fields by offset: `word_12` and `word_16` (u32,
+            mostly 0xffffffff), `byte_27`..`byte_30` (small counters; summed per
+            manager, byte 27 matches career league titles and byte 28 career cups for
+            only 84% and 88% of the managers with a non-zero sum, so neither is
+            proven). Empty for the current job
+            (unconfirmed).
+    """
+
+    reference: int
+    team_id: int | None
+    start_date: date | None
+    end_date: date | None
+    games: int
+    wins: int
+    draws: int
+    losses: int
+    history_index: int | None
+    kind: int | None
+    unknown: Mapping[str, int]
+
+    UNKNOWN_KEYS: ClassVar[tuple[str, ...]] = (
+        "word_12",
+        "word_16",
+        "byte_27",
+        "byte_28",
+        "byte_29",
+        "byte_30",
+    )
+
+
+register_field_statuses(
+    ManagerHistorySpell,
+    unconfirmed=(
+        "reference",
+        "team_id",
+        "start_date",
+        "end_date",
+        "games",
+        "wins",
+        "draws",
+        "losses",
+        "history_index",
+        "kind",
+        "unknown",
+    ),
+)
+
+
+@dataclass(frozen=True, slots=True)
 class ManagerEvent:
     """One entry of a human manager's event log in `person_record_manager`.
 
