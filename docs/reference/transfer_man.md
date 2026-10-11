@@ -57,9 +57,12 @@ also gets `fee`: the `departure_fee` on the player's permanent-spell history row
 (spell code 0) at the club he leaves — his no-team rows for a move from no club —
 in the move's calendar year or the season before, when exactly one value is
 found (`fmsave.readers.transfer_history.move_fee`). Free moves read 0; a release
-to no club stores no fee and reads None; retired players' moves stay None. The
+to no club stores no fee and reads None. Movers no longer in `players()` are
+priced the same way from `history_person_season_history` when their object
+survives in full; those cut down to a stub keep no history and stay None. The
 join costs one `player_season_history` call for all the club's movers (12 s on
-the ground-truth save with the binding cached, 4 s on a repeat).
+the ground-truth save with the binding cached, 4 s on a repeat), plus
+`history_people()` and its binding (~30 s once) when a mover has left `players()`.
 
 Ground-truth validation (`club_player_moves(716, fees=True)`):
 
@@ -76,7 +79,7 @@ Ground-truth validation (`club_player_moves(716, fees=True)`):
 - Fees in sum to £99,174,811 over the 83 resolved moves; with Ruff's and
   Burley's logged fees, £99,254,811 against the profile's £101,492,665 for 127
   bought. The £2,237,854 gap is not checked: the only incoming moves left
-  without a fee are retired players', whose history the save does not bind —
+  without a fee are retired players cut down to stubs, who keep no history —
   among them two more type-1 signings (from Hemel Hempstead and Charlton, 2024)
   that could carry it. (Every resolved type-4 and type-5 signing reads 0.)
 - Game-wide, on a sample of 20,000 type 1/4/5 moves dated 2030 or later: 1,824 of

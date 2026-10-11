@@ -1414,11 +1414,12 @@ class Save:
         `players()` keep their reference with no uid or name. Moves come in date order.
 
         The grid stores no fee. With `fees=True` each permanent move (row types 1, 4 and
-        5) of a player in `players()` gets the fee its player's statistics history
-        stores for it (`player_season_history`, one call for all the club's movers; see
+        5) gets the fee its player's statistics history stores for it
+        (`player_season_history`, one call for all the club's movers, and
+        `history_person_season_history` for movers no longer in `players()`; see
         `move_fee` in `fmsave.readers.transfer_history` for the rule): 0 for a free
-        move, None for a release to no club. Retired players' moves keep None. Without
-        it every `fee` is None.
+        move, None for a release to no club. Retired players cut down to a stub keep
+        no history, so their moves keep None. Without it every `fee` is None.
 
         On the ground-truth save, the manager's club's incoming row types 1, 4 and 5
         since he took over count 127, the number of players his profile says he
@@ -1429,7 +1430,8 @@ class Save:
         Args:
             club_uid: Uid of the club, as `clubs()` reports it.
             fees: Also read each permanent move's fee (adds a `player_season_history`
-                call: about 10 s on the ground-truth save, more on the first call).
+                call: about 10 s on the ground-truth save, more on the first call, and
+                `history_people()` plus about 30 s when a mover has left `players()`).
 
         Raises:
             SaveClosedError: The save is closed.
@@ -1463,9 +1465,22 @@ class Save:
             for row in self.player_season_history(sorted(movers)):
                 if row.player_uid is not None:
                     history.setdefault(row.player_uid, []).append(row)
+            gone = {
+                move.player_reference
+                for move in moves
+                if move.player_uid is None
+                and move.player_reference is not None
+                and move.record_type in FEE_MOVE_TYPES
+            }
+            gone_history: dict[int, list[PlayerHistoryStats]] = {}
+            if gone:
+                for row in self.history_person_season_history(sorted(gone)):
+                    gone_history.setdefault(row.player_reference, []).append(row)
             moves = tuple(
                 replace(move, fee=move_fee(move, history.get(move.player_uid, ())))
                 if move.player_uid is not None
+                else replace(move, fee=move_fee(move, gone_history[move.player_reference]))
+                if move.player_reference in gone_history
                 else move
                 for move in moves
             )

@@ -1609,6 +1609,11 @@ The game frees a player's list when it cuts him to a stub, so **most retired pla
 per-season stats are gone** (37/44 at St Albans); best elevens (apps, goals, rating per
 club-season, top 18) are the only per-player stats left for them.
 
+**Fees:** `club_player_moves(fees=True)` now also prices movers outside `players()` via
+these lists: St Albans gains 8 fees (7 free moves = 0, Jack Thompson → Vancouver
+£55,000, 2029); incoming total unchanged at £99,174,811 (House/Hemel and Gough/Charlton,
+the £2.2M gap, are stubs). Cost: `history_people()` + binding, ~100 s total cold.
+
 **Open:** the 770 unbound non-empty lists (duplicates and objects whose block start is not
 found); whether free rows still hold readable stub players' lines (they name no owner, so
 only content matching against best elevens could place them — not attempted).
