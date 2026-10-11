@@ -44,7 +44,8 @@ cup runs, awards, transfers — per season, for the manager and their clubs.*
   `/home/karl/fm26-career/sections*/` (never commit binary save data). Scratch
   scripts and interim findings notes also belong there, never in the repo tree.
 - The career report app built on these decoders is a separate repo,
-  [fmcareer](https://github.com/karl0ss/fmcareer) (local `/home/karl/fmcareer`). It
+  [fmcareer](https://github.com/karl0ss/fmcareer) (local `/mnt/1TBNvme/HomeCode/fmcareer`; this repo is
+  checked out at `/mnt/1TBNvme/HomeCode/fmsave`). It
   depends on this branch; decoders land here first, then the app uses them.
 
 ## Environment
