@@ -38,6 +38,7 @@ from fmsave.models.career_history import (
     LeagueHistorySeason,
     ManagerCareerRecord,
     ManagerEvent,
+    ManagerHistorySpell,
     ManagerSpell,
     PersonHistory,
 )
@@ -130,6 +131,12 @@ from fmsave.readers.manager_career import (
     locate_manager_career_records,
 )
 from fmsave.readers.manager_events import decode_manager_event_logs
+from fmsave.readers.manager_history import (
+    MANAGER_HISTORY_DT_SECTION,
+    MANAGER_HISTORY_LS_SECTION,
+    decode_manager_history,
+    manager_spells,
+)
 from fmsave.readers.match_summaries import (
     MatchSummaryScores,
     find_match_summary_layout,
@@ -247,6 +254,7 @@ STATS_HISTORY_LISTS_CACHE_KEY = "player_stats_history_lists"
 HISTORY_PERSON_STATS_LISTS_CACHE_KEY = "history_person_stats_history_lists"
 CAREER_MANAGER_RECORDS_TABLE_CACHE_KEY = "table:career_manager_records"
 MANAGER_EVENTS_TABLE_CACHE_KEY = "table:manager_events"
+MANAGER_SPELLS_TABLE_CACHE_KEY = "table:manager_spells"
 TRANSFER_MAN_SEASON_RECORDS_TABLE_CACHE_KEY = "table:transfer_man_season_records"
 TRANSFER_MAN_WAGE_LEDGER_TABLE_CACHE_KEY = "table:transfer_man_wage_ledger"
 JOB_VACANCIES_TABLE_CACHE_KEY = "table:job_vacancies"
@@ -1339,6 +1347,47 @@ class Save:
             if record.reference == reference:
                 return record
         return None
+
+    def manager_spells(self, staff_uid: int | None = None) -> Table[ManagerHistorySpell]:
+        """Every manager's spells in charge of a team, ended and open, with dates.
+
+        `tc_manager_history_dt` stores one row per ended spell in the game world
+        (caretaker spells included): the manager's history reference, start and end
+        dates, wins, draws and losses. Its `tc_manager_history_ls` index keeps one list
+        per team but names no team, so a spell's `team_id` is filled where the
+        manager's career record pins the list (a longest or shortest spell window with
+        the same manager, start and end; a list two windows give different teams stays
+        unnamed) and is None elsewhere. Each manager's current job is added from his
+        career record as a spell with no end date. Spells that ended before the game
+        began are not stored. Rows run per manager, ended spells in the order they
+        ended, then the current job.
+
+        On the ground-truth save the section holds 25,798 ended spells; 2,551 of the
+        6,004 lists are pinned (83.6% of the spells). Against a snapshot of the same
+        career 26 days older, all 190 spells appended since that fall in lists pinned
+        from the older rows name the team the manager's current job had then.
+
+        Args:
+            staff_uid: Uid of one person, as `staff()` reports it, to return only his
+                spells (an empty table when his history reference is not found), or
+                None for every manager.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written, the history
+                section is not whole 31-byte rows, or its index does not list every
+                row exactly once.
+        """
+        spells = self._context.cached(MANAGER_SPELLS_TABLE_CACHE_KEY, self._read_manager_spells)
+        if staff_uid is None:
+            return spells
+        reference = self.history_person_reference(staff_uid)
+        if reference is None:
+            return Table([], ManagerHistorySpell)
+        return Table(
+            [spell for spell in spells if spell.reference == reference], ManagerHistorySpell
+        )
 
     def manager_events(self, staff_uid: int) -> Table[ManagerEvent]:
         """One human manager's event log, in the order the save keeps it.
@@ -3061,6 +3110,15 @@ class Save:
         with self._context.section(PERSON_RECORD_MANAGER_SECTION) as section_data:
             records = decode_manager_career_records(section_data)
         return Table(records, ManagerCareerRecord)
+
+    def _read_manager_spells(self) -> Table[ManagerHistorySpell]:
+        with (
+            self._context.section(MANAGER_HISTORY_DT_SECTION) as dt_data,
+            self._context.section(MANAGER_HISTORY_LS_SECTION) as ls_data,
+        ):
+            ended = decode_manager_history(dt_data, ls_data)
+        records = list(self.career_manager_records())
+        return Table(manager_spells(ended, records), ManagerHistorySpell)
 
     def _read_manager_events(self) -> Table[ManagerEvent]:
         with self._context.section(PERSON_RECORD_MANAGER_SECTION) as section_data:

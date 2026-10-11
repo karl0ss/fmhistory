@@ -73,6 +73,13 @@ validated against the k-world yearly reports (seasons 1–9) and screenshots.
       15 same-day matches with `club_player_moves`), record-fee entries, honours
       (counter = `Honour.count`), promotions, manager and player awards (match
       `career_awards`). Open: types 3/7/11/13/16/17 payloads, head pair at +2.
+- [x] **Manager spells (2026-10-11).** `tc_manager_history_dt` = 8 B head +
+      31-byte rows, one per ENDED spell in the world (ref, start, end, W/D/L,
+      kind); `_ls` = one list per team in first-row order → `Save.manager_spells(
+      staff_uid=None)`, current jobs added as open spells. 25,798 ended spells;
+      2,551 lists named from career-record windows (83.6% of rows; holdout vs
+      the v03 snapshot 190/190). Open: naming the other 3,453 lists (mostly
+      one-row); retiring the old `career_manager_spells()` misread.
 - [ ] **D2. Award names.** Map `career_awards`' `award_id` to award names from
       `award_man` (`tad.`, 842,938 B, partially mapped).
 - [ ] **D3. Competition names.** Resolve competition_id → name for honours,
