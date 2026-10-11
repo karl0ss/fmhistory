@@ -1528,8 +1528,8 @@ control: equal hit rates); count-prefixed offset lists in `game_db`; `match_stat
 `used_player_data` as key arrays; the hash-table / per-team-block theories (pool order is
 allocation order: blocks per team-season written at season end, holes reused).
 
-**Open:** (a) retired players' lists (~21.9k non-empty lists unbound; their objects are
-mostly stubs — test the q-21 rule on `history_people` full-object forms); (b) ~~+7 u32~~
+**Open:** (a) ~~retired players' lists~~ **SOLVED for full objects — see "Retired players'
+stats lists"**; (b) ~~+7 u32~~
 **SOLVED: departure fee, +30 spell code — see "Transfer fees FOUND"**; (c) 0.53% field-for-field repeated rows in
 lists (29,965; 2,561 with minutes) — cause unknown; (d) the u32 after the list number in
 the person object (e.g. 269,669) — maybe another per-person index (injury/person-record);
@@ -1583,6 +1583,35 @@ January 2037 are 2037.)
 **Ruled out / not done:** loan fees (type-3 moves) — values exist on code-1 rows but no
 ground truth; not joined. Retired players' moves (their history lists are unbound, open
 item (a) of the previous checkpoint). The -10 value and code 26 (one row each) unread.
+
+### Retired players' stats lists: BOUND for full objects, INTEGRATED (2026-10-11; scratch `fm26-career/tmp_retired_stats/r1–r7`)
+
+**Integrated:** `HistoryPerson.stats_history_index`, `PersonBlockDecoder.last_block`,
+`readers/player_stats_history.history_person_list_numbers`,
+`Save.history_person_season_history(references, *, goalkeepers=())`.
+
+**Rule:** a full person object outside `players()` stores its list number 21 bytes before
+its **last** validated person block, exactly as a current player does (first-block
+picking gave ~1,000 duplicate numbers; last-block fixed most). Bind when the number is a
+non-empty list, unclaimed by a current player, stored by one person only.
+
+**GT save:** 17,407 non-empty lists have no current-player owner (not 21.9k as estimated
+earlier). 24,960 objects store a number; 16,637 bind (95.6%). Validation against best
+elevens (league+cup+continental, same or next season, any team): 41,225/45,431 (90.7%)
+match on (apps, goals) vs 86.8% for current players; shuffled bindings 0.6%. St Albans:
+7/44 retired best-eleven players bind, 32/32 of their St Albans seasons agree. Timing:
+binding 8.3 s after `history_people()` (20.6 s); RSS 2.6 GB.
+
+**Ruled out (do not redo):** stubs carry no list number anywhere within ±400 B of their
+header (offset sweep against the unbound-list set: distinct hits at every offset ≤ 1,040
+except k=0/30, which are the stub's own/previous reference coinciding with list numbers).
+The game frees a player's list when it cuts him to a stub, so **most retired players'
+per-season stats are gone** (37/44 at St Albans); best elevens (apps, goals, rating per
+club-season, top 18) are the only per-player stats left for them.
+
+**Open:** the 770 unbound non-empty lists (duplicates and objects whose block start is not
+found); whether free rows still hold readable stub players' lines (they name no owner, so
+only content matching against best elevens could place them — not attempted).
 
 ### tc_best_eleven_history_dt/ls — cell grammar pinned, owner/club identity OPEN (2026-10-10; scans b1–b31, tmp_besteleven/)
 

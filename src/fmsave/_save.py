@@ -147,6 +147,7 @@ from fmsave.readers.player_stats_history import (
     StatsHistoryIndex,
     decode_player_rows,
     find_stats_history_index,
+    history_person_list_numbers,
     player_list_numbers,
 )
 from fmsave.readers.players import build_player_decoder, collect_player_stats
@@ -242,6 +243,7 @@ CAREER_BEST_ELEVEN_TABLE_CACHE_KEY = "table:career_best_eleven"
 HISTORY_PEOPLE_TABLE_CACHE_KEY = "table:history_people"
 STATS_HISTORY_INDEX_CACHE_KEY = "player_stats_history_index"
 STATS_HISTORY_LISTS_CACHE_KEY = "player_stats_history_lists"
+HISTORY_PERSON_STATS_LISTS_CACHE_KEY = "history_person_stats_history_lists"
 CAREER_MANAGER_RECORDS_TABLE_CACHE_KEY = "table:career_manager_records"
 MANAGER_EVENTS_TABLE_CACHE_KEY = "table:manager_events"
 TRANSFER_MAN_SEASON_RECORDS_TABLE_CACHE_KEY = "table:transfer_man_season_records"
@@ -1167,6 +1169,69 @@ class Save:
                         )
                     )
         return Table(rows, PlayerHistoryStats)
+
+    def history_person_season_history(
+        self, references: int | Iterable[int], *, goalkeepers: Iterable[int] = ()
+    ) -> Table[PlayerHistoryStats]:
+        """Past statistics of people who are no longer among `players()`, by reference.
+
+        `player_season_history` for retired and released players: a person whose
+        `game_db` object survives in full (`history_people()` form `"object"`) stores
+        his statistics-history list number 21 bytes before his person block, as a
+        current player does. A list is bound when it is non-empty, no current player
+        claims it, and exactly one such person stores it. Stub people keep no list:
+        the game frees a retired player's rows when it cuts his object down to a stub.
+        Rows carry `player_reference`, and `player_uid` None.
+
+        On the ground-truth save 16,600 lists bind this way (95% of the non-empty lists
+        no current player owns), and the bound players' best-eleven seasons agree with
+        their rows on appearances and goals as often as current players' do (91%; a
+        shuffled binding agrees 0.6%).
+
+        Positions are not read for these people, so the words a goalkeeper's row
+        stores as saves read as outfield statistics unless his reference is in
+        `goalkeepers`.
+
+        Args:
+            references: A history reference (`history_people().reference`), or several.
+            goalkeepers: References whose rows read as a goalkeeper's.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written.
+            ReaderCheckError: The save has no pool index matching the statistics
+                section, or its in-game date is unreadable.
+        """
+        wanted = [references] if isinstance(references, int) else list(references)
+        keepers = set(goalkeepers)
+        lists = self._history_person_stats_lists()
+        index = self._stats_history_index()
+        team_to_club = self._context.club_index().team_to_club
+        requested = [(reference, lists[reference]) for reference in wanted if reference in lists]
+        rows: list[PlayerHistoryStats] = []
+        if not requested:
+            return Table(rows, PlayerHistoryStats)
+        with self._context.section(PLAYER_STATS_HISTORY_DT_SECTION) as dt_data:
+            for reference, list_number in requested:
+                for row in decode_player_rows(
+                    dt_data, index, list_number, reference, goalkeeper=reference in keepers
+                ):
+                    located = None if row.team_id is None else team_to_club.get(row.team_id)
+                    rows.append(row if located is None else replace(row, club_uid=located[0]))
+        return Table(rows, PlayerHistoryStats)
+
+    def _history_person_stats_lists(self) -> dict[int, int]:
+        return self._context.cached(
+            HISTORY_PERSON_STATS_LISTS_CACHE_KEY, self._read_history_person_stats_lists
+        )
+
+    def _read_history_person_stats_lists(self) -> dict[int, int]:
+        return history_person_list_numbers(
+            [(person.reference, person.stats_history_index) for person in self.history_people()],
+            self._stats_history_index(),
+            set(self._stats_history_lists().values()),
+        )
 
     def _stats_history_index(self) -> StatsHistoryIndex:
         return self._context.cached(STATS_HISTORY_INDEX_CACHE_KEY, self._read_stats_history_index)

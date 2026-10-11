@@ -351,6 +351,18 @@ def test_block_start_is_where_the_first_name_id_sits(block: bytes) -> None:
     assert decoder.block_start(game_db, len(prefix), len(game_db)) == expected
 
 
+def test_last_block_returns_the_last_blocks_start() -> None:
+    prefix = game_db_prefix()
+    game_db = prefix + PLAYER_A_BLOCK + bytes(8) + PLAYER_B_BLOCK
+    decoder = build_decoder(game_db)
+    b_offset = len(prefix) + len(PLAYER_A_BLOCK) + 8
+    found = decoder.last_block(game_db, len(prefix), len(game_db))
+    assert found is not None
+    assert found[0] == decoder.decode_last(game_db, len(prefix), len(game_db))
+    assert found[1] == decoder.block_start(game_db, b_offset, len(game_db))
+    assert decoder.last_block(prefix + bytes(200), len(prefix), len(prefix) + 200) is None
+
+
 def test_block_start_is_none_without_a_block() -> None:
     prefix = game_db_prefix()
     game_db = prefix + bytes(200)

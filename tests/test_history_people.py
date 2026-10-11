@@ -16,6 +16,7 @@ from fmsave.readers.history_people import (
     locate_player_headers,
 )
 from fmsave.readers.names import locate_name_pools
+from fmsave.readers.player_stats_history import LIST_NUMBER_BEFORE_BLOCK
 from tests.test_persons import (
     FILE_NAME,
     PLAYER_A_BLOCK,
@@ -112,6 +113,31 @@ def test_object_form_takes_the_last_block_before_its_header() -> None:
     (person,) = body.decode()
     assert person.name == expected[0]
     assert person.name != "Alex Example"
+
+
+def _with_list_number(body: _Body, block: bytes, number: int) -> None:
+    """Write `number` 21 bytes before the block start of the last copy of `block`."""
+    block_offset = bytes(body.data).rfind(block)
+    decoder = build_decoder(bytes(body.data))
+    start = decoder.block_start(bytes(body.data), block_offset, len(body.data))
+    assert start is not None
+    struct.pack_into("<I", body.data, start - LIST_NUMBER_BEFORE_BLOCK, number)
+
+
+def test_object_form_reads_the_stats_list_number_before_its_last_block() -> None:
+    body = _Body()
+    body.player(9, 100)
+    body.add(bytes(32) + PLAYER_A_BLOCK + bytes(8) + header(11, 102))
+    _with_list_number(body, PLAYER_A_BLOCK, 4321)
+    body.add(bytes(32) + PLAYER_A_BLOCK + bytes(8) + header(12, 103))
+    _with_list_number(body, PLAYER_A_BLOCK, 0xFFFF_FFFF)
+    body.add(stub(1, 0) + header(13, 104))
+    body.player(19, 199)
+    assert [(p.reference, p.stats_history_index) for p in body.decode()] == [
+        (11, 4321),
+        (12, None),
+        (13, None),
+    ]
 
 
 def test_header_without_a_readable_name_is_kept_unnamed() -> None:

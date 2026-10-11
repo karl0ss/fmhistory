@@ -11,6 +11,10 @@ A row names no player. The rows are a pool, and an index the save directory does
 holds one list of rows per player; each player's own `game_db` object stores the number of
 his list.
 
+`Save.history_person_season_history(references)` returns the same rows for people no
+longer in `players()` (retired or released), by history reference: a person whose object
+survives in full (`history_people()` form `"object"`) stores his list number the same way.
+
 ## Section Structure
 
 ### player_stats_hist_dt
@@ -114,6 +118,23 @@ players, mostly stubs) and are not bound.
 - Timing on the ground-truth save: binding (index + every player's list number) about 8 s
   once per `Save`; each call decompresses the dt (about 3 s); peak RSS about 3 GB with
   `players()` loaded.
+
+## Retired and released players
+
+A person outside `players()` whose `game_db` object survives in full stores his list number
+21 bytes before his last validated person block, as a current player does
+(`HistoryPerson.stats_history_index`). `fmsave.readers.player_stats_history.
+history_person_list_numbers` binds a number when it is a non-empty list, no current player
+claims it, and no other person stores it. People cut down to a stub keep no number, and
+their lists are gone from the index (their rows are among the free rows).
+
+On the ground-truth save: 24,960 objects store a number; 16,637 bind, 95.6% of the 17,407
+non-empty lists no current player owns. Of the bound people's 45,431 best-eleven seasons
+with appearances, 41,225 (90.7%) match a team's league+cup+continental rows of that season
+on (appearances, goals), against 86.8% for current players; the same bindings shuffled
+match 0.6%. At St Albans 7 of the 44 retired best-eleven players bind (the rest are stubs)
+and all 32 of their St Albans best-eleven seasons agree. Positions are not read for these
+people: pass goalkeepers' references in `goalkeepers=` to read their saves words.
 
 ## Usage
 

@@ -21,7 +21,8 @@ A list is bound to its player by his own `game_db` object: the u32 stored 21 byt
 his person block's start (the first-name id) is his list's number, or 0xffffffff when he
 has no history list. On the ground-truth save every one of the 223,569 player records has
 a person block, 217,876 store a distinct in-range list number and 5,693 store 0xffffffff.
-Retired players, whose objects are mostly stubs, are not bound.
+A retired or released player whose `game_db` object survives in full stores his number the
+same way (`history_person_list_numbers`); one cut down to a stub keeps no list.
 
 A row (offsets from its start):
 
@@ -50,7 +51,7 @@ from __future__ import annotations
 
 import struct
 from array import array
-from collections.abc import Sequence
+from collections.abc import Collection, Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -294,6 +295,33 @@ def player_list_numbers(
         claimed[number] = claimed.get(number, 0) + 1
         found[reference] = number
     return {reference: number for reference, number in found.items() if claimed[number] == 1}
+
+
+def history_person_list_numbers(
+    candidates: Iterable[tuple[int, int | None]],
+    index: StatsHistoryIndex,
+    claimed_by_players: Collection[int],
+) -> dict[int, int]:
+    """Bind lists to people outside `players()`: reference mapped to list number.
+
+    `candidates` pairs each person's history reference with the number his object stores
+    (`HistoryPerson.stats_history_index`). A number binds when it is a non-empty list of the
+    index, no current player claims it, and no other candidate stores it too.
+    """
+    found: dict[int, int] = {}
+    claims: dict[int, int] = {}
+    starts = index.starts
+    for reference, number in candidates:
+        if (
+            number is None
+            or number >= index.list_count
+            or number in claimed_by_players
+            or starts[number + 1] == starts[number]
+        ):
+            continue
+        found[reference] = number
+        claims[number] = claims.get(number, 0) + 1
+    return {reference: number for reference, number in found.items() if claims[number] == 1}
 
 
 def decode_player_rows(

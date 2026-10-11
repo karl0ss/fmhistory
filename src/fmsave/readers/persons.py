@@ -306,8 +306,19 @@ class PersonBlockDecoder:
         relation list running past window_end, a legal name that is not UTF-8) is skipped
         rather than raised, since a later one may still be the object's own block.
         """
+        found = self.last_block(game_db, window_start, window_end)
+        return None if found is None else found[0]
+
+    def last_block(
+        self, game_db: bytes, window_start: int, window_end: int
+    ) -> tuple[PersonTuple, int | None] | None:
+        """`decode_last`'s block with its start offset (as `block_start` gives it), or None.
+
+        The start is None when the block's legal-name length cannot be found.
+        """
         search_start = window_start + self.zero_offset_from_birth
         found: PersonTuple | None = None
+        found_birth_date_offset = 0
         for zero_position in iter_marker_run_starts(
             game_db, search_start, window_end, self.marker_table, self.marker_needle
         ):
@@ -318,7 +329,19 @@ class PersonBlockDecoder:
                 continue
             if person is not None:
                 found = person
-        return found
+                found_birth_date_offset = birth_date_offset
+        if found is None:
+            return None
+        if _UINT32_STRUCT.unpack_from(game_db, found_birth_date_offset - 4)[0] == 0:
+            legal_name_length: int | None = 0
+        else:
+            legal_name_length = self._find_legal_name_length(game_db, found_birth_date_offset)
+        if legal_name_length is None:
+            return found, None
+        return (
+            found,
+            found_birth_date_offset - self.legal_name_offset_from_block_start - legal_name_length,
+        )
 
     def _try_candidate(
         self, game_db: bytes, birth_date_offset: int, window_end: int

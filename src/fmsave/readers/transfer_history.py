@@ -183,7 +183,7 @@ def decode_player_season_records(data: bytes) -> tuple[PlayerSeasonRecord, ...]:
             records.extend(_region_rows(frame_bytes, 0, len(frame_bytes)))
         # A retry that extended the segment over false magics consumed more than
         # one of the frame positions; otherwise only this frame is done.
-        index = next_index if next_index > index + 1 else index + 1
+        index = max(index + 1, next_index)
     return tuple(records)
 
 

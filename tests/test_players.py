@@ -933,7 +933,6 @@ def test_duplicate_player_key_keeps_latest_record() -> None:
         + player_record_bytes(**duplicate)
     )
     game_db = section_body(".dat", GAME_DB_SCHEMA, payload)
-    name_pools = locate_name_pools(game_db, registered_name_pool_layout(), FILE_NAME)
     players = decode_all(game_db)
     assert len(players) == 1
     assert by_uid(players, 900001).ability.current == 120

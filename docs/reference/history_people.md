@@ -35,6 +35,11 @@ object                   a full person object: the last person block that valida
                          between the previous closing header and this one
 ```
 
+An object also stores the person's `player_stats_hist_dt` list number 21 bytes before
+that block, as a current player's does: `stats_history_index` (None for stubs and for
+0xffffffff; see `docs/reference/player_stats_history.md`, which
+`Save.history_person_season_history` reads through).
+
 Name ids index the `game_db` name pools players use. The flag bytes (e.g. `01 22 58
 10`) and the trailing word (mostly 4) are undecoded. The object form takes the
 **last** validated block: the first can belong to an object between the two headers

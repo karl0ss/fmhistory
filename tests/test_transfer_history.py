@@ -17,6 +17,7 @@ from fmsave._errors import CorruptSaveError
 from fmsave.models.player_stats_history import PlayerHistoryStats
 from fmsave.models.transfer_history import ClubPlayerMove
 from fmsave.readers.transfer_history import (
+    _ZSTD_MAGIC,
     TRANSFER_MAN_SECTION,
     club_player_moves,
     decode_player_season_records,
@@ -24,7 +25,6 @@ from fmsave.readers.transfer_history import (
     move_fee,
     raise_when_ledger_unreadable,
     raise_when_unreadable,
-    _ZSTD_MAGIC,
 )
 
 try:  # the save container's own import guard, for building synthetic frames
@@ -292,7 +292,7 @@ def test_decodes_wage_records_in_file_order() -> None:
 def test_wage_records_embedded_between_other_bytes_still_read() -> None:
     # The clear zone interleaves negotiation records; a wage record's tag sits at
     # its own position, and the scan does not depend on a store-wide grid.
-    story = bytes(range(0, 16)) * 4
+    story = bytes(range(16)) * 4
     data = _HEADER + story + wage_record() + story
     [record] = decode_wage_ledger_records(data)
     assert (record.player_reference, record.value_a, record.value_b) == (183329, 20680, 62040)

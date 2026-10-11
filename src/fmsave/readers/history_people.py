@@ -12,7 +12,9 @@ before each, in one of three forms (see `HistoryPerson`):
     stub              10 00 [u32 first-name id][u32 surname id][4 flag bytes][u32]  18 B
     common-name stub  10 01 [u32 common-name id][4 flag bytes][u32]                 14 B
     object            a full person object: the last person block that validates
-                      between the previous closing header and this one
+                      between the previous closing header and this one; like a
+                      current player's, it stores the person's statistics-history
+                      list number 21 bytes before the block
 
 Most retired players keep only the 18-byte stub. Nothing here is a layout-walk: the
 headers are found by search, and a person whose header the search misses, or whose
@@ -28,6 +30,7 @@ from itertools import pairwise
 from fmsave.models.career_history import HistoryPerson
 from fmsave.readers.names import NamePools
 from fmsave.readers.persons import PersonBlockDecoder
+from fmsave.readers.player_stats_history import LIST_NUMBER_BEFORE_BLOCK
 
 FORM_STUB = "stub"
 FORM_COMMON_NAME_STUB = "common_name_stub"
@@ -41,6 +44,7 @@ _STUB_BYTES = 18
 _STUB_TAG = b"\x10\x00"
 _COMMON_STUB_BYTES = 14
 _COMMON_STUB_TAG = b"\x10\x01"
+_NO_LIST = 0xFFFF_FFFF
 
 # (header offset, reference, unique id)
 type _Header = tuple[int, int, int]
@@ -136,11 +140,19 @@ def _read_person(
         return HistoryPerson(
             reference, unique_id, FORM_COMMON_NAME_STUB, common, None, None, common
         )
-    person = person_decoder.decode_last(game_db, previous_end, offset + _HEADER_BYTES)
-    if person is None:
+    found = person_decoder.last_block(game_db, previous_end, offset + _HEADER_BYTES)
+    if found is None:
         return HistoryPerson(reference, unique_id, FORM_OBJECT, None, None, None, None)
+    person, block_start = found
     name, first, last, common = person[0], person[1], person[2], person[3]
-    return HistoryPerson(reference, unique_id, FORM_OBJECT, name, first, last, common)
+    stats_history_index = None
+    if block_start is not None and block_start - LIST_NUMBER_BEFORE_BLOCK >= previous_end:
+        number = _U32.unpack_from(game_db, block_start - LIST_NUMBER_BEFORE_BLOCK)[0]
+        if number != _NO_LIST:
+            stats_history_index = number
+    return HistoryPerson(
+        reference, unique_id, FORM_OBJECT, name, first, last, common, stats_history_index
+    )
 
 
 def decode_history_people(

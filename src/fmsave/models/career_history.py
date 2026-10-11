@@ -543,6 +543,13 @@ class HistoryPerson:
         first_name: First name, None for a common-name stub (unconfirmed).
         last_name: Surname, None for a common-name stub (unconfirmed).
         common_name: Common name, when the person has one (unconfirmed).
+        stats_history_index: For the object form, the u32 stored 21 bytes before the
+            person block's start: the number of the person's `player_stats_hist_dt`
+            list, as for a current player (`Save.history_person_season_history` reads
+            it). None for the stub forms, which keep no list, for the no-list value
+            0xffffffff, and when the block's start is not found. The raw value: a
+            non-player's object may store a number that is no list of his
+            (unconfirmed).
     """
 
     reference: int
@@ -552,6 +559,7 @@ class HistoryPerson:
     first_name: str | None
     last_name: str | None
     common_name: str | None
+    stats_history_index: int | None = None
 
 
 register_field_statuses(
@@ -564,6 +572,7 @@ register_field_statuses(
         "first_name",
         "last_name",
         "common_name",
+        "stats_history_index",
     ),
 )
 

@@ -18,6 +18,7 @@ from fmsave.readers.player_stats_history import (
     ROW_BYTES,
     decode_player_rows,
     decode_stats_history_index,
+    history_person_list_numbers,
     index_covers_dt,
     player_list_numbers,
 )
@@ -220,6 +221,22 @@ def test_a_record_without_a_person_block_is_skipped() -> None:
         bytes(100), [0], [0], cast("PersonBlockDecoder", decoder), 10, list_count=4
     )
     assert found == {}
+
+
+def test_history_people_bind_unclaimed_non_empty_lists_stored_once() -> None:
+    index = decode_stats_history_index(index_blob([[0], [1], [], [2], [3], [4]]))
+    assert index is not None
+    candidates = [
+        (11, 0),  # a current player owns list 0
+        (12, 1),  # binds
+        (13, 2),  # list 2 is empty
+        (14, 3),  # list 3 is stored by two people: neither binds
+        (15, 3),
+        (16, 99),  # no such list
+        (17, None),  # stub: no number
+        (18, 4),  # binds
+    ]
+    assert history_person_list_numbers(candidates, index, {0}) == {12: 1, 18: 4}
 
 
 def test_every_field_is_unconfirmed() -> None:
