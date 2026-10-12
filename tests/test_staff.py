@@ -1071,3 +1071,42 @@ def test_player_kind_contract_without_a_decodable_player_is_not_staff(tmp_path: 
     assert check is not None
     assert observed_gate(check, "staff_unowned_tailed_contracts") == 0
     assert check.anomalies["non_staff_tailed_hits"] == 1
+
+
+def test_a_human_manager_whose_latest_contract_names_no_club_keeps_his_rows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A newer contract at a team the save lists for no club (a national side, say) used to drop
+    # his header while his rows at the clubs he had stayed, and building those rows then failed
+    # with a KeyError of his person id.
+    import tests.fixtures.career as career_fixture
+
+    unlisted_team = 79_999
+    own_region = career_fixture.manager_region_bytes
+
+    def region_with_a_newer_unlisted_contract() -> bytes:
+        newer, _tag_offset = career_fixture.contract_bytes(
+            selector=career_fixture.MANAGER_SELECTOR,
+            team_id=unlisted_team,
+            wage=5000,
+            start=packed_date(183, 2031),
+            tail={"end": packed_date(182, 2034), "status": 3},
+            head={"type": 1},
+        )
+        region = own_region()
+        header_and_entries = (
+            career_fixture.MANAGER_HEADER_BYTES + career_fixture.MANAGER_ENTRY_LIST_BYTES
+        )
+        return region[:header_and_entries] + newer + region[header_and_entries:]
+
+    monkeypatch.setattr(
+        career_fixture, "manager_region_bytes", region_with_a_newer_unlisted_contract
+    )
+    save_path = career_fixture.career_fragment().write(tmp_path / "career.bin")
+
+    with fmsave.open(save_path) as career_save:
+        rows = tuple(career_save.staff())
+
+    manager = person_by_uid(rows, MANAGER_PERSON_UID)
+    assert manager.is_human_manager is True
+    assert manager.club_uid == NORTHBRIDGE_UID

@@ -881,8 +881,13 @@ def read_staff(
         human_record = _latest_started(records_by_person[human_person_id])
         human_club_uid = human_record[1][CHAIN_RECORD_CLUB_UID]
         if human_club_uid is None:
-            del header_by_person[human_person_id]
-            human_person_id = None
+            # His latest contract is at a team no club holds (a national side, say): he stays a
+            # row at the clubs his other contracts name, and is dropped only when there are none.
+            if not any(
+                person_id == human_person_id for _club, person_id in rows_by_club_and_person
+            ):
+                del header_by_person[human_person_id]
+                human_person_id = None
         else:
             rows_by_club_and_person[(human_club_uid, human_person_id)] = (human_record, (), None)
 
