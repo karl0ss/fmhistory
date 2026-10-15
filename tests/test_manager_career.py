@@ -175,10 +175,19 @@ def test_walk_stops_where_references_stop_falling() -> None:
 
 def test_walk_stops_at_a_slot_without_the_record_head() -> None:
     broken = bytearray(record(7))
-    broken[8] = 0
+    broken[8] = 2
     data = section(bytes(broken), record(1001))
 
     assert [career.reference for career in decode_manager_career_records(data)] == [1001]
+
+
+def test_walk_steps_over_stub_records_and_leaves_them_out() -> None:
+    stub = bytearray(record(1001))
+    stub[8:] = b"\x00\x01" + bytes(stub[9:-1])
+    data = section(record(7), bytes(stub))
+
+    assert [career.reference for career in decode_manager_career_records(data)] == [7]
+    assert len(locate_manager_career_records(data)) == 2
 
 
 def test_empty_table_reads_no_records() -> None:

@@ -11,6 +11,11 @@ The section (`03 01 'tad.'`, version 30 on the ground-truth save) holds two part
 A record (offsets from its start; `date` = the 4-byte packed game date, `ff..` = unset):
 
     +0    u32 reference, u32 reference (again), u8 01
+
+A record whose +8 byte is 00 instead is a stub: a person the game has just made a
+manager (new saves hold a block of them at the end), with no stats yet. Its body is
+shifted a byte and its layout is not decoded; the walk steps over it and the table
+leaves it out.
     +9    fee: highest fee paid over the career
     +32   fee: highest fee received over the career
             fee = [u32 player reference][date][u32 fee £][u16][u32 from team][u8][u32 to team]
@@ -55,6 +60,7 @@ PERSON_RECORD_MANAGER_SECTION = "person_record_manager"
 RECORD_BYTES = 367
 TRAILER = b"\xff\xff\xff\xff"
 _RECORD_MARK = 1
+_STUB_MARK = 0
 _UNSET = 0xFFFFFFFF
 
 _U8 = struct.Struct("<B")
@@ -236,7 +242,7 @@ def decode_manager_career_record(record: bytes) -> ManagerCareerRecord:
 
 def _is_record_head(data: bytes, offset: int) -> bool:
     first, second = struct.unpack_from("<II", data, offset)
-    return first == second and data[offset + 8] == _RECORD_MARK
+    return first == second and data[offset + 8] in (_RECORD_MARK, _STUB_MARK)
 
 
 def locate_manager_career_records(data: bytes) -> range:
@@ -244,7 +250,7 @@ def locate_manager_career_records(data: bytes) -> range:
 
     The records end 4 bytes before the section's end (the `ff ff ff ff` trailer) and
     rise in reference towards it; the walk stops at the first slot that does not open
-    with a doubled reference and the 01 mark, or whose reference does not fall. An
+    with a doubled reference and the 01 (record) or 00 (stub) mark, or whose reference does not fall. An
     empty range means the section holds no records.
 
     Raises:
@@ -271,8 +277,9 @@ def locate_manager_career_records(data: bytes) -> range:
 
 
 def decode_manager_career_records(data: bytes) -> tuple[ManagerCareerRecord, ...]:
-    """Every career record in the section, in reference order."""
+    """Every career record in the section, in reference order; stubs are left out."""
     return tuple(
         decode_manager_career_record(data[offset : offset + RECORD_BYTES])
         for offset in locate_manager_career_records(data)
+        if data[offset + 8] == _RECORD_MARK
     )

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import struct
+from pathlib import Path
 
 import pytest
 
+import fmsave
 from fmsave import field_status
 from fmsave.models.career_history import BestElevenEntry
 from fmsave.readers.career_history import (
@@ -13,6 +15,7 @@ from fmsave.readers.career_history import (
     BEST_ELEVEN_LS_SECTION,
     decode_best_eleven,
 )
+from tests.fixtures.career import career_fragment
 
 # The dt section opens with an 8-byte tag header; 509-byte records follow it back to back.
 _HEADER = b"\x03\x01tmc.\x02\x00"
@@ -178,3 +181,11 @@ def test_an_index_that_does_not_parse_leaves_records_unthreaded() -> None:
 def test_every_field_is_unconfirmed() -> None:
     for name in BestElevenEntry.__dataclass_fields__:
         assert field_status(BestElevenEntry, name) == "unconfirmed"
+
+
+def test_a_save_without_the_section_reads_no_rows(tmp_path: Path) -> None:
+    """A new save holds no best-eleven section until its first season ends."""
+    path = career_fragment().write(tmp_path / "career.bin")
+    with fmsave.open(path) as save:
+        assert BEST_ELEVEN_DT_SECTION not in save._context._container_index.sections
+        assert len(save.career_best_eleven()) == 0

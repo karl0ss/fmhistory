@@ -132,6 +132,15 @@ class SaveContext:
         self._require_open()
         return self._section_loan(name)
 
+    def has_section(self, name: str) -> bool:
+        """Whether the save holds section `name` (some only appear once a season ends).
+
+        Raises:
+            SaveClosedError: The context is closed.
+        """
+        self._require_open()
+        return name in self._container_index.sections
+
     def cached[ValueT](self, key: str, build: Callable[[], ValueT]) -> ValueT:
         """Return the value stored under `key`, building and storing it on first use.
 

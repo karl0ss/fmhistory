@@ -885,7 +885,8 @@ class Save:
         uids. Players are named by their history reference, and `player_uid` joins it
         to `players()` through `history_player_references()`. Players who have left
         `players()`, most retired players among them, keep a None `player_uid` and
-        carry `player_name` from `history_people()` instead.
+        carry `player_name` from `history_people()` instead. A new save, before its
+        first season ends, has no table section and reads empty.
 
         Returns one record per filled slot with the record number, season year, the
         table's identity head (type, kind, id), slot, player reference, appearances,
@@ -3074,6 +3075,8 @@ class Save:
         return Table(entries, LeagueHistorySeason)
 
     def _read_career_best_eleven(self) -> Table[BestElevenEntry]:
+        if not self._context.has_section(BEST_ELEVEN_DT_SECTION):
+            return Table((), BestElevenEntry)  # a new save: no season has ended yet
         with (
             self._context.section(BEST_ELEVEN_DT_SECTION) as dt_data,
             self._context.section(BEST_ELEVEN_LS_SECTION) as ls_data,
