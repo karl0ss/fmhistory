@@ -1,11 +1,13 @@
 # Manager Career Reference
 
 ## Overview
-`person_record_manager` keeps one fixed 367-byte career-statistics record for every
+`person_record_manager` keeps one career-statistics record for every
 person who has managed in the game world, keyed by his **history reference** (the id
 `Save.history_person_reference(staff_uid)` finds). The record holds the in-game
 "Managerial Stats" screen: whole-career totals, the career's record transfer fees, the
 longest and shortest club and national spells, job counts, and a current-job block.
+FM26 added women's football: a record can hold a men's career, a women's career, both,
+or neither (`ManagerCareerRecord.womens_career`, a `fmsave.ManagerCareerTotals`).
 `Save.career_manager_records()` returns all of them as `fmsave.ManagerCareerRecord`;
 `Save.manager_career(staff_uid)` picks one. Every field is registered `unconfirmed`.
 
@@ -15,23 +17,44 @@ longest and shortest club and national spells, job counts, and a current-job blo
 03 01 'tad.' 1e 00 ...      head (version 30 on the ground-truth save)
 human event logs            [u8 type] 15 ff×6 [u32 reference] 00 [u32 team] [date] ...
                             (variable length; `Save.manager_events`, see manager_events.md)
-N × 367-byte records        ascending reference, butted to the trailer
+N records                   back to back from the logs' end to the trailer
 ff ff ff ff                 trailer
 ```
 
-The reader walks back from the trailer 367 bytes at a time while a slot opens with a
-doubled reference and the `01` mark and the references keep falling. A section that
-does not end with the trailer raises `CorruptSaveError`.
+A record is `[u32 reference][u32 reference]`, three slots, then a 152-byte current-job
+tail. A slot is a `u8` flag and, when the flag is `01`, a 204-byte career block:
+
+| slot | block |
+|---|---|
+| 1 | men's career (the fields of `ManagerCareerRecord`) |
+| 2 | women's career (`womens_career`), same block layout |
+| 3 | never seen filled |
+
+So a record is 163 + 204 × (present blocks) bytes. The reader finds the first doubled
+(non-zero) reference from which a walk of whole records lands exactly on the trailer.
+That needs no help from the event logs, and `Save.manager_events` checks the logs end
+where the records start. A section that does not end with the trailer raises
+`CorruptSaveError`.
+
+| save | records | men's only | men's + women's | women's only | neither |
+|---|---|---|---|---|---|
+| ground truth (career from FM24) | 11,945 | 11,945 | 0 | 0 | 0 |
+| Fethiyespor (started in FM26, pre-season) | 5,631 | 3,235 | 1,776 | 458 | 162 |
+
+On the FM26-started save the records are not all in reference order. The women's blocks
+there name women's teams (Montpellier HSC Féminines, FC Como Women, Sassuolo
+2018–2024 for a manager whose men's spells end in 2012).
 
 ## Record layout
 
-Offsets from the record start. `date` = the 4-byte packed game date (`u16`, low 9 bits
+Offsets are for a record with the men's block alone (the ground-truth save's 367 bytes);
+other records are rebuilt into this shape to decode. Offsets from the record start. `date` = the 4-byte packed game date (`u16`, low 9 bits
 day of year, high bits a time slot; `u16` year; year 1900 = unset). `team` = a
 `Team.team_id`; `0xffffffff` = unset.
 
 | offset | type | field |
 |---|---|---|
-| +0 | u32, u32, u8 | reference, reference again, `01` |
+| +0 | u32, u32, u8 | reference, reference again, `01` (men's block present) |
 | +9 | fee (23 B) | `highest_fee_paid` (career) |
 | +32 | fee (23 B) | `highest_fee_received` (career) |
 | +55 | 4 × spell (13 B) | longest club, shortest club, longest national, shortest national |
@@ -47,6 +70,7 @@ day of year, high bits a time slot; `u16` year; year 1900 = unset). `team` = a
 | +195, +197 | u16 | unknown |
 | +199 | u16 × 3 | `players_bought`, `players_sold`, `players_released` |
 | +209 | u8, u8 | `club_jobs`, `national_jobs` |
+| +213, +214 | u8, u8 | women's and third slot flags (`00`) |
 | +215 | job fee (21 B) | current job's highest fee paid |
 | +238 | job fee (21 B) | current job's highest fee received |
 | +260 | date | current job start |

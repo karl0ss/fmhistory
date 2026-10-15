@@ -12,6 +12,7 @@ from fmsave import field_status
 from fmsave._errors import CorruptSaveError
 from fmsave.models.career_history import (
     ManagerCareerRecord,
+    ManagerCareerTotals,
     ManagerCurrentJob,
     ManagerFee,
     ManagerSpellWindow,
@@ -158,19 +159,71 @@ def test_unset_fee_reads_none() -> None:
     assert decode_manager_career_record(bytes(data)).highest_fee_paid is None
 
 
-def test_section_walk_reads_every_record_in_reference_order() -> None:
+def test_section_walk_reads_every_record_in_order() -> None:
     data = section(record(7), record(1001), record(328408))
 
     records = decode_manager_career_records(data)
 
     assert [career.reference for career in records] == [7, 1001, 328408]
-    assert locate_manager_career_records(data).stop == len(data) - len(TRAILER)
+    assert locate_manager_career_records(data) == tuple(33 + 367 * i for i in range(3))
 
 
-def test_walk_stops_where_references_stop_falling() -> None:
+def test_records_out_of_reference_order_are_read() -> None:
+    """A save started in FM26 has some records out of reference order."""
     data = section(record(5000), record(7), record(1001))
 
-    assert [career.reference for career in decode_manager_career_records(data)] == [7, 1001]
+    assert [career.reference for career in decode_manager_career_records(data)] == [
+        5000,
+        7,
+        1001,
+    ]
+
+
+def slotted(reference: int, *, mens: bool, womens: bool) -> bytes:
+    """A record in the slotted layout: men's and women's blocks as asked, then the tail.
+
+    The women's block is the men's with 12 games, so the two can be told apart.
+    """
+    canonical = record(reference)
+    block = canonical[9:213]
+    womens_block = bytearray(block)
+    struct.pack_into("<H", womens_block, 163 - 9, 12)
+    return (
+        canonical[:8]
+        + (b"\x01" + block if mens else b"\x00")
+        + (b"\x01" + bytes(womens_block) if womens else b"\x00")
+        + b"\x00"
+        + canonical[215:]
+    )
+
+
+def test_a_record_is_as_long_as_its_present_blocks() -> None:
+    lengths = [
+        len(slotted(1, mens=False, womens=False)),
+        len(slotted(1, mens=True, womens=False)),
+        len(slotted(1, mens=True, womens=True)),
+    ]
+    assert lengths == [163, 367, 571]
+
+
+def test_womens_block_reads_as_the_womens_career() -> None:
+    data = section(
+        slotted(7, mens=True, womens=True),
+        slotted(8, mens=False, womens=True),
+        slotted(9, mens=False, womens=False),
+        record(10),
+    )
+
+    both, womens_only, neither, mens_only = decode_manager_career_records(data)
+
+    assert (both.games, both.womens_career and both.womens_career.games) == (741, 12)
+    assert both.current_job == mens_only.current_job
+    assert womens_only.games == 0 and womens_only.highest_fee_paid is None
+    assert womens_only.womens_career is not None
+    assert womens_only.womens_career.longest_club_spell == mens_only.longest_club_spell
+    assert neither.games == 0 and neither.womens_career is None
+    assert neither.current_job == mens_only.current_job
+    assert mens_only.womens_career is None
 
 
 def test_walk_stops_at_a_slot_without_the_record_head() -> None:
@@ -181,13 +234,9 @@ def test_walk_stops_at_a_slot_without_the_record_head() -> None:
     assert [career.reference for career in decode_manager_career_records(data)] == [1001]
 
 
-def test_walk_steps_over_stub_records_and_leaves_them_out() -> None:
-    stub = bytearray(record(1001))
-    stub[8:] = b"\x00\x01" + bytes(stub[9:-1])
-    data = section(record(7), bytes(stub))
-
-    assert [career.reference for career in decode_manager_career_records(data)] == [7]
-    assert len(locate_manager_career_records(data)) == 2
+def test_a_walk_that_misses_the_trailer_reads_no_records() -> None:
+    data = section(record(7), b"\x99" * 10)
+    assert decode_manager_career_records(data) == ()
 
 
 def test_empty_table_reads_no_records() -> None:
@@ -200,7 +249,13 @@ def test_missing_trailer_raises() -> None:
 
 
 def test_fields_are_registered_unconfirmed() -> None:
-    for model in (ManagerCareerRecord, ManagerCurrentJob, ManagerFee, ManagerSpellWindow):
+    for model in (
+        ManagerCareerRecord,
+        ManagerCareerTotals,
+        ManagerCurrentJob,
+        ManagerFee,
+        ManagerSpellWindow,
+    ):
         for name in (field.name for field in dataclasses.fields(model)):
             if name in {
                 "highest_fee_paid",
@@ -210,6 +265,7 @@ def test_fields_are_registered_unconfirmed() -> None:
                 "longest_national_spell",
                 "shortest_national_spell",
                 "current_job",
+                "womens_career",
             }:
                 continue
             assert field_status(model, name) == "unconfirmed"

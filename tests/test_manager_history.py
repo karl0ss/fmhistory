@@ -106,6 +106,7 @@ def career(
         club_jobs=1,
         national_jobs=0,
         current_job=job,
+        womens_career=None,
         unknown={},
     )
 

@@ -124,6 +124,7 @@ from fmsave.readers.managed import (
 )
 from fmsave.readers.manager_career import (
     PERSON_RECORD_MANAGER_SECTION,
+    TRAILER,
     decode_manager_career_records,
     locate_manager_career_records,
 )
@@ -1275,17 +1276,18 @@ class Save:
             )
 
     def career_manager_records(self) -> Table[ManagerCareerRecord]:
-        """Every manager's career statistics record, in history-reference order.
+        """Every manager's career statistics record, in the section's order.
 
-        `person_record_manager` keeps one fixed-size record for every person who has
+        `person_record_manager` keeps one record for every person who has
         managed in the game world, keyed by his history reference: the "Managerial
         Stats" profile screen's whole-career totals (games, wins, losses, goals,
         cups, league titles, awards, players bought/sold/released, money spent,
         agent fees), the career's highest fee paid and received with player, date
         and teams, the longest and shortest club and national spells, the job
         counts, and a current-job block with the same totals for the job he holds
-        now. Draws are derived (games minus wins minus losses). `manager_career`
-        picks one staff member's record.
+        now. Draws are derived (games minus wins minus losses). On a save started
+        in FM26 a record can also hold a women's-football career, which
+        `womens_career` carries. `manager_career` picks one staff member's record.
 
         On the ground-truth save every number the human manager's profile shows
         reproduces (741 games, 391-131-219, 1589-1059, 127 bought for £101M, 39
@@ -3108,7 +3110,8 @@ class Save:
     def _read_manager_events(self) -> Table[ManagerEvent]:
         with self._context.section(PERSON_RECORD_MANAGER_SECTION) as section_data:
             records = locate_manager_career_records(section_data)
-            events = decode_manager_event_logs(section_data, records.start)
+            logs_end = records[0] if records else len(section_data) - len(TRAILER)
+            events = decode_manager_event_logs(section_data, logs_end)
         return Table(events, ManagerEvent)
 
     def _read_history_people(self) -> Table[HistoryPerson]:

@@ -381,6 +381,11 @@ table of **fixed 367-byte records, one per person who has managed** (11,945 on G
 ascending history reference, butted to a 4-byte `ff ff ff ff` trailer. Found by searching
 u32 1589/1059 and u16 741/391/219 near each other (two hits = the career and current-job
 blocks of ref 328408's record @3,311,605). Full layout: `docs/reference/manager_career.md`.
+- **2026-10-15, a save started in FM26 (Fethiyespor, pre-season):** the records are not
+  fixed. After the doubled ref come three flagged slots (`01` + 204-byte career block, or
+  `00`) and a 152-byte current-job tail: slot 1 men's, slot 2 women's (new in FM26), slot 3
+  never filled. GT has slot 1 only, hence 367 B. 5,631 records, some out of reference
+  order; the old back-walk read only the last 99 (it stopped at the first 163/571-B one).
 - Record = `[ref][ref]01`, career fee extremes (+9 paid, +32 received: `[player ref][date]
   [u32 £][u16][from team][u8][to team]`), 4 spell slots @+55 (longest/shortest club,
   longest/shortest national: `[u8][team][date][date]`), u64 spent/received/agent fees

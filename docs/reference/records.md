@@ -128,6 +128,7 @@ a career record pins the team's list) and open (the current job).
 .. autoclass:: fmsave.HistoryPerson
 .. autoclass:: fmsave.PlayerHistoryStats
 .. autoclass:: fmsave.ManagerCareerRecord
+.. autoclass:: fmsave.ManagerCareerTotals
 .. autoclass:: fmsave.ManagerCurrentJob
 .. autoclass:: fmsave.ManagerFee
 .. autoclass:: fmsave.ManagerSpellWindow

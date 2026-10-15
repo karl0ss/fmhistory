@@ -4,18 +4,22 @@ The section (`03 01 'tad.'`, version 30 on the ground-truth save) holds two part
 
 - the human managers' event logs (entries `[u8 type] 15 ff ff ff ff ff ff [u32 reference]
   00 [u32 team] [date] ...`, variable length), decoded by `readers/manager_events.py`;
-- then, butted to the section's end, one fixed 367-byte record per person who has
-  managed in the game world, in ascending reference order, and a 4-byte `ff ff ff ff`
-  trailer.
+- then, butted to the section's end, one record per person who has managed in the
+  game world, and a 4-byte `ff ff ff ff` trailer.
+
+A record is a doubled u32 reference, three slots, and a 152-byte current-job tail. A
+slot is a u8 flag and, when the flag is 01, a 204-byte career block: the first slot is
+the men's career, the second the women's (FM26; a save carried over from an older
+career has only men's blocks), the third has never been seen filled. So a record runs
+163 + 204 per present block bytes. Records are in ascending reference order on the
+ground-truth save, but a save started in FM26 has some out of order.
+
+The ground-truth save's records all have a men's block alone (367 bytes), and the
+offsets below are in that layout; other records are rebuilt into it to decode.
 
 A record (offsets from its start; `date` = the 4-byte packed game date, `ff..` = unset):
 
-    +0    u32 reference, u32 reference (again), u8 01
-
-A record whose +8 byte is 00 instead is a stub: a person the game has just made a
-manager (new saves hold a block of them at the end), with no stats yet. Its body is
-shifted a byte and its layout is not decoded; the walk steps over it and the table
-leaves it out.
+    +0    u32 reference, u32 reference (again), u8 01 (men's block present)
     +9    fee: highest fee paid over the career
     +32   fee: highest fee received over the career
             fee = [u32 player reference][date][u32 fee £][u16][u32 from team][u8][u32 to team]
@@ -27,6 +31,7 @@ leaves it out.
     +163  u16 games  u16 wins  u16 losses  (+169..+177 five u16 counters, unknown)
     +193  u16 awards  (+195, +197 unknown)  +199 u16 bought  u16 sold  u16 released
     +209  u8 club jobs  u8 national jobs
+    +213  u8 women's slot flag (00)  +214 u8 third slot flag (00)
     current-job block:
     +215  [u32 from team][u8][u32 to team][u32 player][date][u32 fee] highest paid
     +238  [u32 from team][u8][u32 to team][u32 player][date][u32 fee] highest received
@@ -38,18 +43,22 @@ leaves it out.
 
 Draws are stored nowhere: the game shows games minus wins minus losses. The layout
 was reverse-engineered on one save (`Karl Hudgell - UnemployedNew.fm`, build 26.3.2)
-and is not verified across builds.
+and is not verified across builds; the slots on a save started in FM26 (5,631
+records: 3,235 men's only, 1,776 men's and women's, 458 women's only, 162 neither).
 """
 
 from __future__ import annotations
 
+import re
 import struct
+from dataclasses import fields, replace
 
 from fmsave._errors import CorruptSaveError
 from fmsave._frozen import FrozenMapping
 from fmsave._scan import decode_date
 from fmsave.models.career_history import (
     ManagerCareerRecord,
+    ManagerCareerTotals,
     ManagerCurrentJob,
     ManagerFee,
     ManagerSpellWindow,
@@ -58,9 +67,12 @@ from fmsave.models.career_history import (
 PERSON_RECORD_MANAGER_SECTION = "person_record_manager"
 
 RECORD_BYTES = 367
+BLOCK_BYTES = 204
+TAIL_BYTES = 152
 TRAILER = b"\xff\xff\xff\xff"
-_RECORD_MARK = 1
-_STUB_MARK = 0
+_SLOT_COUNT = 3
+# A doubled reference and a slot flag; a lookahead, so heads may overlap.
+_RECORD_HEAD = re.compile(rb"(?=(.{4})\1[\x00\x01])", re.DOTALL)
 _UNSET = 0xFFFFFFFF
 
 _U8 = struct.Struct("<B")
@@ -203,7 +215,7 @@ def _current_job(data: bytes) -> ManagerCurrentJob | None:
 
 
 def decode_manager_career_record(record: bytes) -> ManagerCareerRecord:
-    """One 367-byte career record (see the module notes for the layout)."""
+    """One record in the ground-truth save's 367-byte layout (see the module notes)."""
     games = _u16(record, _GAMES_AT)
     wins = _u16(record, _WINS_AT)
     losses = _u16(record, _LOSSES_AT)
@@ -234,24 +246,63 @@ def decode_manager_career_record(record: bytes) -> ManagerCareerRecord:
         club_jobs=record[_CLUB_JOBS_AT],
         national_jobs=record[_NATIONAL_JOBS_AT],
         current_job=_current_job(record),
+        womens_career=None,
         unknown=FrozenMapping(
             {f"word_{offset}": _u16(record, offset) for offset in _UNKNOWN_WORD_OFFSETS}
         ),
     )
 
 
-def _is_record_head(data: bytes, offset: int) -> bool:
+_UNSET_FEE = (
+    b"\xff" * 4
+    + b"\x01\x00\x6c\x07"
+    + b"\xff" * 4
+    + b"\x00\x00"
+    + b"\xff" * 4
+    + b"\x00"
+    + b"\xff" * 4
+)
+_UNSET_SPELL = b"\x00" + b"\xff" * 4 + b"\x01\x00\x6c\x07" * 2
+# A block with nothing in it, for a record without a men's block.
+_EMPTY_BLOCK = (_UNSET_FEE * 2 + _UNSET_SPELL * 4).ljust(BLOCK_BYTES, b"\x00")
+_TOTALS_FIELDS = tuple(field.name for field in fields(ManagerCareerTotals))
+
+
+def _record_end(data: bytes, offset: int, end: int) -> int | None:
+    """Where the record opening at `offset` ends, or None when none opens there."""
+    if offset + 8 > end:
+        return None
     first, second = struct.unpack_from("<II", data, offset)
-    return first == second and data[offset + 8] in (_RECORD_MARK, _STUB_MARK)
+    if first != second or first == 0:
+        return None
+    position = offset + 8
+    for _ in range(_SLOT_COUNT):
+        if position >= end or data[position] > 1:
+            return None
+        position += 1 + data[position] * BLOCK_BYTES
+    position += TAIL_BYTES
+    return position if position <= end else None
 
 
-def locate_manager_career_records(data: bytes) -> range:
-    """The offsets of the career records: walked back from the trailer, 367 B at a time.
+def _walk(data: bytes, start: int, end: int) -> tuple[int, ...] | None:
+    offsets: list[int] = []
+    position = start
+    while position < end:
+        record_end = _record_end(data, position, end)
+        if record_end is None:
+            return None
+        offsets.append(position)
+        position = record_end
+    return tuple(offsets)
 
-    The records end 4 bytes before the section's end (the `ff ff ff ff` trailer) and
-    rise in reference towards it; the walk stops at the first slot that does not open
-    with a doubled reference and the 01 (record) or 00 (stub) mark, or whose reference does not fall. An
-    empty range means the section holds no records.
+
+def locate_manager_career_records(data: bytes) -> tuple[int, ...]:
+    """The offsets of the career records, in file order.
+
+    The records run back to back from the end of the event logs to 4 bytes before the
+    section's end (the `ff ff ff ff` trailer), each as long as its present slots make
+    it. They are found as the first doubled reference from which a walk of whole
+    records ends exactly at the trailer; none means the section holds no records.
 
     Raises:
         CorruptSaveError: The section does not end with the trailer.
@@ -262,24 +313,44 @@ def locate_manager_career_records(data: bytes) -> range:
             f"({len(data)} bytes, tail {data[-4:].hex()}): the record layout has moved"
         )
     end = len(data) - len(TRAILER)
-    start = end
-    above: int | None = None
-    while start - RECORD_BYTES >= 0:
-        candidate = start - RECORD_BYTES
-        if not _is_record_head(data, candidate):
-            break
-        reference = _u32(data, candidate)
-        if above is not None and reference >= above:
-            break
-        above = reference
-        start = candidate
-    return range(start, end, RECORD_BYTES)
+    for match in _RECORD_HEAD.finditer(data, 0, end):
+        offsets = _walk(data, match.start(), end)
+        if offsets is not None:
+            return offsets
+    return ()
+
+
+def _block_at(data: bytes, position: int) -> tuple[bytes | None, int]:
+    """The slot at `position`: its block (None when absent) and where the next starts."""
+    if data[position]:
+        return data[position + 1 : position + 1 + BLOCK_BYTES], position + 1 + BLOCK_BYTES
+    return None, position + 1
+
+
+def _decode_at(data: bytes, offset: int) -> ManagerCareerRecord:
+    position = offset + 8
+    mens, position = _block_at(data, position)
+    womens, position = _block_at(data, position)
+    _, position = _block_at(data, position)  # the third slot: never seen filled
+    head = data[offset : offset + 8]
+    tail = data[position : position + TAIL_BYTES]
+    record = decode_manager_career_record(_canonical(head, mens or _EMPTY_BLOCK, tail))
+    if womens is None:
+        return record
+    totals = decode_manager_career_record(_canonical(head, womens, tail))
+    return replace(
+        record,
+        womens_career=ManagerCareerTotals(
+            **{name: getattr(totals, name) for name in _TOTALS_FIELDS}
+        ),
+    )
+
+
+def _canonical(head: bytes, block: bytes, tail: bytes) -> bytes:
+    """The record laid out as the ground-truth save stores it: one block, then the tail."""
+    return head + b"\x01" + block + b"\x00\x00" + tail
 
 
 def decode_manager_career_records(data: bytes) -> tuple[ManagerCareerRecord, ...]:
-    """Every career record in the section, in reference order; stubs are left out."""
-    return tuple(
-        decode_manager_career_record(data[offset : offset + RECORD_BYTES])
-        for offset in locate_manager_career_records(data)
-        if data[offset + 8] == _RECORD_MARK
-    )
+    """Every career record in the section, in file order."""
+    return tuple(_decode_at(data, offset) for offset in locate_manager_career_records(data))

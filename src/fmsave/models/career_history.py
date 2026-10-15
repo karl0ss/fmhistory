@@ -640,11 +640,71 @@ class ManagerCurrentJob:
 
 
 @dataclass(frozen=True, slots=True)
+class ManagerCareerTotals:
+    """A manager's whole-career totals in women's football, from his career record.
+
+    FM26 keeps a manager's women's-football career in its own block of the career
+    record, laid out like the men's block whose fields `ManagerCareerRecord` carries
+    (see that class for what each field means). Calibrated by layout only: no save
+    with a women's career in play has been checked against the game's screen.
+
+    Attributes:
+        highest_fee_paid: The highest fee paid, or None.
+        highest_fee_received: The highest fee received, or None.
+        longest_club_spell: The longest club job, or None.
+        shortest_club_spell: The shortest club job, or None.
+        longest_national_spell: The longest national-team job, or None.
+        shortest_national_spell: The shortest national-team job, or None.
+        money_spent: Total transfer fees paid, whole pounds (unconfirmed).
+        money_received: The stored total of fees received, whole pounds (unconfirmed).
+        agent_fees: Total fees paid to agents, whole pounds (unconfirmed).
+        goals_for: Goals scored (unconfirmed).
+        goals_against: Goals conceded (unconfirmed).
+        games: Games managed (unconfirmed).
+        wins: Games won (unconfirmed).
+        draws: Games drawn: `games - wins - losses` (unconfirmed).
+        losses: Games lost (unconfirmed).
+        cups: Cups won (unconfirmed).
+        league_titles: League titles won (unconfirmed).
+        awards: Awards won (unconfirmed).
+        players_bought: Players bought (unconfirmed).
+        players_sold: Players sold (unconfirmed).
+        players_released: Players released (unconfirmed).
+        club_jobs: Number of club manager jobs (unconfirmed).
+        national_jobs: Number of national manager jobs (unconfirmed).
+    """
+
+    highest_fee_paid: ManagerFee | None
+    highest_fee_received: ManagerFee | None
+    longest_club_spell: ManagerSpellWindow | None
+    shortest_club_spell: ManagerSpellWindow | None
+    longest_national_spell: ManagerSpellWindow | None
+    shortest_national_spell: ManagerSpellWindow | None
+    money_spent: int
+    money_received: int
+    agent_fees: int
+    goals_for: int
+    goals_against: int
+    games: int
+    wins: int
+    draws: int
+    losses: int
+    cups: int
+    league_titles: int
+    awards: int
+    players_bought: int
+    players_sold: int
+    players_released: int
+    club_jobs: int
+    national_jobs: int
+
+
+@dataclass(frozen=True, slots=True)
 class ManagerCareerRecord:
     """One manager's career statistics record from `person_record_manager`.
 
-    The section keeps one fixed 367-byte record for every person who has managed in
-    the game world (11,945 on the ground-truth save), keyed by the person's history
+    The section keeps one record for every person who has managed in the game world
+    (11,945 on the ground-truth save), keyed by the person's history
     reference — the same id `history_person_reference` finds for a staff uid. The
     record holds the "Managerial Stats" profile screen: whole-career totals, the
     career's record transfer fees, the longest and shortest club and national spells,
@@ -681,6 +741,9 @@ class ManagerCareerRecord:
         club_jobs: Number of club manager jobs (unconfirmed).
         national_jobs: Number of national manager jobs (unconfirmed).
         current_job: The current-job block, or None when the manager holds no job.
+        womens_career: The manager's women's-football career, or None when he has
+            none. The fields above are his men's career, and read zero (None for fees
+            and spells) for a manager who has only managed in women's football.
         unknown: Counters the record stores whose meaning is not pinned, keyed
             `word_<offset>` by their byte offset in the record (unconfirmed).
     """
@@ -710,6 +773,7 @@ class ManagerCareerRecord:
     club_jobs: int
     national_jobs: int
     current_job: ManagerCurrentJob | None
+    womens_career: ManagerCareerTotals | None
     unknown: Mapping[str, int]
 
     UNKNOWN_KEYS: ClassVar[tuple[str, ...]] = (
@@ -758,6 +822,28 @@ register_field_statuses(
         "players_bought",
         "players_sold",
         "players_released",
+    ),
+)
+register_field_statuses(
+    ManagerCareerTotals,
+    unconfirmed=(
+        "money_spent",
+        "money_received",
+        "agent_fees",
+        "goals_for",
+        "goals_against",
+        "games",
+        "wins",
+        "draws",
+        "losses",
+        "cups",
+        "league_titles",
+        "awards",
+        "players_bought",
+        "players_sold",
+        "players_released",
+        "club_jobs",
+        "national_jobs",
     ),
 )
 register_field_statuses(
