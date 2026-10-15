@@ -12,6 +12,7 @@ from fmsave import ManagerHistorySpell, field_status
 from fmsave._errors import CorruptSaveError
 from fmsave.models.career_history import (
     ManagerCareerRecord,
+    ManagerCareerTotals,
     ManagerCurrentJob,
     ManagerSpellWindow,
 )
@@ -178,6 +179,38 @@ def test_window_pins_list_to_team() -> None:
         # A window with no matching row names nothing.
         career(15195, longest=ManagerSpellWindow(999, date(2025, 7, 1), date(2025, 7, 30))),
     ]
+
+    assert resolve_manager_history_teams(spells, records) == {0: 603}
+
+
+def test_womens_window_pins_list_to_team() -> None:
+    spells = decode_manager_history(_DT, _LS)
+    womens = ManagerCareerTotals(
+        highest_fee_paid=None,
+        highest_fee_received=None,
+        longest_club_spell=ManagerSpellWindow(603, date(2023, 10, 27), date(2025, 7, 11)),
+        shortest_club_spell=None,
+        longest_national_spell=None,
+        shortest_national_spell=None,
+        money_spent=0,
+        money_received=0,
+        agent_fees=0,
+        goals_for=0,
+        goals_against=0,
+        games=0,
+        wins=0,
+        draws=0,
+        losses=0,
+        cups=0,
+        league_titles=0,
+        awards=0,
+        players_bought=0,
+        players_sold=0,
+        players_released=0,
+        club_jobs=1,
+        national_jobs=0,
+    )
+    records = [dataclasses.replace(career(15164), womens_career=womens)]
 
     assert resolve_manager_history_teams(spells, records) == {0: 603}
 

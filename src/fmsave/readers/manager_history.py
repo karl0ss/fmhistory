@@ -191,7 +191,7 @@ def resolve_manager_history_teams(
     """The team of every manager-history list a career record pins down.
 
     A career record keeps its manager's longest and shortest club and national spells
-    with team, start and end. When exactly one list holds a row of that manager with
+    with team, start and end, in men's and (FM26) women's football. When exactly one list holds a row of that manager with
     the same start and end, that list is the team's. A list is resolved only when
     every window that claims it names the same team, and a team claimed by two lists
     is dropped for both, so lists no window reaches stay unresolved rather than
@@ -208,12 +208,17 @@ def resolve_manager_history_teams(
         by_window.setdefault(key, set()).add(spell.history_index)
     claims: dict[int, set[int]] = {}
     for record in records:
-        windows = (
-            record.longest_club_spell,
-            record.shortest_club_spell,
-            record.longest_national_spell,
-            record.shortest_national_spell,
-        )
+        windows = [
+            window
+            for career in (record, record.womens_career)
+            if career is not None
+            for window in (
+                career.longest_club_spell,
+                career.shortest_club_spell,
+                career.longest_national_spell,
+                career.shortest_national_spell,
+            )
+        ]
         for window in windows:
             if window is None or window.start_date is None:
                 continue
