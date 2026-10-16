@@ -2065,27 +2065,27 @@ wanted, start from the header above and the type distribution.
   friendlies tied the league on member coverage and won on the lower id. The vote now
   counts first only competitions where a member meets another member of the same table.
 - **Points are i16** (a -42 deduction read as 65494).
-- **Club colours: kit format SOLVED, link to the club OPEN.** Not in the club record (any
-  byte order or offset). They are kit lists, found first in the game install's
-  `server_db.dat` `table_extra_3` and then in the save's `game_db` from about 51.9 MB on,
-  well after the club records (2.9-10.2 MB):
-  - Colours are **u16 RGB555** (`r = v>>10 & 31`, `g = v>>5 & 31`, `b = v & 31`):
-    0x7FFF white, 0x0421 near black, Liverpool 0x3C85 (123,32,41), Chelsea 0x1517 (41,65,189).
-  - A list is `[u8 count]` then `count` 27-byte kits: `01 01`, five u16 colours, a pattern
-    byte, eight `FF`, `00 00`, kit set (0, 1, 2 = home, away, third?), part (1 shirt,
-    2 shorts?, 3 socks?, 4 and 5 goalkeeper?, 0x21 seen), a byte (0/1), a flag byte (0/1).
-    Liverpool's and Chelsea's first kit (set 0, part 1) is white then the club colour, so
-    colour 1 is the foreground and colour 2 the background, as FM's club colours are.
-  - Before the count: `01 00 <u16 year>` (Liverpool 1892, its founding year), `FF FF FF FF`,
-    two bytes, then a u32-length string that is empty or a social-media handle
-    ("SupportthePort", "#TheBishops", "Liverpool").
-  - 27,523 lists on the Turkish 2025/26 career (27,050 match their count byte). They run in
-    club-record order (English clubs alphabetically: Blackpool list 322 / record 302,
-    Brentford 326 / 306), but some clubs have no list, so the order alone is no link.
-  - Ruled out as the link, near the list: the club's uid, stored uid, club index, team ids,
-    city id, and any doubled-u32 object header (the doubled values there are person ids).
-  - Next: find what starts each club's object in this region (walk back from a list to a
-    boundary shared by every list) and whether it carries the club index or uid.
+- **Club colours SOLVED, INTEGRATED** as `Save.club_colours()` (`readers/club_colours.py`,
+  layout `CLUB_COLOURS`). Not in the club record: a second block per club in `game_db`, far
+  past the club records (from ~52 MB on a 160 MB game_db), in club index order.
+  - Kits are 27 bytes: `01 01`, five u16 **RGB555** colours, a pattern byte, a u32 stored
+    twice (-1 on a new save, a small id such as 11 on some kits of a 14-season one), `00 00`,
+    kit set, part (1-5, 0x11, 0x21 seen), two more bytes. A list is `[u8 count]` + kits.
+  - **The club's two colours follow the list**: `FF R G B FF R G B` (Liverpool `CF1C2C`
+    `FAFAFA`, Aston Villa claret and sky blue, Bradford claret and amber).
+  - **Link**: the block opens with the club index, then `[u8][u8][u8][u8 n][00]`, n u32s,
+    a flag byte and 10 (flag 1) or 6 (flag 0) bytes from it, then three `[u16][u16 year]`.
+    A list's club is the nearest such head before it among the next 20 indexes after the
+    last club placed, then the next 200 (a 14-season save has runs of 34 kitless clubs).
+    Clubs without kits have heads too (Atherstone United between Aston Villa and Barnet),
+    which is why the nearest wins rather than the lowest.
+  - Ruled out: requiring all three dates non-null (true heads with a null third date exist:
+    it dropped the Turkish save from 0.98 to 0.95); scanning every offset for any index (38 s,
+    and false heads ~203/222 bytes before most lists win on nearness).
+  - Placed 0.98 of kit lists (Turkish 2025/26) and 0.96 (14-season English); same-name
+    men's/women's clubs agree on colour family 0.78, mostly shade differences. Fethiyespor
+    is stored navy and white, which its home kit (white, navy stripes) bears out.
+  - Not yet in `validate_save`: the fixture career stores no kit blocks.
 
 ### Remaining plan (owner priority, 2026-10-09: DECODERS FIRST)
 
