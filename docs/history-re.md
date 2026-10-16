@@ -2048,6 +2048,29 @@ decoder would only ever expose the last ~12 days of the save's world news —
 not career history — so it was not integrated. If live-news access is ever
 wanted, start from the header above and the type distribution.
 
+### Club Unique IDs SOLVED, swapped club headers INTEGRATED; club colours OPEN (2026-10-16; scratch in the fmcareer session scratchpad)
+
+- **Swapped headers.** About 5.7% of club records (1,657 of 29,132 on a 2025/26 Turkish
+  career) hold the missing-value marker at +13 and the league nation at +17, the reverse of
+  the usual layout; +21 (FA nation) and +25 (nation copy) are as usual. The scan only tried
+  the anchor at +17, so those clubs (e.g. Mezitlispor, Izmitspor) were missing entirely.
+- **Unique ID = the next record's *stored* uid** (no +1). Confirmed on the ten clubs of the
+  Turkish 2. League Red Group against two graphics packs' config.xml, and 853 of the game's
+  861 licensed club badges (`club_<id>` in catalog_info.bin) match it, against 441 for the
+  uid. The old rule (next *accepted* record's uid) was off by one everywhere and off by a
+  whole club after every swapped record.
+- Ruled out: the people-style rule (closing header's first word = own index + 1). Club
+  indexes are not consecutive across records, so it resolved only 1,259 clubs.
+- **League-table vote.** By the end of August every club has played friendlies, so the
+  friendlies tied the league on member coverage and won on the lower id. The vote now
+  counts first only competitions where a member meets another member of the same table.
+- **Points are i16** (a -42 deduction read as 65494).
+- **Club colours: OPEN.** Not in the club record as RGB (any byte order, any offset from
+  the record start, the names' end or the record end) for Liverpool, Man City, Celtic,
+  Rangers and Bursaspor, and a white `FF FF FF` shared by six white-kitted clubs occurs only
+  at the anchor. Next: the kit objects (per team, home/away/third), probably reached through
+  the team ids.
+
 ### Remaining plan (owner priority, 2026-10-09: DECODERS FIRST)
 
 **Superseded: the working roadmap now lives in `docs/PLAN.md` — every session
