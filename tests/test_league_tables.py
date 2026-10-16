@@ -59,6 +59,7 @@ from tests.fixtures.career import (
     ExampleFixture,
     ExampleResult,
     career_fragment,
+    deducted_table_blocks,
     division_table_blocks,
     out_of_range_table_blocks,
     stored_index_head_bytes,
@@ -552,6 +553,45 @@ def test_a_team_id_outside_the_range_leaves_the_club_fields_empty(tmp_path: Path
     assert stray_row.team_slot is None
     assert stats.blocks == DEFAULT_BLOCK_COUNT + 1
     assert stats.team_id_in_range == DEFAULT_BLOCK_COUNT
+
+
+def test_a_points_deduction_can_take_a_club_below_zero(tmp_path: Path) -> None:
+    """Points are signed: a club docked more than it has taken shows negative, not 65,494."""
+    career_path = write_career(tmp_path, extra_table_groups=(deducted_table_blocks(),))
+
+    with fmsave.open(career_path) as career_save:
+        docked = career_save.league_tables()[2].rows[0]
+
+    assert docked.points == -42
+    assert docked.home.points == -42
+
+
+def test_the_vote_names_the_competition_members_meet_each_other_in() -> None:
+    """Pre-season friendlies cover a whole division too; only the league has its clubs meet.
+
+    Every member here plays both competitions, and the friendlies have the lower id, so the
+    plain tally ties and names the friendlies. Members meet each other only in the league.
+    """
+    friendly, league = FIRST_COMPETITION_ID, FIRST_COMPETITION_ID + 1
+    members = [raw_block(1, 100), raw_block(2, 200), raw_block(3, 300)]
+    counts = {team_id: Counter({friendly: 1, league: 2}) for team_id in (1, 2, 3)}
+    opponents = {
+        (1, friendly): {91},
+        (2, friendly): {92},
+        (3, friendly): {93},
+        (1, league): {2, 3},
+        (2, league): {1, 3},
+        (3, league): {1, 2},
+    }
+    lone_club = [raw_block(4, 9_000)]
+    lone_counts = {4: Counter({friendly: 1})}
+
+    assert resolve_group_competitions([members], counts) == (friendly,)
+    assert resolve_group_competitions([members], counts, opponents) == (league,)
+    # a table of one has nobody to meet, so the plain tally still names it
+    assert resolve_group_competitions([lone_club], lone_counts, {(4, friendly): {94}}) == (
+        friendly,
+    )
 
 
 def test_repeated_block_content_is_dropped_before_the_groups_are_built(tmp_path: Path) -> None:

@@ -1526,6 +1526,22 @@ def out_of_range_table_blocks() -> list[bytes]:
     ]
 
 
+def deducted_table_blocks() -> list[bytes]:
+    """A table of one club whose points deduction outweighs the points it has taken."""
+    return [
+        table_block_bytes(
+            team_id=OUT_OF_RANGE_TABLE_TEAM_ID,
+            rounds_per_venue=GROUP_B_ROUNDS_PER_VENUE,
+            total={"played": 1, "lost": 1, "goals_for": 0, "goals_against": 2, "points": -42},
+            home={"played": 1, "lost": 1, "goals_for": 0, "goals_against": 2, "points": -42},
+            away={"played": 0, "won": 0},
+            first_half={"played": 1, "lost": 1, "goals_for": 0, "goals_against": 2, "points": -42},
+            second_half={"played": 0, "won": 0},
+            matches=[None, None],
+        )
+    ]
+
+
 def division_table_blocks(
     *, club_count: int = DIVISION_CLUB_COUNT, rounds_per_venue: int = DIVISION_CLUB_COUNT - 1
 ) -> list[bytes]:

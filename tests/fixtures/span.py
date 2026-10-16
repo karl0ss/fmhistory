@@ -236,7 +236,7 @@ def table_row_bytes(
     row[7] = drawn
     row[8] = lost
     row[9] = 0
-    struct.pack_into("<HHH", row, 10, goals_for, goals_against, points)
+    struct.pack_into("<HHh", row, 10, goals_for, goals_against, points)
     row[16] = flag
     return bytes(row)
 

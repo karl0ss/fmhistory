@@ -172,8 +172,23 @@ def competition_counts_by_team(fixtures: Sequence[Fixture]) -> dict[int, Counter
     return counts_by_team
 
 
+def competition_opponents(fixtures: Sequence[Fixture]) -> dict[tuple[int, int], set[int]]:
+    """The teams each team meets in each competition: {(team id, competition id): opponents}."""
+    opponents: dict[tuple[int, int], set[int]] = {}
+    for fixture in fixtures:
+        competition_id = fixture.competition_id
+        if competition_id is None:
+            continue
+        home, away = fixture.home_team_id, fixture.away_team_id
+        opponents.setdefault((home, competition_id), set()).add(away)
+        opponents.setdefault((away, competition_id), set()).add(home)
+    return opponents
+
+
 def resolve_group_competitions(
-    groups: Sequence[Sequence[RawTableBlock]], counts_by_team: Mapping[int, Counter[int]]
+    groups: Sequence[Sequence[RawTableBlock]],
+    counts_by_team: Mapping[int, Counter[int]],
+    opponents: Mapping[tuple[int, int], set[int]] | None = None,
 ) -> tuple[int | None, ...]:
     """Vote each table's competition from the calendar; one entry per table, in table order.
 
@@ -181,6 +196,12 @@ def resolve_group_competitions(
     covered one names it provided it covers at least half the members, so a competition one
     member of twelve plays in never names the table. Ties are settled on the lower id, so the
     result never depends on the order a dictionary happened to hold two competitions in.
+
+    With `opponents`, a member first votes only for the competitions in which it meets another
+    member of the same table, and the full tally is the fallback when that vote settles
+    nothing (a one-block table has nobody to meet). Without it, every club that has played a
+    pre-season friendly votes for the friendlies, which on a save a few weeks into the season
+    covers the whole division just as the league does and wins the tie on the lower id.
 
     Two tables may name the same competition, and most competitions name several: a cup's
     group stage is one competition holding a table per group, and the corpus holds about 800
@@ -190,20 +211,32 @@ def resolve_group_competitions(
     """
     resolved: list[int | None] = []
     for members in groups:
+        member_ids = {block.team_id for block in members}
+        needed = math.ceil(len(members) / 2)
         tally: Counter[int] = Counter()
+        within: Counter[int] = Counter()
         for block in members:
             # One vote per member per competition, so a club with forty league fixtures does
             # not outvote the rest of its own table.
             for competition_id in counts_by_team.get(block.team_id, ()):
                 tally[competition_id] += 1
-        if not tally:
-            resolved.append(None)
-            continue
-        competition_id, members_covered = min(
-            tally.items(), key=lambda entry: (-entry[1], entry[0])
-        )
-        needed = math.ceil(len(members) / 2)
-        resolved.append(competition_id if members_covered >= needed else None)
+                met = (
+                    opponents.get((block.team_id, competition_id))
+                    if opponents is not None
+                    else None
+                )
+                if met and not met.isdisjoint(member_ids - {block.team_id}):
+                    within[competition_id] += 1
+        chosen = None
+        for votes in (within, tally):
+            if votes:
+                competition_id, members_covered = min(
+                    votes.items(), key=lambda entry: (-entry[1], entry[0])
+                )
+                if members_covered >= needed:
+                    chosen = competition_id
+                    break
+        resolved.append(chosen)
     return tuple(resolved)
 
 
@@ -594,7 +627,9 @@ def build_league_tables(
     """
     kept_blocks, duplicate_blocks = distinct_blocks(span_records.table_blocks)
     groups = group_blocks(kept_blocks, layout)
-    resolved = resolve_group_competitions(groups, competition_counts_by_team(fixtures))
+    resolved = resolve_group_competitions(
+        groups, competition_counts_by_team(fixtures), competition_opponents(fixtures)
+    )
     name_for = competition_index.name_for
 
     tables: list[LeagueTable] = []

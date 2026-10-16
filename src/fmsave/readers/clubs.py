@@ -201,8 +201,9 @@ def read_club_index(game_db: bytes, layouts: ClubLayouts, file_name: str) -> Clu
         record = records[position]
         parent_club_uid = affiliates.parent_by_club_uid.get(record.uid)
         # As with people, the next object's header closes this club's object and carries
-        # its database Unique ID. The final accepted club has no known closing header.
-        unique_id = records[position + 1].uid if position + 1 < len(records) else None
+        # its database Unique ID: the stored uid, without the +1 that makes the next club's
+        # uid. The final accepted club has no known closing header.
+        unique_id = records[position + 1].uid - 1 if position + 1 < len(records) else None
         club = Club(
             uid=record.uid,
             name=record.name,
@@ -293,6 +294,7 @@ def _scan_club_records(game_db: bytes, layout: ClubRecordLayout) -> tuple[list[_
     anchor_offset = layout.anchor_offset
     stop_gap_bytes = layout.stop_gap_bytes
     zero_byte_offset = layout.zero_byte_offset
+    nation_offset = layout.nation_offset
     header_bytes = (
         max(
             layout.club_index_offset,
@@ -313,14 +315,20 @@ def _scan_club_records(game_db: bytes, layout: ClubRecordLayout) -> tuple[list[_
         record_start = anchor_hit - anchor_offset
         if records and record_start - last_accepted_start >= stop_gap_bytes:
             break
-        if (
-            record_start + header_bytes <= buffer_length
-            and game_db[record_start + zero_byte_offset] == 0
-        ):
-            record = _accepted_record(game_db, record_start, layout, buffer_length)
-            if record is not None:
-                records.append(record)
-                last_accepted_start = record_start
+        record = None
+        # Most records carry the anchor at anchor_offset; the rest swap it with the nation.
+        for start, swapped in ((record_start, False), (anchor_hit - nation_offset, True)):
+            if (
+                (not records or start > last_accepted_start)
+                and start >= 0
+                and start + header_bytes <= buffer_length
+                and game_db[start + zero_byte_offset] == 0
+            ):
+                record = _accepted_record(game_db, start, layout, buffer_length, swapped)
+                if record is not None:
+                    records.append(record)
+                    last_accepted_start = start
+                    break
         anchor_hit = find_anchor(anchor, anchor_hit + 1)
     if not records:
         return records, buffer_length
@@ -328,12 +336,20 @@ def _scan_club_records(game_db: bytes, layout: ClubRecordLayout) -> tuple[list[_
 
 
 def _accepted_record(
-    game_db: bytes, record_start: int, layout: ClubRecordLayout, buffer_length: int
+    game_db: bytes,
+    record_start: int,
+    layout: ClubRecordLayout,
+    buffer_length: int,
+    swapped: bool = False,
 ) -> _ClubRecord | None:
-    """Check one candidate whose fixed header lies inside the buffer; None when it fails."""
+    """Check one candidate whose fixed header lies inside the buffer; None when it fails.
+
+    A `swapped` record holds the anchor at `nation_offset` and the nation at `anchor_offset`.
+    """
     read_uint32 = _UINT32.unpack_from
     lowest_nation_id, highest_nation_id = layout.nation_id_range
-    nation_id: int = read_uint32(game_db, record_start + layout.nation_offset)[0]
+    nation_at = layout.anchor_offset if swapped else layout.nation_offset
+    nation_id: int = read_uint32(game_db, record_start + nation_at)[0]
     if not lowest_nation_id <= nation_id <= highest_nation_id:
         return None
     if read_uint32(game_db, record_start + layout.nation_copy_offset)[0] != nation_id:

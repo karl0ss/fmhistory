@@ -111,11 +111,13 @@ def club_record_bytes(
     float_anchor_only: bool = False,
     staff_lists: Sequence[Sequence[int]] | None = None,
     trailing_bytes: bytes = b"",
+    swapped_nation: bool = False,
 ) -> bytes:
     """One club record: fixed header, both names, 16 zero bytes, then the team list block.
 
     The index and uid are stored minus 1, the league nation twice, and the anchor sits at
-    record offset 17. `affiliate_team_ids` are the teams of other clubs this club controls.
+    record offset 17, or at 13 with the nation at 17 when `swapped_nation`.
+    `affiliate_team_ids` are the teams of other clubs this club controls.
 
     `staff_lists` writes one staff list per sequence right after the affiliated-team ids, and
     `None` writes nothing at all, so a record built without them is byte for byte the record
@@ -125,8 +127,12 @@ def club_record_bytes(
     output = bytearray()
     output.extend(struct.pack("<III", club_index - 1, uid - 1, uid - 1))
     output.append(0)
-    output.extend(struct.pack("<I", nation_id))
-    output.extend(CLUB_RECORD_ANCHOR)
+    if swapped_nation:
+        output.extend(CLUB_RECORD_ANCHOR)
+        output.extend(struct.pack("<I", nation_id))
+    else:
+        output.extend(struct.pack("<I", nation_id))
+        output.extend(CLUB_RECORD_ANCHOR)
     output.extend(struct.pack("<III", fa_nation_id, nation_id, city_id))
     output.extend(bytes(6))
     output.extend(length_prefixed(name))

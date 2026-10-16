@@ -852,7 +852,7 @@ class LeagueTableLayout:
     match rows, whose venue alternates with the slot's parity.
 
     Each row holds a u32 key, the played count twice, the won, drawn and lost counts, a zero
-    byte, the u16 goals for, goals against and points, and a flag byte. On an aggregate row,
+    byte, the u16 goals for and against, the i16 points, and a flag byte. On an aggregate row,
     and in a match slot that was never played, the key is `unplayed_key`; otherwise it is the
     opponent's first-team id.
 

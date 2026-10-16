@@ -73,7 +73,7 @@ class LeagueTableSplit:
         lost: Matches lost (unconfirmed).
         goals_for: Goals scored (unconfirmed).
         goals_against: Goals conceded (unconfirmed).
-        points: Points taken (unconfirmed).
+        points: Points taken, below 0 when a deduction outweighs them (unconfirmed).
     """
 
     played: int

@@ -61,6 +61,7 @@ class ExampleClubSpec:
     team_ids: tuple[int, ...]
     affiliate_team_ids: tuple[int, ...] = ()
     float_anchor_only: bool = False
+    swapped_nation: bool = False
 
     def record_bytes(self) -> bytes:
         return club_record_bytes(
@@ -74,6 +75,7 @@ class ExampleClubSpec:
             team_ids=self.team_ids,
             affiliate_team_ids=self.affiliate_team_ids,
             float_anchor_only=self.float_anchor_only,
+            swapped_nation=self.swapped_nation,
         )
 
     def names_end(self) -> int:
@@ -172,7 +174,7 @@ def test_reads_every_club_with_its_fields() -> None:
         parent_club_name=None,
         reputation=6500,
         last_league_position=2,
-        unique_id=5002,
+        unique_id=5001,
     )
 
 
@@ -191,8 +193,31 @@ def test_club_unique_id_comes_from_the_next_header_not_its_own_uid() -> None:
 
     assert original[0].uid == 5001
     assert changed[0].uid == 6001
-    assert original[0].unique_id == changed[0].unique_id == 5002
+    assert original[0].unique_id == changed[0].unique_id == 5001
     assert changed[-1].unique_id is None
+
+
+def test_reads_a_club_whose_anchor_and_nation_are_swapped() -> None:
+    # Some saved clubs hold the anchor at offset 13 and the league nation at 17. Missing one
+    # also gave the club before it the Unique ID of the club after.
+    swapped = replace(ROVERS, swapped_nation=True)
+    clubs = read_index(
+        example_game_db(
+            club_records=[
+                NORTHBRIDGE.record_bytes(),
+                swapped.record_bytes(),
+                ATHLETIC.record_bytes(),
+            ],
+            status_records=[],
+        )
+    ).clubs
+
+    assert [club.uid for club in clubs] == [5001, 5003, 5004]
+    rovers = clubs[1]
+    assert (rovers.name, rovers.nation_id, rovers.city_id) == ("Example Rovers", 5, 80)
+    assert [team.team_id for team in rovers.teams] == [70009]
+    assert clubs[0].unique_id == 5002
+    assert rovers.unique_id == 5003
 
 
 def test_cross_border_stub_club_has_no_reputation() -> None:
@@ -890,7 +915,7 @@ def test_clubs_export_with_nested_teams() -> None:
         {"team_id": 70002, "slot": 1, "club_uid": 5001, "is_affiliate": False},
     ]
     assert first_row["reputation"] == 6500
-    assert first_row["unique_id"] == 5002
+    assert first_row["unique_id"] == 5001
 
 
 def test_registered_club_layouts() -> None:
