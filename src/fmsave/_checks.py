@@ -41,6 +41,7 @@ from fmsave._layouts import BoundPair, GateBounds
 from fmsave._package import __version__
 from fmsave._reader_stats import (
     AffiliateStats,
+    ClubColourStats,
     ClubStats,
     CompetitionStats,
     ContractStats,
@@ -107,6 +108,7 @@ FINANCES_READER = "finances"
 SPONSORSHIPS_READER = "sponsorships"
 FACILITIES_READER = "facilities"
 AFFILIATES_READER = "affiliates"
+CLUB_COLOURS_READER = "club_colours"
 JOB_VACANCIES_READER = "job_vacancies"
 STADIUMS_READER = "stadiums"
 STAFF_READER = "staff"
@@ -1786,6 +1788,39 @@ def check_affiliates(stats: AffiliateStats, bounds: GateBounds, game_db_bytes: i
         stats.groups,
         evaluate_affiliates(stats, bounds, game_db_bytes),
         FrozenMapping({"unresolved_members": stats.members - stats.members_resolved}),
+    )
+
+
+def evaluate_club_colours(
+    stats: ClubColourStats, bounds: GateBounds, game_db_bytes: int
+) -> tuple[GateResult, ...]:
+    """The club-colour reader's one check: the share of kit lists the walk ties to a club.
+
+    The kit lists and the colours after them are found by their own fixed shape, so what can
+    go wrong unseen is the link to the club, which rests on the block head's shape and the
+    indexes rising with the lists. A head read in the wrong place places almost no list.
+    It applies on a full-size save that stores a kit list.
+    """
+    applied = _applies(bounds, game_db_bytes) and stats.kit_lists > 0
+    return (
+        _gate(
+            "club_colour_lists_placed",
+            _rate(stats.placed, stats.kit_lists),
+            bounds.club_colour_lists_placed,
+            applied,
+        ),
+    )
+
+
+def check_club_colours(
+    stats: ClubColourStats, bounds: GateBounds, game_db_bytes: int
+) -> ReaderCheck:
+    """The club-colour reader's check, row count and anomaly counts."""
+    return ReaderCheck(
+        CLUB_COLOURS_READER,
+        stats.placed,
+        evaluate_club_colours(stats, bounds, game_db_bytes),
+        FrozenMapping({"unplaced_kit_lists": stats.kit_lists - stats.placed}),
     )
 
 

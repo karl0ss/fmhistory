@@ -45,6 +45,7 @@ from fmsave.models.career_history import (
     ManagerSpellWindow,
     PersonHistory,
 )
+from fmsave.models.club_colours import ClubColours, Kit
 from fmsave.models.clubs import Club, Team
 from fmsave.models.common import CodedValue, ContractEndSource, TransferValueState
 from fmsave.models.competitions import Competition, CompetitionRound, Stage
@@ -128,6 +129,7 @@ __all__ = [
     "Clause",
     "ClauseKind",
     "Club",
+    "ClubColours",
     "ClubFacilities",
     "CodedValue",
     "Competition",
@@ -155,6 +157,7 @@ __all__ = [
     "InjurySeverity",
     "InjuryType",
     "JobVacancy",
+    "Kit",
     "LeagueHistoryClub",
     "LeagueHistoryClubMethod",
     "LeagueHistorySeason",

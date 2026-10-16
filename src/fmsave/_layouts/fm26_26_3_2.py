@@ -9,6 +9,7 @@ from fmsave._layouts import (
     FULL_SAVE_MINIMUM_INJURY_MANAGER_BYTES,
     FULL_SAVE_MINIMUM_SPAN_BYTES,
     AffiliateGroupLayout,
+    ClubColourLayout,
     ClubRecordLayout,
     ClubStatusLayout,
     CompetitionIdPairLayout,
@@ -301,6 +302,26 @@ TEAM_LISTS = TeamListLayout(
     team_id_range=(1, 3_000_000),
     # At most 3 affiliated teams have been seen on one club; the cap leaves room for more.
     affiliate_count_range=(0, 8),
+)
+
+# Kit colours are RGB555; the two club colours after the kits are [FF][R][G][B].
+CLUB_COLOURS = ClubColourLayout(
+    kit_bytes=27,
+    kit_marker=b"\x01\x01",
+    kit_colours_offset=2,
+    kit_pair_offset=13,
+    kit_zero_offset=21,
+    colour_marker=0xFF,
+    head_count_offset=7,
+    head_zero_offset=8,
+    head_values_offset=9,
+    head_count_maximum=80,
+    tail_bytes=(6, 10),
+    year_range=(1900, 2100),
+    # A wider window lets more chance matches in ahead of the right index: on a 29,000-club
+    # save, 60 placed 265 fewer lists than 20.
+    index_window=20,
+    wide_index_window=200,
 )
 
 CLUB_STATUSES = ClubStatusLayout(
@@ -1493,6 +1514,8 @@ GATE_BOUNDS = GateBounds(
     # at most 0.87, below the 0.91 a random index of this range would hit by chance, so the
     # floor sits between the two.
     affiliate_members_resolved=(0.95, None),
+    # 0.95 on a Turkish 2025/26 career; a block head read one byte out places almost none.
+    club_colour_lists_placed=(0.85, None),
     # Tens to low hundreds of records on the saves measured. The threshold is not a bound on
     # the feed's size: it is how small a feed the shares below stop being judged on, because a
     # short feed is a fact about a quiet job market, not about the reader.
@@ -1776,6 +1799,7 @@ LAYOUTS: tuple[LayoutEntry, ...] = (
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=CLUB_RECORDS),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=TEAM_LISTS),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=CLUB_STATUSES),
+    LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=CLUB_COLOURS),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=PLAYER_RECORDS),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=PERSON_BLOCKS),
     LayoutEntry(region="game_db", schema=4000, build=BUILD, layout=CONTRACTS),

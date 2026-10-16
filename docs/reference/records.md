@@ -28,12 +28,14 @@ their own pages: see {doc}`table` and {doc}`enums`.
 
 ## Clubs
 
-`clubs()`, `facilities()`, `stadiums()`, `finances()`, `sponsorships()`, `affiliates()` and
-`job_vacancies()`.
+`clubs()`, `club_colours()`, `facilities()`, `stadiums()`, `finances()`, `sponsorships()`,
+`affiliates()` and `job_vacancies()`.
 
 ```{eval-rst}
 .. autoclass:: fmsave.Club
 .. autoclass:: fmsave.Team
+.. autoclass:: fmsave.ClubColours
+.. autoclass:: fmsave.Kit
 .. autoclass:: fmsave.ClubFacilities
 .. autoclass:: fmsave.Stadium
 .. autoclass:: fmsave.FinanceMonth

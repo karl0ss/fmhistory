@@ -143,6 +143,33 @@
     dict({
       'build': '26.3.2+2329565',
       'layout': dict({
+        'colour_marker': 255,
+        'head_count_maximum': 80,
+        'head_count_offset': 7,
+        'head_values_offset': 9,
+        'head_zero_offset': 8,
+        'index_window': 20,
+        'kit_bytes': 27,
+        'kit_colours_offset': 2,
+        'kit_marker': b'\x01\x01',
+        'kit_pair_offset': 13,
+        'kit_zero_offset': 21,
+        'tail_bytes': tuple(
+          6,
+          10,
+        ),
+        'wide_index_window': 200,
+        'year_range': tuple(
+          1900,
+          2100,
+        ),
+      }),
+      'region': 'game_db',
+      'schema': 4000,
+    }),
+    dict({
+      'build': '26.3.2+2329565',
+      'layout': dict({
         'allocated_uid_minimum': 2000000000,
         'attribute_count': 54,
         'attribute_field_order': tuple(
@@ -2018,6 +2045,10 @@
         ),
         'clause_terminator': tuple(
           0.999,
+          None,
+        ),
+        'club_colour_lists_placed': tuple(
+          0.85,
           None,
         ),
         'clubs_minimum': tuple(

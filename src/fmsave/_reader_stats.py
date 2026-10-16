@@ -703,6 +703,19 @@ class AffiliateStats:
 
 
 @dataclass(frozen=True, slots=True)
+class ClubColourStats:
+    """What the club-colour pass counted.
+
+    `kit_lists` counts the kit lists found with the club colours after them, `placed` those
+    the walk tied to a club, and `clubs` the clubs in the index.
+    """
+
+    kit_lists: int
+    placed: int
+    clubs: int
+
+
+@dataclass(frozen=True, slots=True)
 class JobVacancyStats:
     """What reading the job-centre feed counted.
 

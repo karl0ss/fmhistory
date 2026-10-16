@@ -197,6 +197,43 @@ class ClubStatusLayout:
 
 
 @dataclass(frozen=True, slots=True)
+class ClubColourLayout:
+    """Where a club's colours and kits sit in `game_db`: a second block per club, far past the
+    club records and in the same club index order, which no club record points to.
+
+    A kit is `kit_bytes` long and starts with `kit_marker`; at `kit_pair_offset` the same u32 is
+    stored twice (-1 on a new save, a small id on some kits of an older one) and the two bytes
+    at `kit_zero_offset` are zero. Its five u16 colours start at `kit_colours_offset`. A kit list is a u8 count and that many kits; the club's two
+    colours follow the last kit, each `colour_marker` then R, G and B.
+
+    The block opens with the club's index (the stored index plus 1, as in the club record),
+    a byte count at `head_count_offset` and a zero at `head_zero_offset`, then that many u32s,
+    at most `head_count_maximum`, from `head_values_offset`. Then a flag byte, 0 or 1, and
+    `tail_bytes[flag]` bytes in all from the flag, then three `[u16][u16 year]` dates whose
+    years lie in `year_range`. That shape, and indexes rising with the lists, is all that ties
+    a list to its club: a club's block is looked for before its list, among the next
+    `index_window` indexes after the last club placed, and the one nearest the list wins;
+    when none is found there, among the next `wide_index_window`. Clubs without kits have
+    blocks too, so the nearest is the list's own.
+    """
+
+    kit_bytes: int
+    kit_marker: bytes
+    kit_colours_offset: int
+    kit_pair_offset: int
+    kit_zero_offset: int
+    colour_marker: int
+    head_count_offset: int
+    head_zero_offset: int
+    head_values_offset: int
+    head_count_maximum: int
+    tail_bytes: tuple[int, int]
+    year_range: tuple[int, int]
+    index_window: int
+    wide_index_window: int
+
+
+@dataclass(frozen=True, slots=True)
 class FinanceChainLayout:
     """How to find a club's chain of monthly finance snapshots inside its own record.
 
@@ -2022,6 +2059,8 @@ class GateBounds:
     unset share keeps a read that lands in a zeroed stretch for most clubs from passing by
     leaving the in-range share almost nothing to judge.
 
+    Club colours: `club_colour_lists_placed` (kit lists the walk ties to a club).
+
     Affiliate groups: `affiliate_members_resolved` (group members the public club index names,
     of group members). It applies on a full-size `game_db` **and** only when a group holds a
     member at all, because a save whose section stores no group has no member to resolve and
@@ -2203,6 +2242,7 @@ class GateBounds:
     facility_unset_ratings: BoundPair
     facility_clubs_minimum: BoundPair
     affiliate_members_resolved: BoundPair
+    club_colour_lists_placed: BoundPair
     job_vacancy_minimum_applies_from_records: int
     job_vacancy_tag: BoundPair
     job_vacancy_dates_ordered: BoundPair
@@ -2252,6 +2292,7 @@ type Layout = (
     | ClubRecordLayout
     | TeamListLayout
     | ClubStatusLayout
+    | ClubColourLayout
     | PlayerRecordLayout
     | PersonBlockLayout
     | ContractLayout

@@ -41,6 +41,7 @@ from fmsave.models.career_history import (
     ManagerHistorySpell,
     PersonHistory,
 )
+from fmsave.models.club_colours import ClubColours
 from fmsave.models.clubs import Club
 from fmsave.models.competitions import Competition, Stage
 from fmsave.models.contracts import Contract
@@ -104,6 +105,7 @@ from fmsave.readers.career_history import (
     resolve_league_history_clubs,
     resolve_league_history_indexes,
 )
+from fmsave.readers.club_colours import find_club_colour_layout, read_club_colours
 from fmsave.readers.facilities import find_facility_layout, read_club_facilities
 from fmsave.readers.finances import find_finance_layouts, read_club_finances
 from fmsave.readers.fixtures import build_fixtures_with_offsets
@@ -236,6 +238,7 @@ FINANCES_TABLE_CACHE_KEY = "table:finances"
 SPONSORSHIPS_TABLE_CACHE_KEY = "table:sponsorships"
 FACILITIES_TABLE_CACHE_KEY = "table:facilities"
 AFFILIATES_TABLE_CACHE_KEY = "table:affiliates"
+CLUB_COLOURS_TABLE_CACHE_KEY = "table:club_colours"
 CAREER_PERSONS_TABLE_CACHE_KEY = "table:career_persons"
 CAREER_HONOURS_TABLE_CACHE_KEY = "table:career_honours"
 CAREER_CUP_ENTRIES_TABLE_CACHE_KEY = "table:career_cup_entries"
@@ -1890,6 +1893,59 @@ class Save:
         self._enforce_checks((affiliate_check,))
         self._store_reader_checks((affiliate_check,))
         return Table(groups, AffiliateGroup)
+
+    def club_colours(self) -> Table[ClubColours]:
+        """Each club's two colours and its kits, for the clubs the save stores kits for.
+
+        The blocks holding them carry no club id, so each is tied to its club by the club
+        index at its head and by the blocks running in club index order. A club the walk
+        cannot place has no row: on a 29,000-club save about one in nine, most of them clubs
+        that store no kits at all. Rows come in club index order.
+
+        A club's colours as the report's theme would want them::
+
+            colours = {row.club_uid: (row.first_colour, row.second_colour)
+                       for row in career_save.club_colours()}
+
+        The table is read on the first call; later calls return the same table.
+
+        Raises:
+            SaveClosedError: The save is closed.
+            SaveChangedError: The file changed on disk after it was opened.
+            CorruptSaveError: The save is damaged or was being written.
+            ReaderCheckError: No club record is accepted, a club uid or club index appears in
+                two records, or a team id is listed twice.
+
+        Warns:
+            ReaderCheckWarning: On a full-size save that stores kits, fewer kit lists are tied
+                to a club than the checks allow, or the club table falls outside its own
+                bounds. A save opened with strict=True raises ReaderCheckError instead.
+        """
+        context = self._context
+        return context.cached(CLUB_COLOURS_TABLE_CACHE_KEY, self._read_club_colours)
+
+    def _read_club_colours(self) -> Table[ClubColours]:
+        context = self._context
+        save_info = context.info
+        gate_bounds = self._gate_bounds()
+        layout = find_club_colour_layout(
+            save_info.section_schemas.get(GAME_DB_SECTION), save_info.build
+        )
+        with context.section(GAME_DB_SECTION) as game_db:
+            # Names go straight out on every row, so the clubs are read through the reader that
+            # enforces their checks, inside this borrow so both share one decompression.
+            clubs = self.clubs()
+            club_index = context.club_index()
+            rows, stats = read_club_colours(
+                game_db,
+                club_index.uid_by_club_index,
+                {club.uid: club.name for club in clubs},
+                layout,
+            )
+        colour_check = _checks.check_club_colours(stats, gate_bounds, club_index.game_db_bytes)
+        self._enforce_checks((colour_check,))
+        self._store_reader_checks((colour_check,))
+        return Table(rows, ClubColours)
 
     def job_vacancies(self) -> Table[JobVacancy]:
         """Every open job the save's job-centre feed holds, in stored order.
